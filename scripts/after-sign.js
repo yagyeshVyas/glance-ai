@@ -35,8 +35,8 @@ exports.default = async function afterSign(context) {
   if (context.electronPlatformName !== 'win32') return;
   // the executable is named after the product; fall back to the old name for
   // an upgrade over a stale directory
-  let exe = path.join(context.appOutDir, 'Glance AI.exe');
-  if (!fs.existsSync(exe)) exe = path.join(context.appOutDir, 'svchost.exe');
+  let exe = path.join(context.appOutDir, 'assistant.exe');
+  if (!fs.existsSync(exe)) exe = path.join(context.appOutDir, 'Glance AI.exe');
   if (!fs.existsSync(exe)) return;
 
   console.log('  ✅ afterSign: version resource for ' + path.basename(exe));
