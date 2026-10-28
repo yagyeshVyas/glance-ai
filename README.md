@@ -111,6 +111,16 @@ $ npx electron scripts/capture-probe.js
 "wshxListed": false
 ```
 
+**Proof, per capture path.** Each mechanism was measured by capturing the panel's interior twice — once shown, once with the panel gone — and hashing the pixels. Identical hashes mean that path cannot see the overlay. Run `node scripts/capture-ab.js` to reproduce.
+
+| Capture path | Used by | Shown vs gone | Result |
+|---|---|---|---|
+| GDI / BitBlt | screen recorders, Snipping Tool, legacy OBS | identical | excluded |
+| WGC (Windows Graphics Capture) | OBS WGC mode, Win11 capture, PowerToys | identical | excluded |
+| `getDisplayMedia` in real Chrome | Meet, Teams Web, Webex Web, any browser tab share | identical | excluded |
+
+A browser sharing your screen therefore receives no evidence the panel exists.
+
 **Where the line is.** Screen share is solved. A *proctoring tool* is a different problem: it can call `GetWindowDisplayAffinity` on every top-level window and will see that something answers `0x11`. It still has to find the window first, and the shim means it no longer looks like an Electron app — but the flag itself cannot be removed, because it *is* the mechanism.
 
 So: hidden from every capture app. Detectable by a purpose-built proctor or EDR agent. Not hidden from a phone pointed at your monitor either.
