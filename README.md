@@ -2,7 +2,7 @@
 
 # Glance AI
 
-**A Windows overlay assistant that stays out of your screen share.**
+**An AI interview assistant for Windows that stays out of your screen share.**
 
 Hear the room, read the screen, get the answer — in a small panel that OBS, Zoom, Meet and Teams never capture.
 
@@ -39,14 +39,16 @@ Then open ⚙ and add an API key — or point the base URL at any OpenAI-compati
 
 ## What it does
 
+Built for live interviews: it listens to the interviewer, reads the question on screen, and gives you something to say.
+
 - **Transparent, always-on-top overlay** with a hotkey for every action
 - **Hidden from software screen share** — nothing you see here appears in a capture
 - **Live transcription** from mic *or* system loopback, with local silence gating so dead air never reaches the API
 - **Screen Q&A** — capture up to five frames, ask once, get a streamed answer
 - **Local OCR** on every captured frame, so code, forms and error text reach the model as exact characters rather than pixels
 - **Chat memory** — threads persist, and *New chat* files the old one into durable memory instead of losing it
-- **Practice mode** — rehearse, then get a scored debrief
-- **Copilot** — spots questions in the transcript and answers them
+- **Practice mode** — rehearse an interview, then get a scored debrief
+- **Copilot** — spots questions in the transcript and answers them unprompted
 - Personalisation: target role, pasted résumé, forced answer language
 - **Eye morph** — offline face landmarks for gaze and attention, with the webcam left free for other apps
 
