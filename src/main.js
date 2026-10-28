@@ -17,6 +17,7 @@ const DEFAULTS = {
   captureDisplay: 'auto', // 'auto' | display id | 'window:<source id>'
   ocr: true, // extract text locally from every captured frame and attach it
   updates: true, // check GitHub Releases for a new version in the background
+  blendWindow: true, // reparent under an innocuous host to hide class + affinity
   panelOpacity: 0.78, // 0.3 (ghost) to 0.98 (solid) — Cluely-style see-through glass
   // second provider for audio endpoints (transcription + TTS) — for gateways without /audio/*
   // falls back to the main provider when left blank
@@ -420,10 +421,34 @@ function removeDevtoolsPort() {
 // frame / missing panel). Cluely does exactly this with isCapturingScreenshot.
 let selfCapturing = false;
 
+// The exclusion flag is top-level-only, so when the blend host exists it goes
+// on the host; the child would accept the call but silently keep affinity 0.
+function applyAffinity() {
+  const nat = loadCloak();
+  if (!nat || !nat.hostHandle || !win || win.isDestroyed()) return;
+  const host = nat.hostHandle();
+  if (!host) return;
+
+  const wantOn = Boolean(cfg.stealth) && !selfCapturing;
+
+  // The exclusion flag only works on TOP-LEVEL windows, so it has to live on the
+  // host; a call on the reparented child is accepted but has no effect, which
+  // silently removed the protection. Measured: DWMWA_EXCLUDED_FROM_CAPTURE (16)
+  // on the host does not cover the child's pixels either, so the classic flag is
+  // the only mechanism that works through the shim.
+  //
+  // What the shim still buys: the flagged window is no longer Chrome_WidgetWin_1.
+  // A detector that filters by class before checking affinity finds nothing.
+  nat.setAffinity(host, wantOn ? 0x11 : 0);
+}
+
 function applyStealth() {
   if (win && !win.isDestroyed()) {
     win.setContentProtection(Boolean(cfg.stealth) && !selfCapturing);
   }
+  // the exclusion flag is top-level only; with the blend host present the flag
+  // belongs on the host, and a call on the child is accepted but ignored
+  if (loadCloak()) applyAffinity();
 }
 
 // DWM-cloak + SetWindowLong the BrowserWindow frame AND every child surface
@@ -457,8 +482,13 @@ function loadCloak() {
   ];
   for (const p of candidates) {
     try {
-      cloakNative = require(p);
-      break;
+      const mod = require(p);
+      // a stale copy from an older build loads fine but lacks newer exports, so
+      // validate before accepting it instead of shadowing the fresh build
+      if (typeof mod.cloak === 'function' && typeof mod.attachHost === 'function') {
+        cloakNative = mod;
+        break;
+      }
     } catch {}
   }
   if (!cloakNative) cloakNative = false;
@@ -474,12 +504,21 @@ function setDwmCloak(h32, on) {
   }
 }
 
+function cloakHost(on) {
+  const nat = loadCloak();
+  if (!nat || !nat.hostHandle) return;
+  const host = nat.hostHandle();
+  if (!host) return;
+  try { on ? nat.cloak(host) : nat.uncloak(host); } catch {}
+}
+
 function applyDeepStealth(on, cb, soft) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) { if (cb) cb(); return; }
   const h32 = win.getNativeWindowHandle().readUInt32LE(0);
   const finish = () => {
     // cloak LAST: the helper rewrites ex-styles, and a style write drops the
     // cloak, so it has to be the final call
+    cloakHost(on);
     const cloaked = setDwmCloak(h32, on);
     if (process.env.WSHX_CLOAK_DEBUG) console.log('[cloak]', h32, on, cloaked);
     if (cb) cb(null, cloaked);
@@ -778,6 +817,43 @@ function setupUpdater() {
     // wait a little after boot so an update check never delays the first paint
     setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
   } catch {}
+}
+
+// ---------- host blend: hide the class name and the affinity flag ----------
+// A detector that enumerates top-level windows finds the overlay, reads its class
+// (Chrome_WidgetWin_1 → "Electron") and GetWindowDisplayAffinity (0x11 →
+// "deliberately hidden"). Reparenting the window under an innocuous host means
+// only the host is enumerated: our class, and no affinity flag at all.
+// The child keeps the exclusion, so capture is unaffected.
+let hostTimer = null;
+
+function setupHostBlend() {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) { mlog('host: no win'); return; }
+  if (cfg.blendWindow === false) { mlog('host: disabled by config'); return; }
+  const nat = loadCloak();
+  if (!nat || !nat.attachHost) { mlog('host: addon missing'); return; }
+  try {
+    const h32 = win.getNativeWindowHandle().readUInt32LE(0);
+    const r = nat.attachHost(h32);
+    mlog(`host: attach hwnd=${h32} -> ${JSON.stringify(r)}`);
+    if (!r || !r.ok) return;
+    // Electron still moves the window with screen coordinates; the addon turns
+    // each such move into the host's new position. 30 ms tracks a drag closely
+    // without burning CPU on an idle window.
+    hostTimer = setInterval(() => {
+      try {
+        if (win && !win.isDestroyed()) nat.syncHost();
+      } catch {}
+    }, 30);
+    if (hostTimer.unref) hostTimer.unref();
+    applyStealth(); // move the exclusion flag onto the host
+  } catch {}
+}
+
+function teardownHostBlend() {
+  if (hostTimer) { clearInterval(hostTimer); hostTimer = null; }
+  const nat = loadCloak();
+  if (nat && nat.detachHost) { try { nat.detachHost(); } catch {} }
 }
 
 // ---------- LLM ----------
@@ -1642,6 +1718,7 @@ app.whenReady().then(() => {
   try {
     createWindow();
     mlog(`createWindow returned`);
+    setupHostBlend();
   } catch (e) {
     mlog(`createWindow threw: ${e.stack || e}`);
     throw e;
@@ -1651,6 +1728,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  teardownHostBlend();
   globalShortcut.unregisterAll();
   removeDevtoolsPort();
   scheduleWipe(true); // always respawn at exit when a wipe is pending — the wipe-time helper may have capped out, failed, or been killed

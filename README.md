@@ -101,6 +101,8 @@ PID    PROCESS       AFFINITY                TITLE      VERDICT
 4820   Glance AI.exe WDA_EXCLUDEFROMCAPTURE  Glance AI  DWM-cloaked, capture-excluded
 ```
 
+**Window shim.** A detector finds the overlay by enumerating top-level windows, then reads the class and affinity off whatever it finds. Glance reparents its window under an innocuous host, so `EnumWindows` returns only the host: `WinUIDesktopWin32WindowClass` with `Chrome_WidgetWin_1` nowhere in the list. The Electron window keeps the exclusion as a child, and the flag lives on the host because `SetWindowDisplayAffinity` is top-level only. Disable with `"blendWindow": false` if it misbehaves on your setup.
+
 **What this does not do.** Three limits remain, all structural:
 
 1. **`GetWindowDisplayAffinity` still reports `0x11`** to anyone who asks. That flag *is* the mechanism, so clearing it defeats the point — but a detector has to find the window first, and a DWM-cloaked window no longer appears in `EnumWindows` or a visible-window scan.
