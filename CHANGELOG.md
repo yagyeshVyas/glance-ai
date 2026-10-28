@@ -2,6 +2,12 @@
 
 The project is **Glance AI**. It was renamed `Glance` → `wshx-host` → `svchost`, and is now Glance AI again — product, binary, install folder and data folder all agree.
 
+## 1.0.2
+
+- Added scripts/capture-ab.js, a shipped, dependency-free A/B that proves the
+exclusion per capture path (shown vs hidden, hashed pixels).
+- README documents the results table and the boundary below it.
+
 ## 1.0.1
 
 - The window is reparented under a host with a plain WinUI-style class, so
