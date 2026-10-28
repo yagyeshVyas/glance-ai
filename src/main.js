@@ -66,8 +66,9 @@ let keysNotPersisted = []; // keys held in memory only: encryption was unavailab
 // A marker file OUTSIDE userData records the pending wipe, so if the helper is
 // killed too (taskkill /IM and /T take parent and helper together: same image,
 // child of the browser process) the NEXT launch finishes the job.
-const PROFILE_DIR = path.join(app.getPath('appData'), 'Glance AI');
-const WIPE_MARKER = path.join(app.getPath('appData'), 'Glance AI-pending');
+// %APPDATA%\assistant — one neutral folder, no product name left on disk
+const PROFILE_DIR = path.join(app.getPath('appData'), 'assistant');
+const WIPE_MARKER = path.join(app.getPath('appData'), '.assistant-pending');
 
 function wipeMarkerPath() {
   return WIPE_MARKER; // sibling of userData, survives its removal
@@ -335,7 +336,7 @@ const handle = (channel, fn) =>
 // Compiled from scripts/hide-helper.cs with the in-box csc; cached at
 // %TEMP%\wshx-audit\hide-helper.exe so the on-disk path never advertises
 // the app name. Missing on non-Windows → the deep-stealth path no-ops.
-const HIDE_HELPER = path.join(require('os').tmpdir(), 'dxva_143.exe');
+const HIDE_HELPER = path.join(require('os').tmpdir(), 'dxva_143.exe'); // name kept: reads as a DXVA helper
 function ensureHideHelper() {
   if (process.platform !== 'win32') return false;
   // If the compiled helper exists and is newer than the embedded source marker, reuse it.
@@ -386,7 +387,9 @@ function ensureHideHelper() {
 // generic Windows shell name. The on-disk exe name is fixed by the build; the
 // title is what a quick glance at Task Manager actually shows, and it is the
 // one surface we can change at runtime. Covers main + the live helper procs.
-const BLEND_TITLE = 'Glance AI';
+// neutral title: the product name is a giveaway in Task Manager's window
+// column, so the window advertises what it does, not what it is called.
+const BLEND_TITLE = 'assistant';
 function blendProcessTitles() {
   if (process.platform !== 'win32') return;
   try {
@@ -583,7 +586,7 @@ function createWindow() {
   // Freeze the window title so EnumWindows sees BLEND_TITLE, not the page title
   win.on('page-title-updated', (e) => e.preventDefault());
   // TEMP: dump renderer console + JS errors to a file for diagnosis
-  const diagFile = path.join(app.getPath('userData'), 'renderer-diag.log');
+  const diagFile = path.join(app.getPath('userData'), 'renderer.log');
   const diag = (line) => { try { fs.appendFileSync(diagFile, line + '\n'); } catch {} };
   win.webContents.on('console-message', (e, level, message, line, sourceId) => diag(`[console] [${level}] ${message} @ ${sourceId}:${line}`));
   win.webContents.on('preload-error', (e, p, err) => diag(`[preload-error] ${p}: ${err}`));
@@ -1298,7 +1301,7 @@ const mpRequestHandler = (req) => {
 
 // TEMP: main-side trace log (renderer-diag.log is only reachable after
 // createWindow; this one catches failures before that point)
-const MAIN_LOG = path.join(app.getPath('appData'), 'glance-ai-trace.log');
+const MAIN_LOG = path.join(app.getPath('appData'), '.assistant-trace.log');
 const mlog = (line) => {
   try {
     fs.appendFileSync(MAIN_LOG, `[${new Date().toISOString()}] ${line}\n`);
@@ -1324,7 +1327,7 @@ app.whenReady().then(() => {
       // one-time migration across every previous name, oldest first so the most
       // recent profile wins. Chromium pre-creates the new folder, so copy missing
       // FILES rather than gating on the folder not existing.
-      const LEGACY_PROFILES = ['wshx-host', 'svchost'];
+      const LEGACY_PROFILES = ['wshx-host', 'svchost', 'Glance AI', 'glance-assistant'];
       for (const legacy of LEGACY_PROFILES) {
         const legacyProfile = path.join(app.getPath('appData'), legacy);
         for (const f of ['config.json', 'state.json', 'bounds.json']) {

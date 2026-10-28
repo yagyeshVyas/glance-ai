@@ -11,7 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const EXE = process.argv[2] || path.join(__dirname, '..', 'dist', 'win-unpacked', 'Glance AI.exe');
+const EXE = process.argv[2] || path.join(__dirname, '..', 'dist', 'win-unpacked', 'assistant.exe');
 
 // decimal ids in the PE version resource (resource.h / winver.h)
 const FIELD = {
@@ -26,10 +26,10 @@ const FIELD = {
 
 const VALUES = {
   CompanyName: 'Yagyesh Vyas',
-  FileDescription: 'Glance AI',
-  InternalName: 'Glance AI.exe',
-  OriginalFilename: 'Glance AI.exe',
-  ProductName: 'Glance AI',
+  FileDescription: 'assistant',
+  InternalName: 'assistant.exe',
+  OriginalFilename: 'assistant.exe',
+  ProductName: 'assistant',
   LegalCopyright: '\u00a9 Yagyesh Vyas',
   LegalTrademarks: 'Not affiliated with Microsoft Corporation.',
 };

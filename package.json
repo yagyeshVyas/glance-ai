@@ -1,7 +1,7 @@
 {
   "name": "glance-ai",
   "version": "1.0.1",
-  "productName": "Glance AI",
+  "productName": "assistant",
   "description": "Glance AI - AI Interview Assistant",
   "author": "Yagyesh Vyas",
   "main": "src/main.js",
@@ -28,8 +28,8 @@
     "resedit": "^3.1.0"
   },
   "build": {
-    "appId": "com.yagyesh.glance",
-    "productName": "Glance AI",
+    "appId": "com.assistant.overlay",
+    "productName": "assistant",
     "copyright": "© Yagyesh Vyas",
     "files": [
       "src/**/*",
@@ -62,8 +62,8 @@
         ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       },
-      "executableName": "Glance AI",
-      "artifactName": "Glance-AI-${version}-${arch}.${ext}"
+      "executableName": "assistant",
+      "artifactName": "assistant-${version}-${arch}.${ext}"
     },
     "publish": [
       {
@@ -82,7 +82,7 @@
       "createDesktopShortcut": false,
       "createStartMenuShortcut": false,
       "menuCategory": false,
-      "shortcutName": "Glance AI",
+      "shortcutName": "assistant",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",

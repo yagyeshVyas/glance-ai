@@ -26,10 +26,10 @@ Download the installer for your machine from the [latest release](../../releases
 
 | Arch | File |
 |---|---|
-| x64 | `Glance-AI-<version>-x64.exe` |
-| arm64 | `Glance-AI-<version>-arm64.exe` |
+| x64 | `assistant-<version>-x64.exe` |
+| arm64 | `assistant-<version>-arm64.exe` |
 
-The installer is signed with a bundled certificate and imports it on install, so Windows trusts it machine-wide. It installs per-machine to `C:\Program Files\Glance AI` and needs an administrator prompt once.
+The installer is signed with a bundled certificate and imports it on install, so Windows trusts it machine-wide. It installs per-machine to `C:\Program Files\assistant` and needs an administrator prompt once.
 
 Then open ⚙ and add an API key — or point the base URL at any OpenAI-compatible endpoint, including a local one.
 
@@ -105,7 +105,7 @@ Measured, not claimed — these are this repo's own audit tools:
 ```
 $ npm run audit
 PID    PROCESS       AFFINITY                TITLE      VERDICT
-4820   Glance AI.exe WDA_EXCLUDEFROMCAPTURE  Glance AI  capture-excluded, overlay-shaped
+4820   assistant.exe  WDA_EXCLUDEFROMCAPTURE  assistant  capture-excluded, overlay-shaped
 
 $ npx electron scripts/capture-probe.js
 "wshxListed": false
@@ -123,7 +123,7 @@ So: hidden from every capture app. Detectable by a purpose-built proctor or EDR 
 
 No overlay is undetectable: a purpose-built proctoring or EDR agent can still find this by other means. It is invisible to a screen share, not to an instrumented machine.
 
-The naming is honest too: the product and binary are both `Glance AI`, the certificate subject is the author, and nothing claims to be Microsoft.
+The naming is honest: the product is **Glance AI**, it installs and runs as `assistant`, the certificate subject is the author, and nothing claims to be Microsoft.
 
 ## API compatibility
 

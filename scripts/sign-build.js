@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const EXE = path.join(ROOT, 'dist', 'win-unpacked', 'Glance AI.exe');
+const EXE = path.join(ROOT, 'dist', 'win-unpacked', 'assistant.exe');
 const CERT_THUMB = process.env.WSHX_CERT_THUMB || 'E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C';
 
 function signtool() {
@@ -89,7 +89,7 @@ function thumbExists(thumb) {
       const exes = [];
       for (const d of fs.readdirSync(path.join(ROOT, 'dist'))) {
         if (!d.includes('unpacked')) continue;
-        const p = path.join(ROOT, 'dist', d, 'Glance AI.exe');
+        const p = path.join(ROOT, 'dist', d, 'assistant.exe');
         if (fs.existsSync(p)) exes.push(p);
       }
       for (const e of exes) execFileSync(st, ['verify', '/pa', '/v', e], { stdio: 'pipe' });
