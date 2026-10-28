@@ -90,17 +90,24 @@ The webcam is never opened, so it cannot fight Teams or Zoom for the device. Ins
 Two independent layers on every window of every helper process:
 
 - `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` — pixels absent from capture. Falls back to `WDA_MONITOR` before Windows 10 2004, where `0x11` is unsupported.
-- DWM cloak, `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, no taskbar button, blanked titles.
+- **DWM cloak** (`DWMWA_CLOAK`) — DWM stops composing the window entirely, so it drops out of window enumeration. A native addon applies it in-process because DWM refuses a foreign caller.
+- `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, no taskbar button, blanked titles.
 
 Measured, not claimed:
 
 ```
 $ npm run audit
 PID    PROCESS       AFFINITY                TITLE      VERDICT
-4820   Glance AI.exe WDA_EXCLUDEFROMCAPTURE  Glance AI  capture-excluded, overlay-shaped
+4820   Glance AI.exe WDA_EXCLUDEFROMCAPTURE  Glance AI  DWM-cloaked, capture-excluded
 ```
 
-**What this does not do.** `GetWindowDisplayAffinity` still reports `0x11` to anyone who asks — that flag *is* the tell. The window class stays `Chrome_WidgetWin_1`, so the platform is obvious. Any process can enumerate the overlay, and a purpose-built proctoring or EDR agent will find it. It is invisible to a screen share, not to an instrumented machine.
+**What this does not do.** Three limits remain, all structural:
+
+1. **`GetWindowDisplayAffinity` still reports `0x11`** to anyone who asks. That flag *is* the mechanism, so clearing it defeats the point — but a detector has to find the window first, and a DWM-cloaked window no longer appears in `EnumWindows` or a visible-window scan.
+2. **The window class stays `Chrome_WidgetWin_1`**, so the platform is obvious once found.
+3. **`DWMWA_CLOAKED` cannot be read from another process** — a foreign caller gets `E_INVALIDARG`/`E_ACCESSDENIED`. That is why the cloak is applied by an in-process native addon instead of the helper.
+
+No overlay is undetectable: a purpose-built proctoring or EDR agent can still find this by other means. It is invisible to a screen share, not to an instrumented machine.
 
 The naming is honest too: the product and binary are both `Glance AI`, the certificate subject is the author, and nothing claims to be Microsoft.
 

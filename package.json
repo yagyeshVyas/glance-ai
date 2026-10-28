@@ -14,14 +14,17 @@
     "test": "node scripts/test.js && node scripts/test-main.js",
     "test:main": "node scripts/test-main.js",
     "dist": "electron-builder --win",
-    "dist:signed": "node scripts/sign-build.js --electron-builder",
+    "dist:signed": "node scripts/sign-build.js",
     "resedit": "node scripts/resedit.js",
-    "dist:final": "npm run test && npm run dist"
+    "dist:final": "npm run test && npm run dist",
+    "build:native": "cd src/native && node ../../node_modules/node-gyp/bin/node-gyp.js rebuild --arch=x64",
+    "postinstall": "npm run build:native || echo native build skipped"
   },
   "license": "MIT",
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^26.18.0",
+    "node-gyp": "^12.4.0",
     "resedit": "^3.1.0"
   },
   "build": {
@@ -30,7 +33,9 @@
     "copyright": "© Yagyesh Vyas",
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!src/native/build/**",
+      "src/native/*/cloak.node"
     ],
     "electronFuses": {
       "runAsNode": false,
@@ -82,7 +87,12 @@
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
       "include": "build/installer.nsh"
-    }
+    },
+    "afterPack": "scripts/after-pack.js",
+    "asarUnpack": [
+      "src/native/*/cloak.node",
+      "src/native/build/Release/*.node"
+    ]
   },
   "dependencies": {
     "electron-updater": "^6.8.11"

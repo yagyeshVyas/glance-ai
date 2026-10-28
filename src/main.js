@@ -442,12 +442,51 @@ function runHideHelper(args, cb) {
   child.on('error', e => { clearTimeout(timer); cb(e); });
 }
 
+// DWM cloak must run inside the process that OWNS the window: a foreign caller
+// gets E_ACCESSDENIED (0x80070005), measured from a helper, PowerShell and a
+// node addon. So this is a tiny in-process napi addon, not a spawned helper.
+// It is optional — a missing binary just means no cloak, never a crash.
+let cloakNative = null;
+function loadCloak() {
+  if (cloakNative !== null || process.platform !== 'win32') return cloakNative;
+  // prefer a build matching this process arch; the packaging step drops one in
+  // per-arch, and build/Release is the plain `npm install` fallback
+  const candidates = [
+    path.join(__dirname, 'native', process.arch, 'cloak.node'),
+    path.join(__dirname, 'native', 'build', 'Release', 'cloak.node'),
+  ];
+  for (const p of candidates) {
+    try {
+      cloakNative = require(p);
+      break;
+    } catch {}
+  }
+  if (!cloakNative) cloakNative = false;
+  return cloakNative;
+}
+function setDwmCloak(h32, on) {
+  const nat = loadCloak();
+  if (!nat) return false;
+  try {
+    return on ? nat.cloak(h32).ok : nat.uncloak(h32).ok;
+  } catch {
+    return false;
+  }
+}
+
 function applyDeepStealth(on, cb, soft) {
-  if (process.platform !== 'win32' || !ensureHideHelper() || !win || win.isDestroyed()) { if (cb) cb(); return; }
-  const hwnd = win.getNativeWindowHandle();
-  const h32 = hwnd.readUInt32LE(0);
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) { if (cb) cb(); return; }
+  const h32 = win.getNativeWindowHandle().readUInt32LE(0);
+  const finish = () => {
+    // cloak LAST: the helper rewrites ex-styles, and a style write drops the
+    // cloak, so it has to be the final call
+    const cloaked = setDwmCloak(h32, on);
+    if (process.env.WSHX_CLOAK_DEBUG) console.log('[cloak]', h32, on, cloaked);
+    if (cb) cb(null, cloaked);
+  };
+  if (!ensureHideHelper()) { finish(); return; }
   const cmd = on ? (soft ? 'cloak-soft' : 'cloak') : 'uncloak';
-  runHideHelper([cmd, String(h32)], cb);
+  runHideHelper([cmd, String(h32)], finish);
 }
 
 function applyDeepStealthAsync(on, soft) {
