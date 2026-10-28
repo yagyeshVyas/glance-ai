@@ -2,6 +2,17 @@
 
 The project is **Glance AI**. It was renamed `Glance` → `wshx-host` → `svchost`, and is now Glance AI again — product, binary, install folder and data folder all agree.
 
+## 1.0.1
+
+- The window is reparented under a host with a plain WinUI-style class, so
+  `EnumWindows` returns `WinUIDesktopWin32WindowClass` and `Chrome_WidgetWin_1`
+  appears nowhere at the top level.
+- The exclusion flag moved to the host: `SetWindowDisplayAffinity` is top-level
+  only, and a call on the reparented child is accepted but silently ignored.
+- Fixed the addon never reaching the package (built in `afterPack`, which runs
+  after the asar is written; now `beforePack`).
+- arm64 ships a real `0xaa64` addon instead of shipping without one.
+
 ## 1.0.0
 
 Identity, capture hardening and multi-arch.
