@@ -57,6 +57,11 @@ internal static class Helper
 
     private const int DWMWA_TRANSITIONS_FORCEDISABLED = 2;
     private const int DWMWA_CLOAK = 13; // BOOL — the strongest "not composed" signal
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int left, top, right, bottom; }
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr h, out RECT r);
     private const uint GA_ROOT = 2;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
@@ -219,6 +224,20 @@ internal static class Helper
         }
         string cmd = args[0];
         string a1 = args[1];
+
+        if (cmd == "rect")
+        {
+            // screen rect of a window, one line each — used by the audit tooling,
+            // because PowerShell's StringBuilder marshalling truncates class
+            // names to a single character and cannot be trusted for this
+            long parsed;
+            if (!long.TryParse(a1, out parsed)) { Line("ERR", "bad hwnd " + a1); Environment.Exit(1); return; }
+            RECT rc;
+            if (!GetWindowRect(new IntPtr(parsed), out rc)) { Line("ERR", "no rect"); Environment.Exit(1); return; }
+            Line("OK", "x=" + rc.left, "y=" + rc.top, "w=" + (rc.right - rc.left), "h=" + (rc.bottom - rc.top));
+            Environment.Exit(0);
+            return;
+        }
 
         if (cmd == "cloak" || cmd == "uncloak")
         {
