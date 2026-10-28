@@ -7,7 +7,7 @@
 Hear the room, read the screen, get the answer — in a small panel that OBS, Zoom, Meet and Teams never capture.
 
 [![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](#requirements)
-[![Electron](https://img.shields.io/badge/Electron-38-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
+[![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/yagyeshVyas/glance-ai/total?color=success)](#install)
 [![Release](https://img.shields.io/github/v/release/yagyeshVyas/glance-ai?color=blue)](#install)
