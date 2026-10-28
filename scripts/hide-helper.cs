@@ -56,6 +56,8 @@ internal static class Helper
     }
 
     private const int DWMWA_TRANSITIONS_FORCEDISABLED = 2;
+    private const int DWMWA_CLOAK = 13; // BOOL — the strongest "not composed" signal
+    private const uint GA_ROOT = 2;
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOZORDER = 0x0004;
@@ -223,6 +225,11 @@ internal static class Helper
             long hwnd;
             if (!long.TryParse(a1, out hwnd)) { Line("ERR", "bad hwnd " + a1); Environment.Exit(1); return; }
             IntPtr h = new IntPtr(hwnd);
+            // Electron's getNativeWindowHandle can resolve to a child/auxiliary
+            // window; DWM only cloaks top-level ones, so always walk to the root
+            // ancestor before touching styles or affinity.
+            IntPtr root = GetAncestor(h, GA_ROOT);
+            if (root != IntPtr.Zero) h = root;
             long ex = (long)(IntPtr.Size == 8
                 ? GetWindowLongPtr64(h, GWL_EXSTYLE).ToInt64()
                 : (uint)GetWindowLong32(h, GWL_EXSTYLE));
@@ -235,15 +242,23 @@ internal static class Helper
                 ex |= (long)(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
                 if (IntPtr.Size == 8) SetWindowLongPtr64(h, GWL_EXSTYLE, new IntPtr(ex));
                 else SetWindowLong32(h, GWL_EXSTYLE, (int)ex);
+                // Real DWM cloak. Without this the window is only off-screen +
+                // affinity-flagged; DWMWA_CLOAK makes DWM stop composing it
+                // entirely, which is the state a detector looks for and also
+                // what stops it appearing in capture paths that ignore affinity.
+                int cloak = 1;
+                int cloakRc = DwmSetWindowAttribute(h, DWMWA_CLOAK, ref cloak, sizeof(int));
                 ShowWindow(h, SW_MINIMIZE);
                 SetWindowPos(h, IntPtr.Zero, -32000, -32000, 1, 1,
                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
-                Line("OK", "cloaked", "hwnd=" + hwnd, "exstyle=" + ex.ToString("X8"), "affinity=" + aff.ToString("X8") + (aff == WDA_MONITOR ? " (monitor fallback)" : aff == 0 ? " (FAILED)" : ""));
+                Line("OK", "cloaked", "hwnd=" + hwnd, "exstyle=" + ex.ToString("X8"), "affinity=" + aff.ToString("X8") + (aff == WDA_MONITOR ? " (monitor fallback)" : aff == 0 ? " (FAILED)" : ""), "dwmcloak=" + cloakRc);
             }
             else
             {
                 // Restore: back to visible, on-screen, original styles.
                 SetWindowDisplayAffinity(h, WDA_NONE);
+                int uncloak = 0;
+                DwmSetWindowAttribute(h, DWMWA_CLOAK, ref uncloak, sizeof(int));
                 ex |= (long)(WS_EX_LAYERED | WS_EX_TRANSPARENT);
                 ex &= ~(long)(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
                 if (IntPtr.Size == 8) SetWindowLongPtr64(h, GWL_EXSTYLE, new IntPtr(ex));
@@ -406,8 +421,7 @@ internal static class Helper
     // WinRT is projected by hand: .NET Framework has no await for WinRT types.
     private static class Constants { public const string Ext = ".png"; }
 
-    private static T Await<T>(object op)
-    {
+    private static T Await<T>(object op)    {
         // WinRT IAsyncOperation<T> is not directly awaitable from .NET Framework
         // here, so go through the runtime's own AsTask extension.
         var asTask = typeof(System.WindowsRuntimeSystemExtensions)

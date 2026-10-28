@@ -54,6 +54,8 @@ internal static class Probe
         public int w;
         public int h;
         public int affinity;
+        public int cloaked;
+        public int visible;
         public string title;
         public string cls;
     }
@@ -117,10 +119,14 @@ internal static class Probe
     {
         try
         {
-            if (!IsWindowVisible(h)) return true;
-
+            // no visibility gate: a DWM-cloaked window keeps enumerating but
+            // loses the visible bit, and those are the interesting ones. The
+            // verdict decides what to report.
             int cloaked;
-            if (DwmGetWindowAttribute(h, 14, out cloaked, 4) == 0 && cloaked != 0) return true;
+            bool isCloaked = DwmGetWindowAttribute(h, 14, out cloaked, 4) == 0 && cloaked != 0;
+            bool vis = IsWindowVisible(h);
+            // skip genuinely hidden windows, but never a cloaked one
+            if (!vis && !isCloaked) return true;
 
             StringBuilder title = new StringBuilder(512);
             GetWindowTextW(h, title, title.Capacity);
@@ -150,6 +156,8 @@ internal static class Probe
             win.w = w;
             win.h = hh;
             win.affinity = ok ? (int)affinity : -1;
+            win.cloaked = isCloaked ? 1 : 0;
+            win.visible = vis ? 1 : 0;
             win.title = title.ToString();
             win.cls = cls.ToString();
             windows.Add(win);

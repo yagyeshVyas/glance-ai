@@ -192,10 +192,15 @@ $rows = New-Object System.Collections.Generic.List[object]
 $cb = [W+EnumWindowsProc]{
   param([IntPtr]$h, [IntPtr]$l)
   try {
-    if ([W]::IsWindowVisible($h)) {
+    # Do NOT gate on IsWindowVisible: a DWM-cloaked window keeps enumerating but
+    # loses the visible bit, and those are exactly the ones worth reporting.
+    {
       $cloaked = [int]0
       [void][W]::DwmGetWindowAttribute($h, 14, [ref]$cloaked, 4)
-      if ($cloaked -eq 0) {
+      # A cloaked window still enumerates, but DWM composes nothing for it, so a
+      # detector that only inspects visible windows misses it. Keep it in the
+      # report instead of skipping it, and mark the verdict accordingly.
+      if ($true) {
         $t = New-Object System.Text.StringBuilder 512
         [void][W]::GetWindowTextW($h, $t, 512)
         $c = New-Object System.Text.StringBuilder 256
@@ -232,6 +237,8 @@ $cb = [W+EnumWindowsProc]{
           w = $w
           h = $hh
           affinity = $affinity
+          cloaked = [int]$cloaked
+          visible = [int]([W]::IsWindowVisible($h))
         })
       }
     }
@@ -403,6 +410,8 @@ function isFrameless(style) {
 // A window is "flagged" when a detector has a concrete signal, not a guess.
 function verdict(w, screenArea) {
   const v = [];
+  if (w.cloaked) v.push('DWM-cloaked');
+  if (!w.visible && w.cloaked) v.push('not-enumerable-visible');
   if (w.affinity === 17) v.push('capture-excluded');
   if (w.affinity === 1) v.push('capture-monitored');
   const area = Math.max(0, w.w) * Math.max(0, w.h);
@@ -469,6 +478,8 @@ const windows = [].concat(data.windows || []).map((w) => {
     w: Number(w.w) || 0,
     h: Number(w.h) || 0,
     affinity: Number(w.affinity),
+    cloaked: Number(w.cloaked) || 0,
+    visible: w.visible === undefined ? 1 : Number(w.visible),
   };
   return {
     ...base,

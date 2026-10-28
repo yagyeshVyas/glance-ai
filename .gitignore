@@ -17,3 +17,8 @@ desktop.ini
 # editor
 .vscode/
 .idea/
+
+# native addon build output (rebuilt by postinstall/afterPack)
+src/native/build/
+src/native/x64/
+src/native/arm64/
