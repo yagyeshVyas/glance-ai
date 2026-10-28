@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Fast path for the detection audit. `npm run audit` spends ~0.5–1 s inside npm's
+# own launcher before the script starts; this goes straight to node.
+# Same arguments as the JS entry point: ./audit --json --fail-on-detect
+exec node "$(dirname "$0")/scripts/detect-audit.js" "$@"

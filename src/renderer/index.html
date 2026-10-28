@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' mplocal:; img-src 'self' data:; style-src 'self'; script-src 'self' mplocal: 'wasm-unsafe-eval'; worker-src 'self' blob:; media-src 'self' blob: data:; connect-src 'self' mplocal:; object-src 'none';" />
+  <title>Glance AI</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="panel">
+    <header id="bar">
+      <img class="brand-logo" src="logo.png" alt="" width="20" height="20" />
+      <span class="brand"></span>
+      <span id="status" class="status"></span>
+      <div class="spacer"></div>
+      <button id="gear" title="Settings">⚙</button>
+      <button id="hide" title="Hide to tray (Ctrl+Shift+H)">–</button>
+      <button id="close" title="Close and quit (Ctrl+Shift+Q)">✕</button>
+    </header>
+
+    <div id="toolbar">
+      <select id="source" title="Audio source">
+        <option value="mic">Mic</option>
+        <option value="system">Speakers (meeting)</option>
+      </select>
+      <button id="listen" title="Ctrl+Shift+L">Listen</button>
+      <button id="copilot" title="Auto-detect questions from audio and answer them">Copilot: off</button>
+      <button id="answerTranscript" title="Ctrl+Shift+A">What do I say?</button>
+      <button id="recap" title="Summarize transcript into notes">Recap</button>
+      <button id="snapBtn" title="Capture a screenshot into the shot pile (Ctrl+Shift+S)">Capture</button>
+      <button id="askScreen" title="Ctrl+Alt+Enter — answers using the captured shots (or a fresh grab)">Analyze screen</button>
+      <button id="newChat" title="Start a fresh chat (saves the current one to memory)">New chat</button>
+      <button id="autoScreenBtn" title="Attach a fresh screenshot to every question">Screen: auto</button>
+      <button id="fastBtn" title="Shorter audio chunks + faster question detection">Fast: off</button>
+      <button id="eyeBtn" title="Webcam eye tracking — gaze + attention">Eye: off</button>
+      <select id="displaySel" title="Screen or window to capture"></select>
+      <button id="ocrToggle" title="Extract text locally from every captured frame and attach it to the question">OCR: on</button>
+    </div>
+
+    <div id="shotTray" hidden>
+      <span class="muted small" id="shotTrayLabel"></span>
+      <div id="shotThumbs"></div>
+      <button id="clearShots" class="tiny">Clear shots</button>
+    </div>
+
+    <section id="transcriptWrap">
+      <div class="label">Live transcript</div>
+      <div id="transcript" class="scroll muted">Press Listen to start capturing audio.</div>
+    </section>
+
+    <section id="answerWrap">
+      <div class="label">
+        Answer
+        <button id="clearHistory" class="tiny" title="Clear conversation history">Clear</button>
+        <button id="copyAnswer" class="tiny" title="Copy answer to clipboard">Copy</button>
+        <button id="exportMd" class="tiny" title="Save the practice debrief as a Markdown review sheet" hidden>Export</button>
+      </div>
+      <img id="shot" alt="" hidden />
+      <div id="answer" class="scroll"></div>
+    </section>
+
+    <div id="templates">
+      <button data-tpl="summarize">Summarize</button>
+      <button data-tpl="explain">Explain screen</button>
+      <button data-tpl="fix">Fix code</button>
+      <button data-tpl="longtask">Long task ×3</button>
+      <button data-tpl="translate">Translate</button>
+      <button data-tpl="draft">Draft reply</button>
+    </div>
+
+    <form id="askForm">
+      <input id="question" type="text" placeholder="Ask anything…  (Enter = send · in-window Ctrl+Enter = send with screen · global Ctrl+Alt+Enter anywhere)" autocomplete="off" />
+      <button type="submit">Ask</button>
+      <button type="button" id="speak" title="Read the answer aloud">🔊</button>
+      <button type="button" id="stop" hidden>Stop</button>
+    </form>
+
+    <div id="settings" hidden>
+      <h3>Settings</h3>
+      <label>API base URL <input id="s_baseUrl" /></label>
+      <label>API key <input id="s_apiKey" type="password" /></label>
+      <div class="row">
+        <button id="s_testKey" type="button">Test key</button>
+        <span class="muted small">Checks the key against the provider (calls /models).</span>
+      </div>
+      <label>Chat model <input id="s_chatModel" list="chatModels" placeholder="fetched from provider…" /></label>
+      <datalist id="chatModels"></datalist>
+      <label>Transcribe model <input id="s_transcribeModel" list="transcribeModels" placeholder="fetched from provider…" /></label>
+      <datalist id="transcribeModels"></datalist>
+      <label>Context budget (tokens) <input id="s_contextTokens" placeholder="32000 — set to your model's window: 128000, 200000, 1000000…" /></label>
+      <label>System prompt <textarea id="s_systemPrompt" rows="4"></textarea></label>
+      <h4>Personalization (grounds every answer in your real experience)</h4>
+      <label>Target role <input id="s_targetRole" placeholder="e.g. Senior React engineer, fintech" /></label>
+      <label>Your background / CV (pasted) <textarea id="s_resume" rows="6" placeholder="Paste your resume or a summary of your experience, skills, projects…"></textarea></label>
+      <label>Answer language <input id="s_answerLang" placeholder="auto — or any language, e.g. Hindi, Spanish" /></label>
+      <h4>Master stealth</h4>
+      <label class="row"><input id="s_stealthMaster" type="checkbox" /> Full privacy — turn on every privacy control at once (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
+      <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. Note: not full invisibility — the window class and process tree remain enumerable (see STEALTH.md).</p>
+      <h4>Audio provider (optional — use when your main API lacks /audio endpoints)</h4>
+      <label>Transcription base URL <input id="s_transcribeBaseUrl" placeholder="(same as main API)" /></label>
+      <label>Transcription API key <input id="s_transcribeApiKey" type="password" /></label>
+      <label>TTS base URL <input id="s_ttsBaseUrl" placeholder="(same as main API)" /></label>
+      <label>TTS API key <input id="s_ttsApiKey" type="password" /></label>
+      <label>TTS voice <input id="s_ttsVoice" placeholder="alloy" /></label>
+      <label>TTS model <input id="s_ttsModel" list="ttsModels" placeholder="tts-1" /></label>
+      <datalist id="ttsModels"></datalist>
+      <label class="row"><input id="s_stealth" type="checkbox" /> Hide overlay from screen capture / screen share</label>
+      <label class="row"><input id="s_stealthProcess" type="checkbox" /> Shell AppUserModelID hint (does not rename the process — see STEALTH.md)</label>
+      <label class="row"><input id="s_ocr" type="checkbox" /> OCR on capture - read text locally from every screenshot and attach it to the question</label>
+<label class="row"><input id="s_smartMode" type="checkbox" /> Smart mode (short, spoken-style answers for live calls)</label>
+      <label class="row"><input id="s_practiceMode" type="checkbox" /> Practice mode (rehearse; answers hidden until you stop, then a scored debrief)</label>
+      <label class="row"><input id="s_stealthDeep" type="checkbox" /> Deep stealth (DWM-cloak window + pull layered flags — hides from EnumWindows/UIA; requires Windows)</label>
+      <label>Overlay transparency <input id="s_panelOpacity" type="range" min="0.3" max="0.98" step="0.02" /><span id="opacityVal"></span></label>
+      <div class="row">
+        <button id="s_save">Save</button>
+        <button id="s_deleteKeys" type="button" class="danger" title="Remove the stored API keys; enter a new one afterwards">Delete keys</button>
+        <button id="s_close" type="button">Close</button>
+        <span id="s_msg" class="muted"></span>
+      </div>
+      <div class="row">
+        <button id="s_wipe" class="danger" title="Delete API key, history, transcript and window position from disk">Wipe all data</button>
+        <span class="muted small">Deletes saved key + history + position. App keeps running.</span>
+      </div>
+      <div class="row">
+        <button id="s_update" type="button" title="Check GitHub Releases for a newer version (installed builds only)">Check for updates</button>
+        <span id="s_updateMsg" class="muted small"></span>
+      </div>
+      <p class="muted small">
+        Hotkeys: Ctrl+Shift+H (or Ctrl+Alt+Space) show/hide · Ctrl+Alt+Enter ask with screen · Ctrl+Shift+L listen ·
+        Ctrl+Shift+A answer from transcript · Ctrl+Alt+M click-through · Ctrl+Alt+Arrows move · Ctrl+Alt+Q quit.
+        Model lists fill automatically once base URL + key are entered.
+      </p>
+    </div>
+  </div>
+  <div id="eyeHud" hidden>
+    <span id="eyeDot"></span>
+    <span id="eyeLabel">Eye</span>
+    <canvas id="eyeCanvas" width="64" height="48"></canvas>
+  </div>
+  <script src="drag.js"></script>
+  <script src="shared.js"></script>
+  <script src="eye.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
