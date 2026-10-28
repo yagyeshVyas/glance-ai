@@ -88,11 +88,11 @@
       "installerHeaderIcon": "build/icon.ico",
       "include": "build/installer.nsh"
     },
-    "afterPack": "scripts/after-pack.js",
     "asarUnpack": [
       "src/native/*/cloak.node",
       "src/native/build/Release/*.node"
-    ]
+    ],
+    "beforePack": "scripts/before-pack.js"
   },
   "dependencies": {
     "electron-updater": "^6.8.11"
