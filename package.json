@@ -1,0 +1,90 @@
+{
+  "name": "glance-ai",
+  "version": "1.0.0",
+  "productName": "Glance AI",
+  "description": "Glance AI - AI Interview Assistant",
+  "author": "Yagyesh Vyas",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "check": "node scripts/check.js",
+    "probe": "node scripts/build-probe.js",
+    "audit": "node scripts/detect-audit.js",
+    "hotkeys": "node scripts/hotkey-audit.js",
+    "test": "node scripts/test.js && node scripts/test-main.js",
+    "test:main": "node scripts/test-main.js",
+    "dist": "electron-builder --win",
+    "dist:signed": "node scripts/sign-build.js --electron-builder",
+    "resedit": "node scripts/resedit.js",
+    "dist:final": "npm run test && npm run dist"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^26.18.0",
+    "resedit": "^3.1.0"
+  },
+  "build": {
+    "appId": "com.yagyesh.glance",
+    "productName": "Glance AI",
+    "copyright": "© Yagyesh Vyas",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signtoolOptions": {
+        "sign": "./scripts/sign-file.js",
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      },
+      "executableName": "Glance AI",
+      "artifactName": "Glance-AI-${version}-${arch}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "yagyeshVyas",
+        "repo": "glance-ai",
+        "releaseType": "release"
+      }
+    ],
+    "afterSign": "scripts/after-sign.js",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "menuCategory": false,
+      "shortcutName": "Glance AI",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "include": "build/installer.nsh"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}
