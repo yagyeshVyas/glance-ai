@@ -4,7 +4,7 @@
 
 **An AI interview assistant for Windows that stays out of your screen share.**
 
-Hear the room, read the screen, get the answer — in a small panel that OBS, Zoom, Meet and Teams never capture.
+Hear the room, read the screen, get the answer — in a small panel that Zoom, Meet, Teams, Webex, OBS and Discord never capture.
 
 [![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](#requirements)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
@@ -87,23 +87,33 @@ Chosen to avoid browser shortcuts. Conflicts are reported by name, and `npm run 
 
 The webcam is never opened, so it cannot fight Teams or Zoom for the device. Instead the panel reads the screen, finds the largest face and draws a landmark mesh and gaze vector. MediaPipe runs from a vendored model — fully offline.
 
-## Stealth, and its honest limits
+## Hidden from screen share
 
-Two independent layers on every window of every helper process:
+This is the point of the project, so it is worth being precise about the words.
+
+**Nothing that captures your screen sees the panel.** Not Zoom, Meet, Teams, Webex, OBS, Discord, Snipping Tool, or a browser tab doing `getDisplayMedia`. Their capture comes back without these pixels, so the person on the other end sees your slides and your editor as if the overlay were not installed.
+
+Four independent layers, all applied to every window of every helper process:
 
 - `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` — pixels absent from capture. Falls back to `WDA_MONITOR` before Windows 10 2004, where `0x11` is unsupported.
-- **DWM cloak** (`DWMWA_CLOAK`) — DWM stops composing the window entirely, so it drops out of window enumeration. A native addon applies it in-process because DWM refuses a foreign caller.
+- **DWM cloak** (`DWMWA_CLOAK`) when the panel is hidden — DWM stops composing the window entirely, so it drops out of window enumeration. A native addon applies it in-process because DWM refuses a foreign caller.
+- **Window shim** — the window is reparented under a host with a plain WinUI class, so `EnumWindows` returns only the host: `WinUIDesktopWin32WindowClass`, with `Chrome_WidgetWin_1` nowhere in the list.
 - `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, no taskbar button, blanked titles.
 
-Measured, not claimed:
+Measured, not claimed — these are this repo's own audit tools:
 
 ```
 $ npm run audit
 PID    PROCESS       AFFINITY                TITLE      VERDICT
-4820   Glance AI.exe WDA_EXCLUDEFROMCAPTURE  Glance AI  DWM-cloaked, capture-excluded
+4820   Glance AI.exe WDA_EXCLUDEFROMCAPTURE  Glance AI  capture-excluded, overlay-shaped
+
+$ npx electron scripts/capture-probe.js
+"wshxListed": false
 ```
 
-**Window shim.** A detector finds the overlay by enumerating top-level windows, then reads the class and affinity off whatever it finds. Glance reparents its window under an innocuous host, so `EnumWindows` returns only the host: `WinUIDesktopWin32WindowClass` with `Chrome_WidgetWin_1` nowhere in the list. The Electron window keeps the exclusion as a child, and the flag lives on the host because `SetWindowDisplayAffinity` is top-level only. Disable with `"blendWindow": false` if it misbehaves on your setup.
+**Where the line is.** Screen share is solved. A *proctoring tool* is a different problem: it can call `GetWindowDisplayAffinity` on every top-level window and will see that something answers `0x11`. It still has to find the window first, and the shim means it no longer looks like an Electron app — but the flag itself cannot be removed, because it *is* the mechanism.
+
+So: hidden from every capture app. Detectable by a purpose-built proctor or EDR agent. Not hidden from a phone pointed at your monitor either.
 
 **What this does not do.** Three limits remain, all structural:
 
