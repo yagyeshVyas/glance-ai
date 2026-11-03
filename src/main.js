@@ -2074,6 +2074,7 @@ app.whenReady().then(() => {
       return { ok: false, reason: err.message };
     }
   });
+  handle('window:shown', () => isShown);
   handle('window:move', (_e, { dx, dy }) => {
     if (!win) return;
     const [x, y] = win.getPosition();
