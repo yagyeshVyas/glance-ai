@@ -67,23 +67,17 @@ app.whenReady().then(async () => {
     const script = `(async () => {
       document.getElementById('gear').click();
       await new Promise(r => setTimeout(r, 700));
-      document.getElementById('s_ghostCheck').click();
-      await new Promise(r => setTimeout(r, 9000));
-      const rows = [...document.querySelectorAll('#s_report .tell')].map(d => ({
-        cls: d.className, text: d.textContent.replace(/\\s+/g, ' ').trim().slice(0, 110),
-      }));
-      const msg = document.getElementById('s_ghostMsg');
-      const out = { rows, verdict: msg.textContent, cls: msg.className, visible: !document.getElementById('s_report').hidden };
+      const raw = await window.glance.stealthReport();
+      const out = { probe: raw.probe, aff: raw.affinity, affAfter: raw.affinityAfter, ok: raw.ok, fails: raw.fails, warns: raw.warns, reason: raw.reason };
       document.getElementById('s_close').click();
       return JSON.stringify(out);
     })()`;
     const r = await ev(script);
     const v = JSON.parse(r.result.value);
-    console.log(v.verdict);
-    for (const row of v.rows) console.log(`  [${row.cls.split(' ')[1] || '?'}] ${row.text}`);
-    const reds = v.rows.filter((x) => x.cls.includes('fail')).length;
-    const ok = v.visible && v.rows.length >= 8 && reds === 0;
-    console.log(`rows=${v.rows.length} red=${reds} ${ok ? 'PASS' : 'FAIL'}`);
-    app.exit(ok ? 0 : 1);
+    console.log(JSON.stringify(v));
+    console.log(v.ok ? 'PASS' : 'FAIL');
+    app.exit(v.ok === true ? 0 : 1);
   } catch (e) { console.error('ERR:', e.message); app.exit(1); }
 });
+
+

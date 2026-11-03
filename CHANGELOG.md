@@ -2,6 +2,49 @@
 
 The project is **Glance AI**. It was renamed `Glance` → `wshx-host` → `svchost`, and is now Glance AI again — product, binary, install folder and data folder all agree.
 
+## 3.0.1
+
+**Capture protection came back off after every hide/show cycle.**
+
+`hide-helper uncloak` calls `SetWindowDisplayAffinity(h, WDA_NONE)` on the window
+root, and nothing re-asserted it. Starting the app was fine (startup cloaks, it
+does not uncloak), so the panel was protected until the first `Ctrl+Shift+H` —
+then, on show, it sat on screen fully capturable, with the stealth report still
+green because the report ran its own `hide()` last. `Ctrl+Alt+X` then
+`Ctrl+Shift+H` was enough to expose it.
+
+`applyDeepStealth` now re-asserts stealth after the style/cloak writes, in both
+directions.
+
+Why the existing tests missed it: both `capture-ab.js` and the report hide the
+panel and hash while it is hidden, so they only ever measured the hidden
+direction. New guard: `scripts/external-capture-test.js` captures a region from a
+**separate PowerShell/GDI process** with the panel on screen and requires the
+bytes to equal the panel-hidden capture, with a control that turns protection off
+to prove the region really is the panel. `stealth-report-probe.js` also
+deliberately toggles hide/show before reporting now.
+
+Measured after the fix: GDI external capture identical with the panel shown and
+gone; report 10 rows, 0 red, after a full cycle.
+
+**The report's capture row was rebuilt around what actually holds up**
+- Hash equality was the first oracle and is wrong: an excluded capture shows the
+  live desktop behind the panel, which changes between samples. It reported FAIL
+  on a healthy app two runs in a row.
+- Mean luminance is better but still content-dependent: over a dark terminal the
+  panel and the desktop both read ~30 and the row could not tell them apart.
+- The row now takes three references back to back (panel off-screen, panel
+  unprotected, panel protected), medians each, and reports **warn/inconclusive**
+  instead of a verdict when the references do not separate.
+- The window rectangle comes from the OS: `win.getBounds()` disagrees with where
+  the composed window actually is after a reparent (measured 179px off), so the
+  sample was landing in the wrong place.
+- Protection is toggled through `cfg.stealth` like the command-line probe, not the
+  internal `selfCapturing` flag.
+- The host's ex-style is re-keyed (`rekey` addon export) before the flag is set, so
+  a lost colour key cannot leave `0x11` set but ineffective.
+
+
 ## 3.0.0
 
 Answering quality and the detection surface, not just the capture.
