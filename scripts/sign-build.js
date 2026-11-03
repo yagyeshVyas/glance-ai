@@ -84,6 +84,11 @@ function thumbExists(thumb) {
       }
       return targets.map((t) => path.basename(t)).join(', ');
     });
+    // Signing rewrote every byte the updater will hash, so latest.yml has to be
+    // re-stamped from the signed files or electron-updater rejects the download
+    // on a checksum mismatch — and that failure is silent.
+    run('re-stamp latest.yml', () =>
+      execFileSync(process.execPath, [path.join(__dirname, 'refresh-latest-yml.js')], { stdio: 'inherit' }));
     console.log('4/4 verify payload + installer');
     run('verify payload', () => {
       const exes = [];
