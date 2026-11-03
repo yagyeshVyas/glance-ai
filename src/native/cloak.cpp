@@ -314,8 +314,30 @@ static napi_value ChildChromiumClasses(napi_env env, napi_callback_info info) {
   return r;
 }
 
+// The host is a colour-keyed layered window; re-apply the key and the layered flag.
+// After a show the layered surface can come back without its key, and with it gone
+// the exclusion stops taking effect even though GetWindowDisplayAffinity still
+// answers 0x11.
+static napi_value Rekey(napi_env env, napi_callback_info info) {
+  uint32_t h32 = argHandle(env, info, nullptr);
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  BOOL ok = FALSE;
+  if (IsWindow(h)) {
+    LONG_PTR ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+    SetWindowLongPtrW(h, GWL_EXSTYLE, ex | WS_EX_LAYERED);
+    ok = SetLayeredWindowAttributes(h, RGB(255, 0, 255), 0, LWA_COLORKEY);
+    SetWindowPos(h, nullptr, 0, 0, 0, 0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  }
+  napi_value r;
+  napi_get_boolean(env, ok != FALSE, &r);
+  return r;
+}
+
 static napi_value Init(napi_env env, napi_value exports) {
   napi_value fn;
+  napi_create_function(env, "rekey", NAPI_AUTO_LENGTH, Rekey, nullptr, &fn);
+  napi_set_named_property(env, exports, "rekey", fn);
   napi_create_function(env, "className", NAPI_AUTO_LENGTH, ClassName, nullptr, &fn);
   napi_set_named_property(env, exports, "className", fn);
   napi_create_function(env, "exStyle", NAPI_AUTO_LENGTH, ExStyle, nullptr, &fn);

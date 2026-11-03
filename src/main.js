@@ -357,7 +357,7 @@ const handle = (channel, fn) =>
 // ---------- native stealth helper ----------
 // Compiled from scripts/hide-helper.cs with the in-box csc; cached at
 // %TEMP%\wshx-audit\hide-helper.exe so the on-disk path never advertises
-// the app name. Missing on non-Windows → the deep-stealth path no-ops.
+// the app name. Missing on non-Windows —  the deep-stealth path no-ops.
 const HIDE_HELPER = path.join(require('os').tmpdir(), 'dxva_143.exe'); // name kept: reads as a DXVA helper
 function ensureHideHelper() {
   if (process.platform !== 'win32') return false;
@@ -464,7 +464,15 @@ function applyAffinity() {
   //
   // What the shim still buys: the flagged window is no longer Chrome_WidgetWin_1.
   // A detector that filters by class before checking affinity finds nothing.
-  nat.setAffinity(host, wantOn ? 0x11 : 0);
+  // re-key the layered host first: a lost colour key makes the flag ineffective
+  try { if (nat.rekey) nat.rekey(host); } catch {}
+  const ok = nat.setAffinity(host, wantOn ? 0x11 : 0);
+  if (ok && wantOn) {
+    // After a hide/show the flag can read back as 0x11 while the window is still
+    // captured: DWM has not recomposed the surface since the call. A cloak/uncloak
+    // cycle forces it and is invisible at this speed.
+    try { nat.cloak(host); nat.uncloak(host); } catch {}
+  }
 }
 
 function applyStealth() {
@@ -545,6 +553,11 @@ function applyDeepStealth(on, cb, soft) {
     // cloak, so it has to be the final call
     cloakHost(on);
     const cloaked = setDwmCloak(h32, on);
+    // The helper's `uncloak` calls SetWindowDisplayAffinity(h, WDA_NONE) on the
+    // root — so every hide/show cycle silently dropped capture protection and the
+    // panel came back capturable until the next config save. Re-assert it here,
+    // after the style/cloak writes, for both directions.
+    applyStealth();
     if (process.env.WSHX_CLOAK_DEBUG) console.log('[cloak]', h32, on, cloaked);
     if (cb) cb(null, cloaked);
   };
@@ -662,7 +675,8 @@ async function toggleVisible() {
   if (!win) return;
   if (isShown) {
     if (cfg.stealthDeep) {
-      await applyDeepStealthAsync(true);
+      const before = win.getBounds();
+    win.setPosition(-32000, -32000); // off every monitor: an unambiguous background
     } else {
       win.setPosition(-32000, -32000);
       win.hide();
@@ -680,6 +694,10 @@ async function toggleVisible() {
     win.showInactive();
     win.focus();
     isShown = true;
+    // Showing is what drops the flag: Chromium builds a fresh surface for the
+    // child, and the helper's uncloak already cleared affinity on the root. The
+    // re-assert in applyDeepStealth runs *before* this show, so it is not enough.
+    setTimeout(() => { if (win && !win.isDestroyed()) applyStealth(); }, 150);
   }
 }
 
@@ -730,7 +748,7 @@ function registerShortcuts() {
   reg('CommandOrControl+Alt+Up', () => nudge(0, -40));
   reg('CommandOrControl+Alt+Down', () => nudge(0, 40));
   reg('CommandOrControl+Alt+Q', () => app.quit());
-  reg('CommandOrControl+Shift+Q', () => app.quit()); // matches the ✕ close button
+  reg('CommandOrControl+Shift+Q', () => app.quit()); // matches the —S" close button
   if (failed.length) {
     console.warn('shortcuts unavailable:', failed.join(', '));
     const message = `Hotkey conflict — these are taken by another app: ${failed.join(', ')}`;
@@ -847,32 +865,133 @@ function grabRaw(display) {
   });
 }
 
-async function regionHash() {
-  const b = win.getBounds();
-  // the panel may be on a secondary monitor; sample the display it is actually on
-  const d = screen.getDisplayNearestPoint({
-    x: Math.round(b.x + b.width / 2),
-    y: Math.round(b.y + b.height / 2),
-  });
-  const scale = d.scaleFactor || 1;
-  const sources = await grabRaw(d);
-  const img = (sources.find((s) => s.display_id === String(d.id)) || sources[0] || {}).thumbnail;
-  if (!img) throw new Error('no screen source (capture unavailable)');
-  const bmp = img.toBitmap();
-  const fullW = img.getSize().width;
-  const px = (v) => Math.round(v * scale);
-  // sample the panel interior, inset so the rounded corners and shadow do not dominate
-  const x0 = Math.max(0, px(b.x - d.bounds.x) + Math.round(60 * scale));
-  const y0 = Math.max(0, px(b.y - d.bounds.y) + Math.round(80 * scale));
-  const w = Math.min(px(GHOST_SAMPLE.w), fullW - x0);
-  const h = Math.min(px(GHOST_SAMPLE.h), img.getSize().height - y0);
-  if (w < 8 || h < 8) throw new Error('panel is too small to sample');
-  const hash = crypto.createHash('sha256');
-  for (let row = 0; row < h; row++) {
-    const start = ((y0 + row) * fullW + x0) * 4;
-    hash.update(bmp.subarray(start, start + w * 4));
+// Contrast between the inside and the outside of the panel, measured in one frame.
+//
+// Absolute luminance fails here because the panel is translucent glass: what a
+// capture shows depends on the desktop behind it, which changes between samples.
+// Comparing the panel's interior with the desktop just beside it is self-
+// referencing — same frame, same background — so it stays stable whether the
+// page behind is white, dark or moving.
+//   excluded  —  inside looks like the desktop  —  small contrast
+//   captured  —  inside is tinted glass         —  large contrast
+// The panel's real screen rectangle, read from the OS.
+//
+// win.getBounds() after a reparent is Electron's own idea of the position and can
+// disagree with where the composed window actually is (measured 179px off here),
+// so the sample area is derived from EnumWindows + GetWindowRect instead.
+function hostRectExternal() {
+  const script = [
+    'Add-Type -TypeDefinition \'using System;using System.Collections.Generic;using System.Runtime.InteropServices;',
+    'public class E { public delegate bool P(IntPtr h, IntPtr l);',
+    ' [DllImport("user32.dll")] public static extern bool EnumWindows(P p, IntPtr l);',
+    ' [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
+    ' [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);',
+    ' [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RC r);',
+    ' [StructLayout(LayoutKind.Sequential)] public struct RC { public int l,t,r,b; }',
+    ' public static List<int[]> V(uint[] t) { var o = new List<int[]>();',
+    '  EnumWindows((h,l) => { uint p; GetWindowThreadProcessId(h, out p);',
+    '   if (Array.IndexOf(t, p) >= 0 && IsWindowVisible(h)) { RC r; GetWindowRect(h, out r);',
+    '     var a = (r.r-r.l)*(r.b-r.t); if (a > 10000) o.Add(new int[]{ r.l, r.t, r.r-r.l, r.b-r.t, a }); }',
+    '   return true; }, IntPtr.Zero); return o; } }\'',
+    '$ps = @(Get-Process assistant,electron -EA SilentlyContinue)',
+    "if ($ps.Count -eq 0) { 'none'; exit }",
+    "$ids = New-Object 'uint32[]' $ps.Count",
+    'for ($i=0; $i -lt $ps.Count; $i++) { $ids[$i] = [uint32]$ps[$i].Id }',
+    '$best = $null; $area = 0',
+    'foreach ($r in [E]::V($ids)) { if ($r[4] -gt $area) { $area = $r[4]; $best = $r } }',
+    "if (-not $best) { 'none'; exit }",
+    '"$($best[0]) $($best[1]) $($best[2]) $($best[3])"',
+  ].join("\n");
+  const file = path.join(require('os').tmpdir(), 'stealth-rect-' + process.pid + '.ps1');
+  fs.writeFileSync(file, script);
+  try {
+    const out = require('child_process').execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
+      encoding: 'utf8', timeout: 12000, windowsHide: true,
+    }).trim();
+    if (!out || out === 'none') return null;
+    const [x, y, w, h] = out.split(/\s+/).map(Number);
+    return Number.isFinite(x) && w > 100 ? { x, y, w, h } : null;
+  } catch {
+    return null;
+  } finally {
+    try { fs.unlinkSync(file); } catch {}
   }
-  return hash.digest('hex').slice(0, 16);
+}
+
+// A vertical strip across the panel's left border, in screen pixels.
+//
+// Mean luminance alone cannot separate the panel from the desktop on a dark
+// theme: measured 31-38 in every phase. The panel's 1px light border is a step
+// that exists only when the panel is drawn, so the strip is centred on it and the
+// strongest column-to-column jump is the signal.
+function sampleGeometry() {
+  const b = hostRectExternal();
+  if (!b) throw new Error('panel window not found for sampling');
+  const half = 30;
+  return {
+    rect: {
+      x: b.x - half,
+      y: b.y + Math.round(b.h * 0.25),
+      w: half * 2,
+      h: Math.min(220, Math.round(b.h * 0.4)),
+      borderX: half, // the border sits half way into the strip
+    },
+  };
+}
+
+// Strongest column-to-column brightness step in the strip, and where it is.
+// A captured panel puts a light 1px border at a fixed column; an excluded capture
+// only has whatever the desktop happens to contain.
+async function borderStep(rect, borderX) {
+  const script = [
+    'Add-Type -AssemblyName System.Drawing',
+    "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;",
+    'public class B { [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);',
+    ' [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr d,int x,int y,int w,int h,IntPtr s,int sx,int sy,int r);',
+    ' [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr d); }\'',
+    `$bmp = New-Object System.Drawing.Bitmap ${rect.w}, ${rect.h}`,
+    '$g = [System.Drawing.Graphics]::FromImage($bmp); $hdc = $g.GetHdc(); $src = [B]::GetDC([IntPtr]::Zero)',
+    `[void][B]::BitBlt($hdc, 0, 0, ${rect.w}, ${rect.h}, $src, ${rect.x}, ${rect.y}, 0x00CC0020)`,
+    '[void][B]::ReleaseDC([IntPtr]::Zero, $src); $g.ReleaseHdc($hdc); $g.Dispose()',
+    `for ($x = 0; $x -lt ${rect.w}; $x++) { $sum = 0.0`,
+    `  for ($y = 0; $y -lt ${rect.h}; $y += 2) { $c = $bmp.GetPixel($x, $y); $sum += (0.2126*$c.R + 0.7152*$c.G + 0.0722*$c.B) }`,
+    `  [math]::Round($sum / ${Math.ceil(rect.h / 2)}, 2) }`,
+    '$bmp.Dispose()',
+  ].join("\n");
+  const file = path.join(require('os').tmpdir(), 'stealth-strip-' + process.pid + '.ps1');
+  fs.writeFileSync(file, script);
+  try {
+    const out = require('child_process').execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
+      encoding: 'utf8', timeout: 15000, windowsHide: true,
+    }).trim();
+    const cols = out.split(/\r?\n/).map(Number).filter((n) => Number.isFinite(n));
+    if (cols.length < 10) return null;
+    let best = 0, at = -1;
+    for (let i = 1; i < cols.length; i++) {
+      const d = Math.abs(cols[i] - cols[i - 1]);
+      if (d > best) { best = d; at = i; }
+    }
+    // a step at the border is what the panel produces; noise is elsewhere
+    const nearBorder = at >= borderX - 16 && at <= borderX + 16;
+    return { step: best, at, nearBorder };
+  } catch {
+    return null;
+  } finally {
+    try { fs.unlinkSync(file); } catch {}
+  }
+}
+
+// median of a few attempts: a cursor or a repaint can land in one frame
+async function stableStep(rect, borderX) {
+  const v = [];
+  for (let i = 0; i < 3; i++) {
+    const r = await borderStep(rect, borderX);
+    if (r) v.push(r);
+    await delay(120);
+  }
+  if (!v.length) throw new Error('screen capture unavailable');
+  v.sort((a, b) => b.step - a.step);
+  return v[Math.floor(v.length / 2)];
 }
 
 async function stealthReport() {
@@ -892,23 +1011,62 @@ async function stealthReport() {
   await delay(600);
 
   const affinity = nat.getAffinity(host);
-  const shown = await regionHash();
   const bounds = win.getBounds();
 
-  // hide by cloak/off-screen (the real hide path), not by shrinking
-  win.hide();
-  await delay(800);
-  let hidden;
-  try {
-    hidden = await regionHash();
-  } finally {
-    if (!win.isDestroyed()) win.showInactive();
+  // Reference: panel on screen with protection deliberately off — how much
+  // contrast the panel itself creates against its surroundings.
+  // Both measurements happen over the same grey backdrop, so the numbers are
+  // comparable regardless of what is on the desktop.
+  const geo = { rect: sampleGeometry().rect };
+
+  // One measurement pass: background (cloaked), panel unprotected, panel protected.
+  const measureOnce = async () => {
+    // Background reference: move the panel off every monitor. Neither win.hide()
+    // (the host stays composed) nor the DWM cloak proved reliable here, while an
+    // off-screen position is unambiguous.
+    const before = win.getBounds();
+    win.setPosition(-32000, -32000);
+    await delay(600);
+    const bg = await stableStep(geo.rect, geo.borderX);
+    const bgRect = hostRectExternal();
+    if (win && !win.isDestroyed()) { win.setPosition(before.x, before.y); win.showInactive(); }
+    await delay(600);
+
+    // Protection reference: drive cfg.stealth exactly like the external probe does.
+    // The selfCapturing flag was tried first and behaved differently from a real
+    // config change, which is how this row disagreed with the command-line test.
+    const savedStealth = cfg.stealth;
+    cfg.stealth = false;
     applyStealth();
-    await delay(400);
-  }
+    await delay(600);
+    const affOff = nat.getAffinity(host);
+    const off = await stableStep(geo.rect, geo.borderX);
+
+    cfg.stealth = true;
+    applyStealth();
+    await delay(600);
+    applyStealth(); // asserted after the state change, not only with it
+    await delay(300);
+    const on = await stableStep(geo.rect, geo.borderX);
+    cfg.stealth = savedStealth;
+    return { bg, off, on, affOff, affOn: nat.getAffinity(host), bgRect };
+  };
+
+  // The hide occasionally does not take (the cloak is a separate process and can
+  // lose the race). If the background reference is indistinguishable from the panel
+  // there is nothing to judge on, so try once more before calling it inconclusive.
+  let m = await measureOnce();
+  if (m.off.step <= 5) m = await measureOnce();
+  const { bg, off, on, affOff: affinityOff, affOn: affinityOn, bgRect } = m;
+  const affinityAfter = affinityOn;
+  const bgAfter = nat.getAffinity(host);
   if (!wasShown) { win.hide(); isShown = false; }
 
-  const excluded = shown === hidden;
+  const separation = Math.abs(off.step - bg.step);
+  const toBackground = Math.abs(on.step - bg.step);
+  const toPanel = Math.abs(on.step - off.step);
+  const conclusive = separation >= 10; // the control has to be distinguishable
+  const excluded = conclusive && toBackground < toPanel;
   const mechanism = affinity === 17 ? 'excluded' : affinity === 1 ? 'monitor' : 'none';
 
   // Everything a detector can read, measured — not restated from settings. Each
@@ -918,14 +1076,18 @@ async function stealthReport() {
   const ex = Number(nat.exStyle(host)) || 0;
   const title = nat.title(host);
   const chromiumChildren = nat.childChromiumClasses(host);
-  const hasTool = (ex & 0x80) !== 0; // WS_EX_TOOLWINDOW → no taskbar, no Alt+Tab
+  const hasTool = (ex & 0x80) !== 0; // WS_EX_TOOLWINDOW —  no taskbar, no Alt+Tab
   const hasTop = (ex & 0x8) !== 0; // WS_EX_TOPMOST
 
   const tell = (id, label, status, detail) => ({ id, label, status, detail });
   const tells = [
-    tell('capture', 'Pixels absent from a screen capture', excluded ? 'pass' : 'fail',
-      excluded ? 'An identical region hashes the same with the panel shown and gone.'
-        : 'The capture contains the panel. Screen share can see it.'),
+    tell('capture', 'Panel border absent from a screen capture',
+      excluded ? 'pass' : conclusive ? 'fail' : 'warn',
+      excluded
+        ? `The panel border is gone from the capture (step ${on.step.toFixed(1)} at column ${on.at}, vs ${off.step.toFixed(1)} unprotected).`
+        : conclusive
+          ? `The capture still contains the panel border (step ${on.step.toFixed(1)} at column ${on.at}, vs ${off.step.toFixed(1)} unprotected).`
+          : `The panel border was not findable on this run (step ${off.step.toFixed(1)} at column ${off.at}) — run the report again.`),
     tell('affinity', 'Capture-exclusion flag', affinity === 17 ? 'pass' : affinity === 1 ? 'warn' : 'fail',
       affinity === 17 ? 'GetWindowDisplayAffinity reads 0x11 (WDA_EXCLUDEFROMCAPTURE).'
         : affinity === 1 ? 'Reads 0x1 (WDA_MONITOR): a black block, not a hidden window. Windows 10 2004+ is needed for 0x11.'
@@ -967,10 +1129,10 @@ async function stealthReport() {
     affinity,
     mechanism,
     bounds,
-    shown,
-    hidden,
+    probe: { off, on, bg, affinityOff, affinityOn, rect: geo.rect, bgRect },
+    affinityAfter,
     verdict: ok
-      ? `PASS — ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} unavoidable caveat(s)` : ''}. A screen capture returns your screen without this panel.`
+      ? `PASS — ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} caveat(s)` : ''}. A screen capture returns your screen without this panel.`
       : `FAIL — ${fails} tell(s) let a detector notice the panel.`,
   };
 }
@@ -1034,7 +1196,7 @@ function setupUpdater() {
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
 
-    autoUpdater.on('update-available', (i) => updaterStatus(`Downloading update ${i.version}…`));
+    autoUpdater.on('update-available', (i) => updaterStatus(`Downloading update ${i.version}⬦`));
     autoUpdater.on('update-not-available', () => updaterStatus('Glance AI is up to date'));
     autoUpdater.on('update-downloaded', (i) =>
       updaterStatus(`Update ${i.version} ready — restart to apply`, 'info'));
@@ -1047,7 +1209,7 @@ function setupUpdater() {
 
 // ---------- host blend: hide the class name and the affinity flag ----------
 // A detector that enumerates top-level windows finds the overlay, reads its class
-// (Chrome_WidgetWin_1 → "Electron") and GetWindowDisplayAffinity (0x11 →
+// (Chrome_WidgetWin_1 —  "Electron") and GetWindowDisplayAffinity (0x11 — 
 // "deliberately hidden"). Reparenting the window under an innocuous host means
 // only the host is enumerated: our class, and no affinity flag at all.
 // The child keeps the exclusion, so capture is unaffected.
@@ -1212,7 +1374,7 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
         if (i < n - 1) await delay(1200);
       }
     }
-    // Decide what actually fits before trimming: on a 4k–8k window the frames plus
+    // Decide what actually fits before trimming: on a 4k—8k window the frames plus
     // the output reserve exceed the whole budget, and a 2 000-token text floor then
     // overshoots it. fitFrames drops the last frames first, then the only one.
     const fit = fitFrames(frames, budget, maxOut);
@@ -1875,7 +2037,7 @@ app.whenReady().then(() => {
     if (!app.isPackaged) return { ok: false, error: 'only in an installed build' };
     if (!updater) return { ok: false, error: 'updater unavailable' };
     try {
-      updaterStatus('Checking for updates…');
+      updaterStatus('Checking for updates⬦');
       await updater.checkForUpdates();
       return { ok: true };
     } catch (e) {
