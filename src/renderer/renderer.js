@@ -93,7 +93,9 @@ function stampAt(iso) {
 }
 function paintTranscript() {
   el.transcript.classList.remove('muted');
-  el.transcript.textContent = transcriptLog.map((e) => `[${stampAt(e.at)}] ${e.text}`).join('\n');
+  el.transcript.textContent = transcriptLog
+    .map((e) => (e.who ? `[${stampAt(e.at)}] ${e.who}: ${e.text}` : `[${stampAt(e.at)}] ${e.text}`))
+    .join('\n');
   el.transcript.scrollTop = el.transcript.scrollHeight;
 }
 
@@ -397,8 +399,12 @@ $('recap').addEventListener('click', recapTranscript);
 
 // ---------- audio capture + transcription ----------
 // CHUNK_MS lives in the Copilot block (fast mode adjusts it)
-let stream = null;
+// One stream per speaker. "Both" runs a mic loop and a loopback loop side by
+// side so an interview reads as two labelled sides instead of one blended wall;
+// transcriptText stays unlabelled because it is what gets sent to the model.
+const streams = new Map(); // 'you' | 'them' → MediaStream
 let listening = false;
+const WHO = { you: 'You', them: 'Them' };
 
 async function openStream(kind) {
   if (kind === 'system') {
@@ -411,9 +417,11 @@ async function openStream(kind) {
   return navigator.mediaDevices.getUserMedia({ audio: true });
 }
 
-function recordOnce(ms) {
+function recordOnce(who, ms) {
   return new Promise((resolve) => {
-    const rec = new MediaRecorder(stream);
+    const src = streams.get(who);
+    if (!src) return resolve(null);
+    const rec = new MediaRecorder(src);
     const parts = [];
     rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
     rec.onstop = () => resolve(new Blob(parts, { type: rec.mimeType }));
@@ -459,7 +467,7 @@ const MAX_QUEUE = 8;
 
 async function drainQueue() {
   while (transcribeQueue.length) {
-    const { buf, mime } = transcribeQueue.shift();
+    const { buf, mime, who } = transcribeQueue.shift();
     try {
       const r = await api.transcribe(buf, mime);
       if (r.error) {
@@ -468,7 +476,9 @@ async function drainQueue() {
       }
       const text = (r.text || '').trim();
       if (!text) continue;
-      transcriptLog.push({ at: new Date().toISOString(), text });
+      // the label is display-only: transcriptText stays plain so the prompt reads
+      // like speech, not like a screenplay
+      transcriptLog.push({ at: new Date().toISOString(), text, who });
       transcriptText += (transcriptText ? ' ' : '') + text;
       paintTranscript();
       onTranscriptUpdated();
@@ -481,31 +491,35 @@ async function drainQueue() {
   transcribeWorker = null;
 }
 
-function enqueueChunk(buf, mime) {
+function enqueueChunk(buf, mime, who) {
   if (transcribeQueue.length >= MAX_QUEUE) {
     transcribeQueue.shift();
     setStatus('Audio backlog — dropping oldest chunk', true);
   }
-  transcribeQueue.push({ buf, mime });
+  transcribeQueue.push({ buf, mime, who });
   if (!transcribeWorker) transcribeWorker = drainQueue();
 }
 
-async function listenLoop() {
-  while (listening) {
-    const blob = await recordOnce(CHUNK_MS);
-    if (!listening) break; // Stop arrived while this chunk was recording — do not enqueue it
+async function listenLoop(who) {
+  while (listening && streams.has(who)) {
+    const blob = await recordOnce(who, CHUNK_MS);
+    if (!blob || !listening) break; // Stop arrived while this chunk was recording — do not enqueue it
     if (blob.size < 2000) continue; // near-silence / empty
     const buf = await blob.arrayBuffer();
     if (await isSilent(buf)) continue; // save an API call on silent chunks
-    enqueueChunk(buf, blob.type);
+    enqueueChunk(buf, blob.type, WHO[who]);
   }
+}
+
+function stopAllStreams() {
+  for (const s of streams.values()) s.getTracks().forEach((t) => t.stop());
+  streams.clear();
 }
 
 async function toggleListen() {
   if (listening) {
     listening = false;
-    stream?.getTracks().forEach((t) => t.stop());
-    stream = null;
+    stopAllStreams();
     el.listen.classList.remove('on');
     el.listen.textContent = 'Listen';
     el.listen.disabled = false;
@@ -514,12 +528,24 @@ async function toggleListen() {
     return;
   }
   el.listen.disabled = true;
-  try {
-    stream = await openStream(el.source.value);
-  } catch (err) {
-    el.listen.disabled = false;
-    return setStatus('Audio: ' + err.message, true);
+  const source = el.source.value;
+  // which loops to start. "both" hears the interviewer and you at once.
+  const wanted = source === 'both' ? ['them', 'you'] : source === 'system' ? ['them'] : ['you'];
+  let failed = [];
+  for (const who of wanted) {
+    try {
+      // a system loop must be requested from the loopback path; a mic loop from
+      // getUserMedia. The label decides the display name, the path is by kind.
+      streams.set(who, await openStream(who === 'them' ? 'system' : 'mic'));
+    } catch (err) {
+      failed.push(`${who === 'them' ? 'system audio' : 'mic'}: ${err.message}`);
+    }
   }
+  if (!streams.size) {
+    el.listen.disabled = false;
+    return setStatus('Audio: ' + failed.join('; '), true);
+  }
+  if (failed.length) setStatus('Partial audio — ' + failed.join('; '), true);
   listening = true;
   el.listen.classList.remove('on');
   el.listen.classList.add('on');
@@ -531,12 +557,14 @@ async function toggleListen() {
     el.answer.innerHTML = '<span class="muted">Practice session recording — answers stay hidden. Press Stop for your scored debrief.</span>';
     setStatus('Practice recording…');
   } else {
-    setStatus('Listening…');
+    setStatus(wanted.length > 1 ? 'Listening to both sides…' : 'Listening…');
   }
-  listenLoop().catch((err) => {
-    setStatus('Listen loop error: ' + err.message, true);
-    toggleListen();
-  });
+  for (const who of streams.keys()) {
+    listenLoop(who).catch((err) => {
+      setStatus('Listen loop error: ' + err.message, true);
+      if (listening) toggleListen();
+    });
+  }
 }
 el.listen.addEventListener('click', toggleListen);
 
@@ -551,7 +579,7 @@ api.onClickThrough((on) => document.body.classList.toggle('click-through', on));
 // ---------- settings ----------
 const fields = ['baseUrl', 'chatModel', 'transcribeModel', 'systemPrompt',
   'transcribeBaseUrl', 'ttsBaseUrl', 'ttsVoice', 'ttsModel',
-  'targetRole', 'resume', 'answerLang', 'answerStyle', 'contextTokens',
+  'targetRole', 'resume', 'knowledge', 'answerLang', 'answerStyle', 'contextTokens',
   'fallbackBaseUrl', 'fallbackChatModel'];
 // secrets are never read back from main; they submit blank and main keeps the stored value
 const keyFields = ['apiKey', 'transcribeApiKey', 'ttsApiKey', 'fallbackApiKey'];
@@ -750,28 +778,36 @@ function setScramble(on) {
 }
 $('s_scramble').addEventListener('change', (e) => setScramble(e.target.checked));
 
-// Ghost check: an actual capture A/B on this machine, not a restated claim.
+// Stealth report: an actual measurement of every tell on this machine, not a
+// restated claim. Rows are rendered from what the main process read back.
 $('s_ghostCheck').addEventListener('click', async () => {
   const msg = $('s_ghostMsg');
+  const box = $('s_report');
   const btn = $('s_ghostCheck');
   btn.disabled = true;
-  msg.textContent = 'Capturing the panel, then capturing again with it gone…';
   msg.className = 'muted small';
+  msg.textContent = 'Capturing the panel, then capturing again with it gone…';
+  box.hidden = true;
   try {
-    const r = await api.ghostCheck();
-    if (r.ok) {
-      msg.className = 'small ok';
-      msg.textContent = `PASS — capture is identical with the panel shown and gone (affinity 0x${(r.affinity || 17).toString(16)}). Nothing that captures this screen sees it.`;
-    } else if (r.pixelExcluded && r.affinity === 0) {
-      msg.className = 'small warn';
-      msg.textContent = 'The pixels are excluded but no affinity flag is set — the native shim is missing, so a detector could read the window.';
-    } else {
+    const r = await api.stealthReport();
+    if (r.reason && !r.tells) {
       msg.className = 'small err';
-      msg.textContent = 'FAIL — ' + (r.reason || r.verdict || 'the panel appeared in the capture.');
+      msg.textContent = 'Report unavailable: ' + r.reason;
+      return;
     }
+    msg.className = 'small ' + (r.ok ? 'ok' : 'err');
+    msg.textContent = r.verdict;
+    box.innerHTML = r.tells
+      .map(
+        (t) =>
+          `<div class="tell ${escapeHtml(t.status)}"><span class="dot"></span>` +
+          `<div><b>${escapeHtml(t.label)}</b><div class="muted small">${escapeHtml(t.detail)}</div></div></div>`,
+      )
+      .join('');
+    box.hidden = false;
   } catch (e) {
     msg.className = 'small err';
-    msg.textContent = 'Check failed: ' + e.message;
+    msg.textContent = 'Report failed: ' + e.message;
   } finally {
     btn.disabled = false;
   }

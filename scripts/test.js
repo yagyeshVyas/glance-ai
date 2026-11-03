@@ -1,7 +1,7 @@
 // Unit tests for the pure helpers in src/shared.js. Run: npm test
 const assert = require('assert');
 const path = require('path');
-const { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS } = require(path.join(__dirname, '..', 'src', 'shared'));
+const { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes } = require(path.join(__dirname, '..', 'src', 'shared'));
 
 let passed = 0;
 function ok(name, fn) {
@@ -124,6 +124,37 @@ ok('looksLikeQuestion handles split/pending questions (G-08 regression)', () => 
   // question split mid-sentence across chunk boundary — still pending, still a question
   const partial = 'so what would you do if the';
   assert.ok(looksLikeQuestion(partial + ' database goes down?'));
+});
+
+// ---------- rankNotes: local knowledge retrieval ----------
+const NOTES = [
+  'Led the payments migration at Acme, moving 40 services off a monolith onto Postgres 14 with zero downtime over nine months.',
+  'Kubernetes: ran a 60-node EKS cluster, cut deploy time from 35 to 4 minutes, owned the Helm chart library.',
+  'Conflict: my tech lead and I disagreed about a rewrite; I shipped a spike to settle it with numbers instead of opinions.',
+  'Unrelated: the office coffee machine is on the third floor and takes oat pods.',
+].join('\n\n');
+
+ok('rankNotes returns the block that matches the question', () => {
+  const got = rankNotes(NOTES, 'how did you handle a conflict with your lead?');
+  assert.match(got, /tech lead/i);
+  assert.doesNotMatch(got, /coffee machine/i);
+});
+ok('rankNotes keeps a payments question away from the conflict story', () => {
+  const got = rankNotes(NOTES, 'tell me about the payments migration');
+  assert.match(got, /payments/i);
+  assert.doesNotMatch(got, /conflict/i);
+});
+ok('rankNotes returns nothing when no block overlaps', () => {
+  assert.strictEqual(rankNotes(NOTES, 'quantum chromodynamics'), '');
+});
+ok('rankNotes respects maxBlocks and maxChars', () => {
+  const many = Array.from({ length: 8 }, (_, i) => `kafka topic ${i}: partitions and consumer lag under rebalance`).join('\n\n');
+  assert.ok(rankNotes(many, 'kafka partitions rebalance', { maxBlocks: 2 }).split('\n\n').length <= 2);
+  assert.ok(rankNotes(many, 'kafka partitions rebalance', { maxChars: 120 }).length <= 200);
+});
+ok('rankNotes tolerates empty knowledge and empty query', () => {
+  assert.strictEqual(rankNotes('', 'anything'), '');
+  assert.strictEqual(rankNotes(NOTES, ''), '');
 });
 
 console.log(`\n${passed} tests passed`);

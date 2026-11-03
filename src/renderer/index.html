@@ -14,7 +14,7 @@
       <span id="status" class="status"></span>
       <div class="spacer"></div>
       <button id="gear" title="Settings">⚙</button>
-      <button id="hide" title="Hide to tray (Ctrl+Shift+H)">–</button>
+      <button id="hide" title="Hide (Ctrl+Shift+H) · panic hide Ctrl+Alt+X">–</button>
       <button id="close" title="Close and quit (Ctrl+Shift+Q)">✕</button>
     </header>
 
@@ -22,13 +22,14 @@
       <select id="source" title="Audio source">
         <option value="mic">Mic</option>
         <option value="system">Speakers (meeting)</option>
+        <option value="both">Both (you + them)</option>
       </select>
       <button id="listen" title="Ctrl+Shift+L">Listen</button>
       <button id="copilot" title="Auto-detect questions from audio and answer them">Copilot: off</button>
-      <button id="answerTranscript" title="Ctrl+Shift+A">What do I say?</button>
+      <button id="answerTranscript" class="primary" title="Ctrl+Shift+A — answer the question just asked">What do I say?</button>
       <button id="recap" title="Summarize transcript into notes">Recap</button>
       <button id="snapBtn" title="Capture a screenshot into the shot pile (Ctrl+Shift+S)">Capture</button>
-      <button id="askScreen" title="Ctrl+Alt+Enter — answers using the captured shots (or a fresh grab)">Analyze screen</button>
+      <button id="askScreen" class="primary" title="Ctrl+Alt+Enter — answers using the captured shots (or a fresh grab)">Analyze screen</button>
       <button id="newChat" title="Start a fresh chat (saves the current one to memory)">New chat</button>
       <button id="autoScreenBtn" title="Attach a fresh screenshot to every question">Screen: auto</button>
       <button id="fastBtn" title="Shorter audio chunks + faster question detection">Fast: off</button>
@@ -92,6 +93,7 @@
       <h4>Personalization (grounds every answer in your real experience)</h4>
       <label>Target role <input id="s_targetRole" placeholder="e.g. Senior React engineer, fintech" /></label>
       <label>Your background / CV (pasted) <textarea id="s_resume" rows="6" placeholder="Paste your resume or a summary of your experience, skills, projects…"></textarea></label>
+      <label>Knowledge base (pasted, offline) <textarea id="s_knowledge" rows="6" placeholder="Cheat sheet, project notes, star stories, JD, study notes. Separate entries with a blank line; only the entries matching the question are sent."></textarea></label>
       <label>Answer language <input id="s_answerLang" placeholder="auto — or any language, e.g. Hindi, Spanish" /></label>
       <label>Answer style
         <select id="s_answerStyle">
@@ -107,9 +109,10 @@
       <label class="row"><input id="s_stealthMaster" type="checkbox" /> Ghost mode — every privacy control at its strongest, on by default (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
       <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. It is invisibility to capture, not to an instrumented machine — see STEALTH.md.</p>
       <div class="row">
-        <button id="s_ghostCheck" type="button" title="Measure, on this machine, whether a screen capture can see the panel">Run ghost check</button>
-        <span id="s_ghostMsg" class="muted small">Tests the real capture path here — shown vs gone, compared pixel for pixel.</span>
+        <button id="s_ghostCheck" type="button" title="Measure, on this machine, every way the panel could be noticed">Run stealth report</button>
+        <span id="s_ghostMsg" class="muted small">Tests the real capture path here and every other tell a detector reads.</span>
       </div>
+      <div id="s_report" hidden></div>
       <h4>Backup chat provider (optional — used only when the main one fails)</h4>
       <label>Backup base URL <input id="s_fallbackBaseUrl" placeholder="(none)" /></label>
       <label>Backup API key <input id="s_fallbackApiKey" type="password" /></label>
@@ -146,8 +149,8 @@
         <span id="s_updateMsg" class="muted small"></span>
       </div>
       <p class="muted small">
-        Hotkeys: Ctrl+Shift+H (or Ctrl+Alt+Space) show/hide · Ctrl+Alt+Enter ask with screen · Ctrl+Shift+L listen ·
-        Ctrl+Shift+A answer from transcript · Ctrl+Alt+M click-through · Ctrl+Alt+Arrows move · Ctrl+Alt+Q quit.
+        Hotkeys: Ctrl+Shift+H (or Ctrl+Alt+Space) show/hide · Ctrl+Alt+X panic hide · Ctrl+Alt+Enter ask with screen ·
+        Ctrl+Shift+L listen · Ctrl+Shift+A answer from transcript · Ctrl+Alt+M click-through · Ctrl+Alt+Arrows move · Ctrl+Alt+Q quit.
         Model lists fill automatically once base URL + key are entered.
       </p>
     </div>

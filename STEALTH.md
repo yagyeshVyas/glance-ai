@@ -6,12 +6,17 @@ Glance AI (installs and runs as `assistant`) uses multiple layers to stay invisi
 it is on from first run. It is enforced in the main process (`loadConfig`), not just
 by the Settings checkboxes.
 
-**Ghost check** (Settings → *Run ghost check*) is how any of this gets claimed on a
-given machine: it captures the panel's region, hides the panel, captures the same
-region again and compares the pixels, then reports the affinity flag it read back.
-Pass means the pixels were absent and the mechanism was `0x11`. It costs about two
-seconds and it can fail — which is the point, because capture behaviour depends on
-the Windows build, the compositor and the capturer.
+**Stealth report** (Settings → *Run stealth report*) is how any of this gets
+claimed on a given machine. It does the pixel A/B — capture the panel's region,
+hide the panel, capture the same region again — and then reads back what a
+detector would: window class, ex-style, title, Chromium child count, accessibility
+state and the DevTools port file. Every row is a measurement with a
+green/amber/red verdict, so the caveats below show up as amber rows on the machine
+you are actually on instead of being buried in prose. It costs about two seconds
+and it can fail, which is the point.
+
+**Panic hide** (`Ctrl+Alt+X`) drops the panel immediately from any state, because
+the moment it matters you are mid-answer and looking at a camera.
 
 ## 1. Screen capture protection (`setContentProtection`)
 - Windows 10 2004+ `WDA_EXCLUDEFROMCAPTURE` flag
