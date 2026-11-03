@@ -22,20 +22,16 @@ exports.default = async function beforePack(context) {
   const byEnum = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64' };
   const arch = typeof context.arch === 'number' ? (byEnum[context.arch] || 'x64') : (context.arch || 'x64');
 
-  const gyp = path.join(__dirname, '..', 'node_modules', 'node-gyp', 'bin', 'node-gyp.js');
   const release = path.join(__dirname, '..', 'src', 'native', 'build', 'Release', 'cloak.node');
   const outDir = path.join(__dirname, '..', 'src', 'native', arch);
   const built = path.join(outDir, 'cloak.node');
 
-  if (!fs.existsSync(gyp)) {
-    console.warn('  • beforePack: node-gyp missing, cloak addon may be stale');
-    return;
-  }
-
   console.log(`  • beforePack: building cloak addon for ${arch}`);
   try {
-    execFileSync(process.execPath, [gyp, 'rebuild', '--arch=' + arch], {
-      cwd: path.join(__dirname, '..', 'src', 'native'),
+    // the script owns configure → strip clang-only flags → build → arch check,
+    // because `node-gyp rebuild` alone dies at link on this toolchain
+    execFileSync(process.execPath, [path.join(__dirname, 'build-native.js'), arch], {
+      cwd: path.join(__dirname, '..'),
       stdio: 'inherit',
       env: { ...process.env, NODE_OPTIONS: '' },
     });

@@ -1,6 +1,17 @@
 # Advanced stealth & undetectability
 
-wshx-host uses multiple layers to stay invisible:
+Glance AI (installs and runs as `assistant`) uses multiple layers to stay invisible.
+
+**Ghost mode** is the single switch that turns all of them on at its strongest, and
+it is on from first run. It is enforced in the main process (`loadConfig`), not just
+by the Settings checkboxes.
+
+**Ghost check** (Settings → *Run ghost check*) is how any of this gets claimed on a
+given machine: it captures the panel's region, hides the panel, captures the same
+region again and compares the pixels, then reports the affinity flag it read back.
+Pass means the pixels were absent and the mechanism was `0x11`. It costs about two
+seconds and it can fail — which is the point, because capture behaviour depends on
+the Windows build, the compositor and the capturer.
 
 ## 1. Screen capture protection (`setContentProtection`)
 - Windows 10 2004+ `WDA_EXCLUDEFROMCAPTURE` flag
@@ -24,30 +35,38 @@ wshx-host uses multiple layers to stay invisible:
 ## 4. Detection vectors NOT yet mitigated
 | Vector | Risk | Mitigation status |
 |--------|------|-------------------|
-| EnumWindows / FindWindow API | Medium | Title is randomized per launch and frozen (`page-title-updated` prevented); `blendProcessTitles()` (main.js:354) also rewrites the window title to `ShellExperienceHost` every 5 s. Class is still `Chrome_WidgetWin_1` (unpatchable without forking Chromium) |
-| `GetWindowDisplayAffinity` | **HIGH** | Returns `0x11` (`WDA_EXCLUDEFROMCAPTURE`) when stealth is on — a direct "this window is hidden from capture" signal. To pass a capture-protected-state detector, turn **scramble** on and **stealth** off: the window is captured normally (affinity `0x0`) and its text is unreadable to any capturer (see §8) |
+| EnumWindows / FindWindow API | Medium | The overlay is reparented under a host window with an innocuous class (`WinUIDesktopWin32WindowClass`), so the Electron window is a child and never enumerates at top level; `Chrome_WidgetWin_1` is absent from that list. Title blending rewrites every helper window title to `assistant`. The *child* windows still carry Chromium classes, so a detector walking `EnumChildWindows` finds them |
+| `GetWindowDisplayAffinity` | **HIGH** | Returns `0x11` (`WDA_EXCLUDEFROMCAPTURE`) on the host when stealth is on — a direct "this window is hidden from capture" signal. To pass a capture-protected-state detector, turn **scramble** on and **stealth** off: the window is captured normally (affinity `0x0`) and its text is unreadable to any capturer (see §7) |
 | Accessibility APIs (UIA, MSAA) | Medium | Chromium a11y disabled in main (`app.accessibilitySupportEnabled = false`); coverage not measured |
 | GPU overlay inspection | Low | Not hidden (appears in DWM composition chain) |
 | Proctoring tools (Proctorio, Respondus) | **HIGH** | Most detect protected windows or overlays via heuristics — **not safe for exams** |
 | Anti-cheat (game) | High | Similar detection as proctoring tools |
-| Process list scraping | Low-Medium | Visible as `wshx-host.exe` with `CompanyName=GitHub, Inc.` in the version resource. Window titles are blended to `ShellExperienceHost` (main.js:354) but the on-disk exe name and version resource are unchanged. |
+| Process list scraping | Low-Medium | Visible as `assistant.exe`; the packaged build carries `FileDescription=assistant` and `CompanyName=Yagyesh Vyas` in the version resource and mirrors to `C:\Windows\SysWOW64\assistant`. Window titles blend to `assistant`; the on-disk exe name and version resource are what a scraper still sees |
 
 Measured on this machine (dev build, Windows 11 26300) — the numbers a detector gets:
 
 ```
-window class      Chrome_WidgetWin_1
-window title      random hex (per launch) — frozen via page-title-updated + process.title blending to ShellExperienceHost
-ex-style          0x80008 = TOPMOST | LAYERED   (no WS_EX_TOOLWINDOW)
+window class      WinUIDesktopWin32WindowClass (the host; the Chromium window is a child)
+window title      assistant (blended, frozen via page-title-updated)
+ex-style          0x80008|0x80|0x2000000 = TOPMOST | TOOLWINDOW | LAYERED  (no taskbar, no Alt+Tab)
 display affinity  17 = WDA_EXCLUDEFROMCAPTURE
-process           electron.exe (dev) / wshx-host.exe (packaged) — 4 processes each here;
-                  the tree size varies by Electron version. Full path + parent PID
-                  visible via Toolhelp snapshot
+process           electron.exe (dev) / assistant.exe (packaged) — several processes;
+                  full path + parent PID visible via Toolhelp snapshot
 version resource  dev:      FileDescription=Electron        CompanyName=GitHub, Inc.
-                  packaged: FileDescription=<package description>  CompanyName=GitHub, Inc.
+                  packaged: FileDescription=assistant       CompanyName=Yagyesh Vyas
 ```
 
+The `0x11` cannot be removed. `DWMWA_EXCLUDED_FROM_CAPTURE` looks like the way out —
+DWM accepts the attribute with `S_OK` — but on 26300 the window still lands in GDI
+and WGC captures, and no DWMWA id from 16 to 40 does better
+(`node scripts/dwm-exclude-probe.js` re-checks it per machine). No attribute id,
+no affinity flag — the DWM route is a dead end on this build, and the docs that
+suggest otherwise were written against a different one.
+
 ## 5. What you can do to stay safer
+- **Run the ghost check** (Settings → *Run ghost check*) on the machine you will actually use. It captures the panel, hides it, captures again and compares — a claim about your environment, not this file's.
 - Test in your own Zoom/Meet screen-share before relying on it. Share, then record yourself — if you see the overlay, so does the other side.
+- For a detector that reads the affinity flag, switch to `scramble: on` + `stealth: off` (§7): no flag, and no legible text either.
 - Rename the `.exe` after building (`electron-builder` productName changes app name, but the binary is still recognizable without code signing + obfuscation).
 - Run it only when you control the environment. Using it in proctored exams or interviews is detectable and will get you flagged.
 - If a service explicitly bans overlays or "protected content," this app triggers that rule.
@@ -59,15 +78,16 @@ No software overlay is truly undetectable. The OS and any process with sufficien
 - Protected content flags (GetWindowDisplayAffinity)
 - Process list (tasklist, wmic, Process Explorer)
 
-wshx-host is invisible to *most casual screen capture* and *most screen-sharing software*. It is **not** invisible to purpose-built anti-cheat, proctoring, or forensic tools. Use accordingly.
+Glance AI is invisible to *most casual screen capture* and *most screen-sharing software*. It is **not** invisible to purpose-built anti-cheat, proctoring, or forensic tools. Use accordingly.
 
 ## 7. Scramble mode — passing the "protected window" test
 
 `setContentProtection` and any Windows capture-exclusion set `WDA_EXCLUDEFROMCAPTURE` (`0x11`), which a proctor or detector reads as "this window is deliberately hidden from capture". Scramble mode is the alternative: keep the window **capturable normally** (stealth **off**, affinity `0x0`) and make the *content* unreadable instead.
 
-- **How:** Settings → *Scramble text*. Every visible text node keeps its real text in a cache, but the glyphs are re-shuffled ~8×/second (each letter rendered as a random character pair). A capture, screen-share frame, or recording sees a text wall of exactly the right shape and density — OCR and vision models get garbage, while you read the actual answer on the live screen. Copy/clipboard still yields the real text, because that path reads the cached plain string.
+- **How:** Settings → *Scramble text*. Every visible text node keeps its real text in a cache, but the glyphs are re-shuffled ~8×/second (each character replaced by one random character of the same class — letters and digits by alphanumerics, punctuation by punctuation, whitespace preserved). A capture, screen-share frame, or recording sees a text wall of exactly the right shape and density — OCR and vision models get garbage, while you read the actual answer on the live screen. Copy/clipboard and read-aloud still yield the real text: both read `answerRaw`, which the scrambler never touches.
 - **Trade-off:** the window *is* in the shared frame (you can see the panel is there), and the ex-style/topmost shape is unchanged. It removes the "hidden from capture" signal and the legible-content risk simultaneously; it does not remove the window's visual presence. For maximum cover use scramble + a small, quiet panel, and keep stealth off.
 - **Combined recipe for the detection test case** (pass = "protected state, no 0x11 flag"): `scramble: on`, `stealth: off`. The detector sees an ordinary topmost window with `display affinity 0x0` and no meaningful title — and nothing legible inside it.
+- **Caveat:** scramble hides *content*, so it still photographs badly on purpose — a human watching the share sees moving noise, which looks deliberate. It also redraws the answer pane constantly, so it is not the mode to pick if you are reading long code on camera.
 
 ## 9. Native stealth helper (`hide-helper.cs`)
 Compiled at runtime via in-box `csc.exe` to `%TEMP%\dxva_143.exe` (neutral filename). The source is embedded in `src/embed-helpers.js` so it ships inside the asar. Handles:

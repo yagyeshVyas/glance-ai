@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('glance', {
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   stealthApply: (on) => ipcRenderer.invoke('stealth:apply', on),
+  ghostCheck: () => ipcRenderer.invoke('ghost:check'),
   moveWindow: (dx, dy) => ipcRenderer.invoke('window:move', { dx, dy }),
   getState: () => ipcRenderer.invoke('state:get'),
   setState: (s) => ipcRenderer.invoke('state:set', s),

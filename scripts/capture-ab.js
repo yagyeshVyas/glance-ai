@@ -8,6 +8,19 @@
 //
 //   npx electron . --remote-debugging-port=9333     (in one shell)
 //   node scripts/capture-ab.js                     (in another)
+//
+// Plain `node` works: the script needs the Electron runtime, so when it is not
+// already running under Electron it re-executes itself with the bundled binary.
+
+const electronModule = require('electron');
+if (typeof electronModule === 'string') {
+  const { spawnSync } = require('child_process');
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE; // otherwise the binary behaves as plain node
+  delete env.NODE_OPTIONS;
+  const r = spawnSync(electronModule, [__filename, ...process.argv.slice(2)], { stdio: 'inherit', env });
+  process.exit(r.status ?? 1);
+}
 
 const { app, desktopCapturer, screen } = require('electron');
 const http = require('http');
@@ -97,15 +110,37 @@ function cdp(wsUrl) {
 
 function hostRect() {
   const { execFileSync } = require('child_process');
+  // MainWindowHandle is 0 for a tool window with no title (the whole point of the
+  // shim), and a dev run is electron.exe rather than the packaged assistant.exe —
+  // so enumerate the app's top-level windows and take the largest.
   const ps = `
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
-public class R { [StructLayout(LayoutKind.Sequential)] public struct RC { public int l, t, r, b; }
- [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RC rc); }'
-$p = Get-Process assistant -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-if (-not $p) { 'none'; exit }
-$rc = New-Object R+RC
-[void][R]::GetWindowRect([IntPtr]$p.MainWindowHandle, [ref]$rc)
-"$($rc.l) $($rc.t) $($rc.r - $rc.l) $($rc.b - $rc.t)"
+Add-Type -TypeDefinition 'using System;using System.Collections.Generic;using System.Runtime.InteropServices;
+public class W {
+ public delegate bool Proc(IntPtr h, IntPtr l);
+ [DllImport("user32.dll")] public static extern bool EnumWindows(Proc p, IntPtr l);
+ [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+ [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+ [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RC rc);
+ [StructLayout(LayoutKind.Sequential)] public struct RC { public int l, t, r, b; }
+ public static List<IntPtr> Find(uint[] pids) {
+  var outp = new List<IntPtr>();
+  EnumWindows((h, l) => { uint pid; GetWindowThreadProcessId(h, out pid);
+   foreach (var p in pids) if (p == pid && IsWindowVisible(h)) { RC rc; if (GetWindowRect(h, out rc) && rc.r - rc.l > 100) outp.Add(h); }
+   return true; }, IntPtr.Zero);
+  return outp; } }'
+$procs = @(Get-Process electron,assistant -ErrorAction SilentlyContinue)
+if ($procs.Count -eq 0) { 'none'; exit }
+$pids = New-Object 'uint32[]' $procs.Count
+for ($i = 0; $i -lt $procs.Count; $i++) { $pids[$i] = [uint32]$procs[$i].Id }
+$best = $null; $bestArea = 0
+foreach ($h in [W]::Find($pids)) {
+  $rc = New-Object W+RC
+  [void][W]::GetWindowRect($h, [ref]$rc)
+  $area = ($rc.r - $rc.l) * ($rc.b - $rc.t)
+  if ($area -gt $bestArea) { $bestArea = $area; $best = $rc }
+}
+if (-not $best) { 'none'; exit }
+"$($best.l) $($best.t) $($best.r - $best.l) $($best.b - $best.t)"
 `;
   const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8' }).trim();
   if (!out || out === 'none') return null;

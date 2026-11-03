@@ -56,7 +56,7 @@ function thumbExists(thumb) {
       '-NoProfile', '-Command',
       `$v=(Get-Item -Force '${EXE.replace(/'/g, "''")}').VersionInfo; "$($v.CompanyName)|$($v.FileDescription)|$($v.OriginalFilename)|$($v.InternalName)"`,
     ], { encoding: 'utf8' }).trim();
-    if (!/Yagyesh Vyas\|Glance AI\|Glance AI\.exe\|Glance AI\.exe/.test(v)) {
+    if (!/Yagyesh Vyas\|assistant\|assistant\.exe\|assistant\.exe/.test(v)) {
       throw new Error('metadata mismatch: ' + v);
     }
     return v;
@@ -96,7 +96,10 @@ function thumbExists(thumb) {
       return exes.map((e) => path.basename(path.dirname(e))).join(', ');
     });
     run('verify installer', () => {
-      const setups = fs.readdirSync(path.join(ROOT, 'dist')).filter((f) => f.endsWith('.exe') && f.includes('Setup'));
+      // installers are named assistant-<version>-<arch>.exe, so 'Setup' is not in
+      // the name; they are the loose .exe files that are not the unpacked payload
+      const setups = fs.readdirSync(path.join(ROOT, 'dist'))
+        .filter((f) => f.endsWith('.exe'));
       for (const s of setups) execFileSync(st, ['verify', '/pa', '/v', path.join(ROOT, 'dist', s)], { stdio: 'pipe' });
       return setups.join(', ');
     });

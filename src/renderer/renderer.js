@@ -551,11 +551,15 @@ api.onClickThrough((on) => document.body.classList.toggle('click-through', on));
 // ---------- settings ----------
 const fields = ['baseUrl', 'chatModel', 'transcribeModel', 'systemPrompt',
   'transcribeBaseUrl', 'ttsBaseUrl', 'ttsVoice', 'ttsModel',
-  'targetRole', 'resume', 'answerLang', 'contextTokens'];
+  'targetRole', 'resume', 'answerLang', 'answerStyle', 'contextTokens',
+  'fallbackBaseUrl', 'fallbackChatModel'];
 // secrets are never read back from main; they submit blank and main keeps the stored value
-const keyFields = ['apiKey', 'transcribeApiKey', 'ttsApiKey'];
-const hasFlag = { apiKey: 'hasKey', transcribeApiKey: 'hasTranscribeKey', ttsApiKey: 'hasTtsKey' };
-const boolFields = ['stealth', 'stealthProcess', 'smartMode', 'practiceMode', 'stealthDeep', 'stealthMaster', 'ocr'];
+const keyFields = ['apiKey', 'transcribeApiKey', 'ttsApiKey', 'fallbackApiKey'];
+const hasFlag = {
+  apiKey: 'hasKey', transcribeApiKey: 'hasTranscribeKey',
+  ttsApiKey: 'hasTtsKey', fallbackApiKey: 'hasFallbackKey',
+};
+const boolFields = ['stealth', 'stealthProcess', 'smartMode', 'practiceMode', 'stealthDeep', 'stealthMaster', 'ocr', 'scramble'];
 // Master-stealth sub-toggles it force-on when enabled. Saved here at the moment
 // the user switches master ON so "un-check master" can restore them.
 const MASTER_SUB_TOGGLES = ['stealth', 'stealthProcess', 'stealthDeep'];
@@ -691,6 +695,87 @@ $('s_panelOpacity').addEventListener('input', () => {
 $('s_stealthMaster').addEventListener('change', (e) => {
   applyMasterStealth(e.target.checked);
 });
+// ---------- scramble: unreadable in a capture, readable to you ----------
+// The exclusion flag is itself a detection signal. With stealth off and this on,
+// the window is captured perfectly normally (affinity 0, no "deliberately hidden"
+// evidence) and the *content* carries the stealth instead: every visible string is
+// replaced by same-length noise several times a second. A capture, a recording or
+// an OCR pass gets a wall of the right shape and nothing legible. Copy and read-
+// aloud use answerRaw, which is never touched, so the real text is still there to
+// take away. See STEALTH.md §7.
+const SCRAMBLE_GLYPHS = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
+const SCRAMBLE_PUNCT = '################$%&@+=*?!';
+let scrambleTimer = null;
+function scrambleString(s) {
+  let out = '';
+  for (const ch of s) {
+    if (/[A-Za-z0-9]/.test(ch)) out += SCRAMBLE_GLYPHS[(Math.random() * SCRAMBLE_GLYPHS.length) | 0];
+    else if (/\s/.test(ch)) out += ch;
+    else out += SCRAMBLE_PUNCT[(Math.random() * SCRAMBLE_PUNCT.length) | 0];
+  }
+  return out;
+}
+function scrambleWalk(node) {
+  for (const n of node.childNodes) {
+    if (n.nodeType === 3) {
+      // a value that differs from what we last wrote is new text from a render or
+      // a stream append: take it as the new real value before faking over it
+      if (n.nodeValue !== n.__fake) n.__real = n.nodeValue;
+      if (!n.__real) continue;
+      const fake = scrambleString(n.__real);
+      n.__fake = fake;
+      n.nodeValue = fake;
+    } else if (n.nodeType === 1) scrambleWalk(n);
+  }
+}
+function restoreWalk(node) {
+  for (const n of node.childNodes) {
+    if (n.nodeType === 3) {
+      if (n.__real !== undefined) n.nodeValue = n.__real;
+      delete n.__fake;
+    } else if (n.nodeType === 1) restoreWalk(n);
+  }
+}
+function setScramble(on) {
+  clearInterval(scrambleTimer);
+  scrambleTimer = null;
+  if (!on) {
+    restoreWalk(el.answer);
+    restoreWalk(el.transcript);
+    return;
+  }
+  const tick = () => { scrambleWalk(el.answer); scrambleWalk(el.transcript); };
+  tick();
+  scrambleTimer = setInterval(tick, 120);
+}
+$('s_scramble').addEventListener('change', (e) => setScramble(e.target.checked));
+
+// Ghost check: an actual capture A/B on this machine, not a restated claim.
+$('s_ghostCheck').addEventListener('click', async () => {
+  const msg = $('s_ghostMsg');
+  const btn = $('s_ghostCheck');
+  btn.disabled = true;
+  msg.textContent = 'Capturing the panel, then capturing again with it gone…';
+  msg.className = 'muted small';
+  try {
+    const r = await api.ghostCheck();
+    if (r.ok) {
+      msg.className = 'small ok';
+      msg.textContent = `PASS — capture is identical with the panel shown and gone (affinity 0x${(r.affinity || 17).toString(16)}). Nothing that captures this screen sees it.`;
+    } else if (r.pixelExcluded && r.affinity === 0) {
+      msg.className = 'small warn';
+      msg.textContent = 'The pixels are excluded but no affinity flag is set — the native shim is missing, so a detector could read the window.';
+    } else {
+      msg.className = 'small err';
+      msg.textContent = 'FAIL — ' + (r.reason || r.verdict || 'the panel appeared in the capture.');
+    }
+  } catch (e) {
+    msg.className = 'small err';
+    msg.textContent = 'Check failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 $('s_save').addEventListener('click', async () => {
   const next = { panelOpacity: parseFloat($('s_panelOpacity').value) };
   keyFields.forEach((f) => (next[f] = $('s_' + f).value.trim()));
@@ -698,6 +783,7 @@ $('s_save').addEventListener('click', async () => {
   boolFields.forEach((f) => (next[f] = $('s_' + f).checked));
   const c = await api.setConfig(next);
   appCfg = c; // practiceMode etc. take effect immediately
+  setScramble(c.scramble);
   api.stealthApply?.(Boolean(c.stealthDeep));
   $('opacityVal').textContent = Math.round((c.panelOpacity ?? 0.78) * 100) + '%';
   paintKeyPlaceholders(c); // show •••••• so the saved state is visible right away
@@ -994,6 +1080,7 @@ async function refreshDisplays() {
   const c = await api.getConfig();
   appCfg = c; // snapshot of practiceMode and friends
   applyOpacity(c.panelOpacity);
+  setScramble(c.scramble);
   // Apply deep stealth with a small delay to let the window fully initialize,
   // then retry once if the first attempt didn't stick (race with window creation).
   const applyDeep = () => api.stealthApply?.(Boolean(c.stealthDeep));

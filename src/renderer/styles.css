@@ -88,6 +88,10 @@ button.tiny { font-size: 9px; padding: 2px 6px; text-transform: none; letter-spa
 #settings h3 { margin: 0 0 4px; }
 #s_msg.ok { color: #8fd18f; } /* key verified — green */
 #s_msg.err { color: #ff8b8b; }
+/* ghost check result: green pass, amber caveat, red fail */
+#s_ghostMsg.ok { color: #8fd18f; }
+#s_ghostMsg.warn { color: #e8c07d; }
+#s_ghostMsg.err { color: #ff8b8b; }
 #settings label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #aab0c0; }
 #settings label.row, .row { flex-direction: row; display: flex; align-items: center; gap: 8px; }
 #settings input[type="checkbox"] { width: auto; }

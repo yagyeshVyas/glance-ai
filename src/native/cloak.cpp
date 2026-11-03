@@ -19,9 +19,11 @@ extern bool hostActive();
 #define DWMWA_CLOAK 13
 #endif
 
-// Not in older SDK headers (added after 19041). Excludes a window from capture
-// WITHOUT touching SetWindowDisplayAffinity, so GetWindowDisplayAffinity still
-// answers 0 and the "deliberately hidden" flag never shows up.
+// Candidate DWMWA for a capture exclusion that would leave GetWindowDisplayAffinity
+// at 0. Measured on Windows 11 26300: DwmSetWindowAttribute accepts attribute 16
+// (S_OK) but neither a GDI BitBlt nor a WGC capture excludes the window, and no
+// id in the 16..40 range does, so 16 is kept only because dwmAttr() lets a newer
+// build be probed. SetWindowDisplayAffinity (0x11) stays the working mechanism.
 #ifndef DWMWA_EXCLUDED_FROM_CAPTURE
 #define DWMWA_EXCLUDED_FROM_CAPTURE 16
 #endif
@@ -187,8 +189,55 @@ static napi_value DwmExclude(napi_env env, napi_callback_info info) {
   return r;
 }
 
+// Generic DWMWA setter. Exists because the DWMWA numbers used for the capture
+// exclusion are not all in the SDK this repo compiles against, and a wrong
+// number is silently accepted by DWM (it sets an unrelated attribute and
+// returns S_OK), so the only way to identify the right one is to try it.
+static napi_value DwmAttr(napi_env env, napi_callback_info info) {
+  size_t argc = 3;
+  napi_value argv[3];
+  napi_value t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0, id = 0, on = 1;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  if (argc >= 2) napi_get_value_uint32(env, argv[1], &id);
+  if (argc >= 3) napi_get_value_uint32(env, argv[2], &on);
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  BOOL value = on ? TRUE : FALSE;
+  HRESULT hr = E_FAIL;
+  if (IsWindow(h)) hr = DwmSetWindowAttribute(h, static_cast<DWORD>(id), &value, sizeof(value));
+  napi_value r;
+  napi_get_boolean(env, SUCCEEDED(hr), &r);
+  return r;
+}
+
+// Read back what GetWindowDisplayAffinity reports for a window. The Ghost check
+// needs this: comparing captured pixels proves the exclusion works, and this
+// proves *which* mechanism produced it (0x11 rather than a silent no-op).
+static napi_value GetAffinity(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_value t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  DWORD flag = 0;
+  BOOL ok = FALSE;
+  if (IsWindow(h)) ok = GetWindowDisplayAffinity(h, &flag);
+  napi_value r;
+  napi_create_int32(env, ok ? static_cast<int32_t>(flag) : -1, &r);
+  return r;
+}
+
 static napi_value Init(napi_env env, napi_value exports) {
   napi_value fn;
+  napi_create_function(env, "getAffinity", NAPI_AUTO_LENGTH, GetAffinity, nullptr, &fn);
+  napi_set_named_property(env, exports, "getAffinity", fn);
+  napi_create_function(env, "dwmAttr", NAPI_AUTO_LENGTH, DwmAttr, nullptr, &fn);
+  napi_set_named_property(env, exports, "dwmAttr", fn);
   napi_create_function(env, "cloak", NAPI_AUTO_LENGTH, Cloak, nullptr, &fn);
   napi_set_named_property(env, exports, "cloak", fn);
   napi_create_function(env, "uncloak", NAPI_AUTO_LENGTH, Uncloak, nullptr, &fn);

@@ -1,6 +1,6 @@
 {
   "name": "glance-ai",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "productName": "assistant",
   "description": "Glance AI - AI Interview Assistant",
   "author": "Yagyesh Vyas",
@@ -17,7 +17,7 @@
     "dist:signed": "node scripts/sign-build.js",
     "resedit": "node scripts/resedit.js",
     "dist:final": "npm run test && npm run dist",
-    "build:native": "cd src/native && node ../../node_modules/node-gyp/bin/node-gyp.js rebuild --arch=x64",
+    "build:native": "node scripts/build-native.js x64",
     "postinstall": "npm run build:native || echo native build skipped"
   },
   "license": "MIT",
@@ -30,7 +30,7 @@
   "build": {
     "appId": "com.assistant.overlay",
     "productName": "assistant",
-    "copyright": "© Yagyesh Vyas",
+    "copyright": "Â© Yagyesh Vyas",
     "files": [
       "src/**/*",
       "package.json",

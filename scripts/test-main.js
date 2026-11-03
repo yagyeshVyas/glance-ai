@@ -129,9 +129,16 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
 
   await okAsync('the app registers its IPC handlers', async () => {
     for (const ch of ['ask', 'transcribe', 'speak', 'models:list', 'config:get', 'config:set',
-      'capture:one', 'update:check', 'update:install']) {
+      'capture:one', 'update:check', 'update:install', 'ghost:check']) {
       assert.ok(handlers.has(ch), `missing handler ${ch}`);
     }
+  });
+
+  await okAsync('ghost:check reports a reason instead of throwing', async () => {
+    // the stub has no attached host window and desktopCapturer returns no sources
+    const r = await handlers.get('ghost:check')(fakeEvent);
+    assert.strictEqual(r.ok, false);
+    assert.ok(typeof r.reason === 'string' && r.reason.length, 'no reason given');
   });
 
   await okAsync('update:check refuses a dev checkout instead of throwing', async () => {
@@ -334,6 +341,79 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
     assert.strictEqual(imgs.length, 3, 'all three captured shots were not attached');
     assert.ok(imgs[0].image_url.url.endsWith(b64), 'the supplied shot bytes were not used');
     assert.match(body.messages[0].content, /prefers tabs over spaces/, 'memory was not injected into the system prompt');
+  });
+
+  // ---------- backup provider failover ----------
+  await okAsync('a hard primary failure fails over to the backup provider', async () => {
+    call('config:set', fakeEvent, {
+      fallbackBaseUrl: 'https://backup.test/v1',
+      fallbackApiKey: 'backup-key-999',
+      fallbackChatModel: 'backup-model',
+    });
+    calls = [];
+    let body = null;
+    global.fetch = async (url, opts) => {
+      calls.push({ url: String(url), auth: authOf(opts) });
+      if (String(url).startsWith('https://api.test')) return new Response('bad key', { status: 401 });
+      body = JSON.parse(opts.body);
+      return new Response(sse(delta('FROM BACKUP')), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    sent = [];
+    await call('ask', fakeEvent, { id: 10, messages: [{ role: 'user', content: 'hi' }], withScreen: false });
+    const events = sent.map((s) => s.ch);
+    assert.ok(events.includes('notice'), 'no notice that the primary failed');
+    assert.strictEqual(sent.find((s) => s.ch === 'chunk').payload.text, 'FROM BACKUP');
+    // the backup got its own origin, key and model — never the primary's
+    assert.strictEqual(calls[1].url, 'https://backup.test/v1/chat/completions');
+    assert.strictEqual(calls[1].auth, 'Bearer backup-key-999');
+    assert.strictEqual(body.model, 'backup-model');
+  });
+
+  await okAsync('a primary that exhausts its retries also fails over', async () => {
+    calls = [];
+    global.fetch = async (url, opts) => {
+      calls.push({ url: String(url) });
+      if (String(url).startsWith('https://api.test')) return new Response('boom', { status: 500 });
+      return new Response(sse(delta('SAVED')), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    sent = [];
+    await call('ask', fakeEvent, { id: 11, messages: [{ role: 'user', content: 'hi' }], withScreen: false });
+    // 4 attempts against the primary (first + 3 retries), then exactly one backup call
+    assert.strictEqual(calls.filter((c) => c.url.startsWith('https://api.test')).length, 4);
+    assert.strictEqual(calls.filter((c) => c.url.startsWith('https://backup.test')).length, 1);
+    assert.strictEqual(sent.find((s) => s.ch === 'chunk').payload.text, 'SAVED');
+  }, 30000);
+
+  await okAsync('without a backup key the primary error is still surfaced', async () => {
+    call('config:set', fakeEvent, { fallbackApiKey: '' });
+    global.fetch = async () => new Response('bad key', { status: 401 });
+    sent = [];
+    await call('ask', fakeEvent, { id: 12, messages: [{ role: 'user', content: 'hi' }], withScreen: false });
+    const err = sent.find((s) => s.ch === 'error');
+    assert.ok(err, 'no error event');
+    assert.match(err.payload.message, /API 401/);
+  });
+
+  // ---------- answer styles ----------
+  const sysPromptOf = async (style) => {
+    let body = null;
+    call('config:set', fakeEvent, { answerStyle: style });
+    global.fetch = async (_url, opts) => {
+      body = JSON.parse(opts.body);
+      return new Response(sse(delta('ok')), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    await call('ask', fakeEvent, { id: 13, messages: [{ role: 'user', content: 'hi' }], withScreen: false });
+    return body.messages[0].content;
+  };
+
+  await okAsync('the selected answer style shapes the system prompt', async () => {
+    assert.match(await sysPromptOf('bullets'), /bullet points/i);
+    assert.match(await sysPromptOf('star'), /Situation, Task, Action, Result/);
+    assert.match(await sysPromptOf('code'), /code block/i);
+  });
+
+  await okAsync('an unknown style falls back to smart instead of an empty instruction', async () => {
+    assert.match(await sysPromptOf('nonsense'), /live call, not a chatbot/i);
   });
 
   // ---------- state round-trip ----------
