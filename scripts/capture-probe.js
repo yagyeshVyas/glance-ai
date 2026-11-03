@@ -1,4 +1,4 @@
-// Measures what the OS capture path actually returns for the wshx-host window.
+// Measures what the OS capture path actually returns for the overlay window.
 // `desktopCapturer` is the same Windows capture family (Windows.Graphics.Capture /
 // DXGI) that Chrome getDisplayMedia, Meet, Teams web and Zoom's newer share path use,
 // so this is a direct measurement of "does a screen-share client receive the pixels".
@@ -6,6 +6,15 @@
 // Run with the app already running:
 //   npx electron scripts/capture-probe.js            # JSON + PNG of the wshx-host source
 'use strict';
+
+const electronModule = require('electron');
+if (typeof electronModule === 'string') {
+  const { spawnSync } = require('child_process');
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  process.exit(spawnSync(electronModule, [__filename, ...process.argv.slice(2)], { stdio: 'inherit', env }).status ?? 1);
+}
 
 const { app, desktopCapturer } = require('electron');
 const fs = require('fs');
@@ -42,7 +51,7 @@ app.whenReady().then(async () => {
     fetchWindowIcons: false,
   });
   const windows = sources.filter((s) => s.id.startsWith('window:'));
-  const named = windows.filter((s) => /wshx-host|electron/i.test(s.name));
+  const named = windows.filter((s) => /wshx-host|electron|assistant/i.test(s.name));
   const outDir = process.env.TMPDIR || os.tmpdir();
   const files = [];
   const matches = [];
