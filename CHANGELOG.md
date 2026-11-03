@@ -2,6 +2,60 @@
 
 The project is **Glance AI**. It was renamed `Glance` → `wshx-host` → `svchost`, and is now Glance AI again — product, binary, install folder and data folder all agree.
 
+## 2.0.0
+
+Ghost mode, and a way to prove it.
+
+**Hiding**
+- **Ghost mode** replaces the old "full privacy" checkbox and is **on by default**.
+  It is enforced in the main process, not just by the Settings checkboxes: a
+  profile saved with weaker sub-toggles before the mode existed is raised to the
+  full stack on load.
+- **Ghost check** (Settings → *Run ghost check*): captures the panel's region,
+  hides the panel, captures the identical region again, and compares the pixels.
+  Pass means a capture of that region is byte-identical with the panel on screen
+  and gone — measured on the machine in front of you, not restated from a README.
+  It also reads `GetWindowDisplayAffinity` back, so a pass says *which* mechanism
+  produced it (`0x11` excluded, `0x1` monitor fallback) instead of only "the
+  pixels changed".
+- New addon export `getAffinity`, and `dwmAttr` for probing arbitrary DWMWA ids.
+- Window reparenting, DWM cloak, title blending and the `0x11` affinity are
+  unchanged — they were already correct. What changed is that they are checked.
+
+**Measured, and a correction.** `cloak.cpp` claimed `DWMWA_EXCLUDED_FROM_CAPTURE`
+(value 16) excludes a window from capture while leaving the affinity flag at 0.
+On Windows 11 26300 it does not: `DwmSetWindowAttribute` returns `S_OK` but
+neither a GDI `BitBlt` nor a WGC capture excludes, and no DWMWA id in the 16–40
+range does either (`scripts/dwm-exclude-probe.js`). `SetWindowDisplayAffinity`
+stays the working mechanism; the constant is documented as a no-op rather than
+described as a second layer.
+
+**Keeping the panel alive**
+- `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`
+  and `--disable-features=CalculateNativeWinOcclusion`: an overlay is occluded
+  most of the time, and Chromium throttles exactly that case.
+
+**Power**
+- **Backup provider.** A second chat endpoint is retried once the primary has
+  exhausted its retries or hard-failed. The backup keeps its own origin, key and
+  model, so a key is never sent to a host it does not belong to; the request
+  count only rises when the primary actually fails.
+- **Answer styles** — smart, brief, STAR, bullets, code-first or detailed —
+  replace the binary smart toggle, which is still honoured for old profiles.
+  A live call reads differently from a take-home, and the format was a single
+  fixed string.
+
+**Build**
+- `scripts/build-native.js` owns the addon build: configure, strip the clang-only
+  flags Node 26 stamps onto the generated project (`-flto=thin`,
+  `/opt:lldltojobs=2` — VS2019's `link.exe` dies on the latter with LNK1117),
+  build, verify the PE machine type. Used by `npm run build:native` and
+  `beforePack`, so a fresh checkout can build an addon at all.
+- `scripts/capture-ab.js` re-executes itself under the bundled Electron when run
+  with plain `node` (it needs the Electron runtime), takes `--` free args, and
+  finds the panel by enumerating the app's windows instead of `MainWindowHandle`,
+  which is 0 for a title-less tool window.
+
 ## 1.0.2
 
 - Added scripts/capture-ab.js, a shipped, dependency-free A/B that proves the

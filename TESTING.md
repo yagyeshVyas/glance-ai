@@ -10,6 +10,7 @@ Before using wshx-host in any environment, verify these behaviors:
 - [ ] Answer streams in, no errors
 - [ ] Press Clear, history is wiped
 - [ ] Press Copy, answer is in clipboard
+- [ ] Set an answer style in Settings, ask again — the shape of the answer changes (bullets really are bullets)
 
 ## 2. Screenshot + vision
 - [ ] Open a web page or document with visible text
@@ -51,12 +52,18 @@ Exit codes: `0` ownership proven (toggle flipped the window) · `1` a binding is
 
 ## 5. Stealth verification
 
-What Windows reports, without starting a call (measured 2026-10-25, Windows 11, dev build, running app):
+Fastest path — in the app, not in this file: Settings → *Run ghost check*. It
+captures the panel region, hides the panel, captures again and compares. PASS
+means the pixels were absent and the affinity flag was `0x11`; FAIL means this
+machine's capture path can see the overlay and you should not rely on it.
 
 ```bash
-npm run audit -- --pid <glance-pid>   # affinity + ex-style + verdict for the overlay window
+node scripts/capture-ab.js            # same A/B, exit 1 on failure
+node scripts/dwm-exclude-probe.js     # does the DWM no-affinity route exclude here?
+npm run audit -- --pid <pid>          # affinity + ex-style + verdict for the window
 ```
 
+What Windows reports, without starting a call (measured 2026-10-25, Windows 11, dev build, running app):
 - [x] `stealth: true` → `GetWindowDisplayAffinity` = `0x11` (`WDA_EXCLUDEFROMCAPTURE`), verdict `capture-excluded`
 - [x] `stealth: false` → the same window reports affinity `none`, verdict `overlay-shaped` only; the switch is wired (`npm run test:main` asserts `setContentProtection`)
 - [x] Process identity is visible either way: `electron.exe`, full image path, `Electron / GitHub, Inc.`
@@ -68,8 +75,31 @@ npm run audit -- --pid <glance-pid>   # affinity + ex-style + verdict for the ov
 - [ ] Have the overlay visible on your monitor
 - [ ] Record the shared screen or check the preview
 - [ ] **If the overlay is visible in the recording, stealth is NOT working.** Check Windows version (needs 10 2004+ or 11), toggle the setting, restart the app.
-- [ ] Open Task Manager, look for "wshx-host" or "electron.exe"
-- [ ] With the AppUserModelId override on, Task Manager still shows `wshx-host.exe` / `electron.exe` — the setting is a shell/taskbar grouping hint only (see `STEALTH.md` §3)
+- [ ] Open Task Manager, look for "assistant" or "electron.exe"
+- [ ] With the AppUserModelId override on, Task Manager still shows `assistant.exe` / `electron.exe` — the setting is a shell/taskbar grouping hint only (see `STEALTH.md` §3)
+
+### 5b. New in 2.0.0
+
+Drivable without clicking, against a running app with `--remote-debugging-port=9333`:
+
+```bash
+node scripts/ghost-check-probe.js   # the ghost check result, exit 1 on fail
+node scripts/settings-probe.js      # saves a style + backup key through the real form
+node scripts/scramble-probe.js      # text mutates and restores; copy path untouched
+```
+
+- [ ] Ghost mode is checked on a fresh profile (Settings → the first checkbox) and survives a restart
+- [ ] Un-checking Ghost mode restores the individual toggles instead of leaving them on
+- [ ] *Run ghost check* returns PASS with affinity `0x11`, and the result line stays readable
+- [ ] With Ghost mode off and stealth off, the ghost check reports a fail with affinity `none`
+- [ ] Scramble on + stealth off: the answer pane's text visibly changes ~8×/s, keeps its word count, and Copy still produces the real text
+- [ ] Scramble off restores the exact original text
+- [ ] Scramble does not fight streaming: start a long answer with it on and confirm the pane keeps updating
+
+## 5c. Provider failover
+- [ ] Set a backup base URL + key, then break the main one (wrong key) — the status shows the failover notice and the answer still arrives from the backup
+- [ ] Remove the backup key and confirm the main provider's error is surfaced instead of a silent hang
+- [ ] Confirm the backup key is not sent to the main origin (watch a proxy or the provider's key list)
 
 ## 6. Edge cases
 - [ ] Disconnect network mid-answer — should error gracefully, not crash

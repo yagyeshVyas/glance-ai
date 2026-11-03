@@ -13,11 +13,12 @@ const DEFAULTS = {
   stealth: true, // hide overlay from screen capture / screen share
   stealthProcess: true, // AUMID hint for shell/taskbar grouping (does not rename the exe)
   stealthDeep: true, // DWM-cloak + off-screen by default
-  stealthMaster: false, // all privacy controls on by default (not full invisibility)
+  stealthMaster: true, // ghost mode: every privacy control at its strongest, on from first run
   captureDisplay: 'auto', // 'auto' | display id | 'window:<source id>'
   ocr: true, // extract text locally from every captured frame and attach it
   updates: true, // check GitHub Releases for a new version in the background
   blendWindow: true, // reparent under an innocuous host to hide class + affinity
+  scramble: false, // leave the window capturable (affinity 0) and scramble the text instead
   panelOpacity: 0.78, // 0.3 (ghost) to 0.98 (solid) — Cluely-style see-through glass
   // second provider for audio endpoints (transcription + TTS) — for gateways without /audio/*
   // falls back to the main provider when left blank
@@ -27,8 +28,15 @@ const DEFAULTS = {
   ttsApiKey: '',
   ttsVoice: 'alloy',
   ttsModel: 'tts-1',
+  // backup chat provider, used only after the primary exhausts its retries or
+  // returns a hard error. Blank means no failover. Its key is never sent anywhere
+  // but its own origin, exactly like the audio providers.
+  fallbackBaseUrl: '',
+  fallbackApiKey: '',
+  fallbackChatModel: '',
   contextTokens: 32000, // model context window; the guard trims history to fit
   answerLang: 'English', // 'auto' or any language name — answers always in that language
+  answerStyle: 'smart', // smart | brief | star | bullets | code | detail — shape of the answer
   targetRole: '', // e.g. "Senior React engineer at a fintech" — grounds every answer
   resume: '', // pasted CV — answers grounded in real experience, never invented
   smartMode: true, // short, spoken-only answers tuned for a live call
@@ -53,7 +61,7 @@ let envValues = {}; // fields supplied by .env / the environment — re-read eve
 // The fields that are credentials (never a plaintext fallback, and reported when
 // they cannot be encrypted). resume/targetRole are encrypted too, but they are
 // personal content, not keys, so they are not counted as "dropped keys".
-const KEY_FIELDS = ['apiKey', 'transcribeApiKey', 'ttsApiKey'];
+const KEY_FIELDS = ['apiKey', 'transcribeApiKey', 'ttsApiKey', 'fallbackApiKey'];
 let keysNotPersisted = []; // keys held in memory only: encryption was unavailable when they were saved
 
 // Detached cleanup for `wipe all data`: spawned the moment a wipe is requested,
@@ -219,6 +227,7 @@ function loadConfig() {
     ['apiKeyEnc', 'apiKey'],
     ['transcribeApiKeyEnc', 'transcribeApiKey'],
     ['ttsApiKeyEnc', 'ttsApiKey'],
+    ['fallbackApiKeyEnc', 'fallbackApiKey'],
     ['resumeEnc', 'resume'],
     ['targetRoleEnc', 'targetRole'],
   ]) {
@@ -238,6 +247,15 @@ function loadConfig() {
   // saved settings win over env so the Settings panel is authoritative once used
   cfg = { ...DEFAULTS, ...fromEnv, ...saved };
   envValues = { ...fromEnv };
+  // Ghost mode is authoritative, and enforced here rather than only in the
+  // Settings checkboxes: a profile saved before the mode existed can carry
+  // stealth=false, and turning the mode on has to win over that.
+  if (cfg.stealthMaster) {
+    cfg.stealth = true;
+    cfg.stealthProcess = true;
+    cfg.stealthDeep = true;
+    cfg.blendWindow = true;
+  }
 }
 
 // A crash mid-write truncates the file and takes the DPAPI blobs with it. Write to
@@ -258,6 +276,7 @@ function saveConfig(next, dropBlobs = []) {
     ['apiKey', 'apiKeyEnc'],
     ['transcribeApiKey', 'transcribeApiKeyEnc'],
     ['ttsApiKey', 'ttsApiKeyEnc'],
+    ['fallbackApiKey', 'fallbackApiKeyEnc'],
     ['resume', 'resumeEnc'],
     ['targetRole', 'targetRoleEnc'],
   ]) {
@@ -309,8 +328,10 @@ function publicConfig() {
     hasKey: Boolean(cfg.apiKey),
     transcribeApiKey: '',
     ttsApiKey: '',
+    fallbackApiKey: '',
     hasTranscribeKey: Boolean(cfg.transcribeApiKey),
     hasTtsKey: Boolean(cfg.ttsApiKey),
+    hasFallbackKey: Boolean(cfg.fallbackApiKey),
     encryptionAvailable: encryptionAvailable(),
     keysNotPersisted: keysNotPersisted.slice(),
   };
@@ -791,6 +812,110 @@ function ocrBuffer(jpegBuf) {
   }
 }
 
+// ---------- ghost check: prove the exclusion from inside the app ----------
+// The claim "nothing that captures your screen sees this" is worth one button
+// that tests it on the machine you are actually sitting at, because capture
+// behaviour depends on the Windows build, the compositor and the capturer.
+//
+// Method, the same shape as the shipped scripts/capture-ab.js: sample a region
+// over the panel while it is protected, hide the panel, sample the identical
+// region again, and compare. Identical hashes mean the capture cannot see the
+// pixels. Pixel equality alone does not say *which* mechanism produced it, so
+// the affinity flag is read back too (0x11 excluded, 0x1 monitor fallback).
+const GHOST_SAMPLE = { w: 180, h: 110 };
+
+function grabRaw(display) {
+  // desktopCapturer only — deliberately does not touch selfCapturing, because
+  // the panel has to stay protected while the check runs.
+  const s = display.scaleFactor || 1;
+  return desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: {
+      width: Math.round(display.size.width * s),
+      height: Math.round(display.size.height * s),
+    },
+  });
+}
+
+async function regionHash() {
+  const b = win.getBounds();
+  // the panel may be on a secondary monitor; sample the display it is actually on
+  const d = screen.getDisplayNearestPoint({
+    x: Math.round(b.x + b.width / 2),
+    y: Math.round(b.y + b.height / 2),
+  });
+  const scale = d.scaleFactor || 1;
+  const sources = await grabRaw(d);
+  const img = (sources.find((s) => s.display_id === String(d.id)) || sources[0] || {}).thumbnail;
+  if (!img) throw new Error('no screen source (capture unavailable)');
+  const bmp = img.toBitmap();
+  const fullW = img.getSize().width;
+  const px = (v) => Math.round(v * scale);
+  // sample the panel interior, inset so the rounded corners and shadow do not dominate
+  const x0 = Math.max(0, px(b.x - d.bounds.x) + Math.round(60 * scale));
+  const y0 = Math.max(0, px(b.y - d.bounds.y) + Math.round(80 * scale));
+  const w = Math.min(px(GHOST_SAMPLE.w), fullW - x0);
+  const h = Math.min(px(GHOST_SAMPLE.h), img.getSize().height - y0);
+  if (w < 8 || h < 8) throw new Error('panel is too small to sample');
+  const hash = crypto.createHash('sha256');
+  for (let row = 0; row < h; row++) {
+    const start = ((y0 + row) * fullW + x0) * 4;
+    hash.update(bmp.subarray(start, start + w * 4));
+  }
+  return hash.digest('hex').slice(0, 16);
+}
+
+async function ghostCheck() {
+  if (process.platform !== 'win32') return { ok: false, reason: 'Windows only' };
+  if (!win || win.isDestroyed()) return { ok: false, reason: 'no window' };
+  const nat = loadCloak();
+  if (!nat || !nat.hostHandle) return { ok: false, reason: 'native addon unavailable' };
+  const host = nat.hostHandle();
+  if (!host) return { ok: false, reason: 'host window missing' };
+  if (cfg.stealth === false) {
+    return { ok: false, reason: 'Capture hiding is off — enable it in Settings first.', affinity: nat.getAffinity(host) };
+  }
+
+  const wasShown = isShown;
+  if (!isShown) { win.showInactive(); isShown = true; }
+  applyStealth(); // make sure the flag is asserted, not merely remembered
+  await delay(600);
+
+  const affinity = nat.getAffinity(host);
+  const shown = await regionHash();
+  const bounds = win.getBounds();
+
+  // hide by cloak/off-screen (the real hide path), not by shrinking
+  win.hide();
+  await delay(800);
+  let hidden;
+  try {
+    hidden = await regionHash();
+  } finally {
+    if (!win.isDestroyed()) win.showInactive();
+    applyStealth();
+    await delay(400);
+  }
+  if (!wasShown) { win.hide(); isShown = false; }
+
+  const excluded = shown === hidden;
+  const mechanism = affinity === 17 ? 'excluded' : affinity === 1 ? 'monitor' : 'none';
+  return {
+    ok: excluded && affinity !== 0,
+    // shown === hidden means the pixels are absent from the capture
+    pixelExcluded: excluded,
+    // 17 = WDA_EXCLUDEFROMCAPTURE (true exclusion), 1 = WDA_MONITOR (blank block)
+    affinity,
+    mechanism,
+    bounds,
+    shown,
+    hidden,
+    verdict: excluded
+      ? 'PASS — a screen capture of this region is identical with the panel shown and gone.'
+      : 'FAIL — the panel appeared in the capture. It is not hidden on this machine.',
+  };
+}
+
 // ---------- auto-update (GitHub Releases via electron-updater) ----------
 // Checks quietly in the background, then downloads and stages a new version so
 // the next quit installs it. Never restarts on its own — a restart mid-meeting
@@ -860,8 +985,10 @@ function teardownHostBlend() {
 }
 
 // ---------- LLM ----------
-function apiUrl(suffix) {
-  return cfg.baseUrl.replace(/\/+$/, '') + suffix;
+// Chat URL for a provider entry. Trailing slashes are stripped so a base URL
+// saved with one does not produce "//chat/completions".
+function chatUrl(provider) {
+  return provider.baseUrl.replace(/\/+$/, '') + '/chat/completions';
 }
 
 function providerKey(kind = 'chat') {
@@ -901,13 +1028,35 @@ function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Answer shapes. The overlay is read at a glance mid-sentence, so "how to
+// answer" is a bigger lever than any other setting; each style is one short
+// instruction, and unknown values fall through to smart.
+const STYLE_PROMPTS = {
+  smart:
+    'This is a live call, not a chatbot. Pick the shortest format that answers the moment. No greeting, no "let me", no offer to help further. Speech-friendly sentences; code only when code was asked for.',
+  brief: 'Answer in one or two sentences at most. Just the answer, no preamble and no supporting detail.',
+  star:
+    'For behavioural questions, answer as STAR in four labelled lines — Situation, Task, Action, Result — kept to one line each. Preference for concrete numbers and outcomes.',
+  bullets: 'Answer as at most four short bullet points. No introductory sentence.',
+  code: 'Lead with the working code in one block, then at most two lines noting the key choice or the gotcha. Assume the user will paste it.',
+  detail:
+    'Answer thoroughly: the direct answer first, then the reasoning, then any trade-offs. Use headings when the answer has distinct parts.',
+};
+
+function styleInstruction(style) {
+  // smartMode predates answerStyle and meant exactly the `smart` style; honour it
+  // for profiles saved before the style setting existed.
+  const key = style || (cfg.smartMode === false ? 'detail' : 'smart');
+  return STYLE_PROMPTS[key] || STYLE_PROMPTS.smart;
+}
+
 async function streamChat(event, { id, messages, withScreen, shots, memory, images }) {
   requireKey();
   const send = (ch, payload) => !event.sender.isDestroyed() && event.sender.send(ch, { id, ...payload });
 
   // personalization: role + resume ground every answer; answer language pins output
   let sys = cfg.systemPrompt;
-  if (cfg.smartMode) sys += `\n\nThis is a live call, not a chatbot. Pick the shortest format that answers the moment. No greeting, no "let me", no offer to help further. Speech-friendly sentences; code only when code was asked for.`;
+  sys += `\n\n${styleInstruction(cfg.answerStyle)}`;
   if (cfg.targetRole) sys += `\n\nThe user is interviewing for: ${cfg.targetRole}. Ground every answer in that context.`;
   if (cfg.resume) sys += `\n\nUser background (use it; never invent experience):\n${cfg.resume.slice(0, 4000)}`;
   if (cfg.answerLang && cfg.answerLang !== 'auto') sys += `\n\nAlways write the answer in ${cfg.answerLang}.`;
@@ -1003,109 +1152,141 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
     }
   }, 5000);
 
+  // Providers, primary first. The backup is only reachable after the primary
+  // runs out of retries (or hard-fails), so it never doubles normal traffic.
+  // Each provider keeps its own origin and key: a key is never sent to an
+  // origin it does not belong to.
+  const providers = [{ baseUrl: cfg.baseUrl, key: cfg.apiKey, model: cfg.chatModel, label: 'primary' }];
+  if (cfg.fallbackBaseUrl && cfg.fallbackApiKey) {
+    providers.push({
+      baseUrl: cfg.fallbackBaseUrl,
+      key: cfg.fallbackApiKey,
+      model: cfg.fallbackChatModel || cfg.chatModel,
+      label: 'backup',
+    });
+  }
+
   // retry with exponential backoff, only on retryable failures (429/5xx/network)
-  let attempt = 0;
   const maxRetries = 3;
   try {
-    while (attempt <= maxRetries) {
-      try {
-        const res = await fetch(apiUrl('/chat/completions'), {
-          method: 'POST',
-          signal: ctrl.signal,
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-          body: JSON.stringify({ model: cfg.chatModel, messages: msgs, stream: true, max_tokens: maxOut }),
-        });
+    for (let p = 0; p < providers.length; p++) {
+      const provider = providers[p];
+      const isLastProvider = p === providers.length - 1;
+      let attempt = 0;
+      while (attempt <= maxRetries) {
+        try {
+          const res = await fetch(chatUrl(provider), {
+            method: 'POST',
+            signal: ctrl.signal,
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.key}` },
+            body: JSON.stringify({ model: provider.model, messages: msgs, stream: true, max_tokens: maxOut }),
+          });
 
-        if (res.status === 429 || res.status === 503) {
-          if (attempt >= maxRetries) throw new Error(`Rate limit / service unavailable after ${maxRetries} retries`);
-          const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
-          // Cap the server's hint: three uncapped waits can hold the overlay for
-          // minutes, and anything past the watchdog's first-token window would be
-          // aborted mid-backoff and reported as a stall.
-          const wait = retryAfter > 0 ? Math.min(retryAfter, 30) * 1000 : Math.min(1000 * 2 ** attempt, 8000);
-          await delay(wait);
-          attempt++;
-          continue;
+          if (res.status === 429 || res.status === 503) {
+            if (attempt >= maxRetries) throw new Error(`Rate limit / service unavailable after ${maxRetries} retries`);
+            const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
+            // Cap the server's hint: three uncapped waits can hold the overlay for
+            // minutes, and anything past the watchdog's first-token window would be
+            // aborted mid-backoff and reported as a stall.
+            const wait = retryAfter > 0 ? Math.min(retryAfter, 30) * 1000 : Math.min(1000 * 2 ** attempt, 8000);
+            await delay(wait);
+            attempt++;
+            continue;
         }
 
-        if (!res.ok) {
-          const errText = await res.text();
-          const e = new Error(`API ${res.status}: ${errText.slice(0, 400)}`);
-          e.status = res.status;
-          throw e;
-        }
-        gotFirstByte = true;
+          if (!res.ok) {
+            const errText = await res.text();
+            const e = new Error(`API ${res.status}: ${errText.slice(0, 400)}`);
+            e.status = res.status;
+            throw e;
+          }
+          gotFirstByte = true;
 
-        const ctype = res.headers.get('content-type') || '';
-        if (!ctype.includes('event-stream')) {
-          // provider ignored stream:true — read the whole JSON body instead
-          const json = await res.json();
-          const text = json.choices?.[0]?.message?.content || '';
-          if (text) send('chunk', { text });
+          const ctype = res.headers.get('content-type') || '';
+          if (!ctype.includes('event-stream')) {
+            // provider ignored stream:true — read the whole JSON body instead
+            const json = await res.json();
+            const text = json.choices?.[0]?.message?.content || '';
+            if (text) send('chunk', { text });
+            send('done', {});
+            return;
+          }
+
+          const decoder = new TextDecoder();
+          let buf = '';
+          // One parser for whole lines and for the unterminated tail, so the last
+          // token of a stream is not dropped when the provider omits the final \n.
+          const consume = (line) => {
+            const t = line.trim();
+            if (!t) return;
+            // tolerate optional spaces after "data:" and stray CRLF variants
+            const m = t.match(/^data:\s*(.*)$/);
+            if (!m) return;
+            const data = m[1].trim();
+            if (!data || data === '[DONE]') return;
+            try {
+              const parsed = JSON.parse(data);
+              // reasoning models (deepseek-r1-style) stream reasoning_content first
+              const choice = parsed.choices?.[0] || {};
+              const reasoning = choice.delta?.reasoning_content ?? choice.message?.reasoning_content ?? '';
+              const content = choice.delta?.content ?? choice.message?.content ?? '';
+              if (reasoning) {
+                lastChunkAt = Date.now();
+                emitted = true;
+                send('reasoning', { text: reasoning });
+              }
+              if (content) {
+                lastChunkAt = Date.now();
+                emitted = true;
+                send('chunk', { text: content });
+              }
+            } catch {}
+          };
+          for await (const part of res.body) {
+            buf += decoder.decode(part, { stream: true });
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+              consume(buf.slice(0, nl));
+              buf = buf.slice(nl + 1);
+            }
+          }
+          buf += decoder.decode(); // flush a multi-byte character split across chunks
+          consume(buf);
           send('done', {});
           return;
-        }
-
-        const decoder = new TextDecoder();
-        let buf = '';
-        // One parser for whole lines and for the unterminated tail, so the last
-        // token of a stream is not dropped when the provider omits the final \n.
-        const consume = (line) => {
-          const t = line.trim();
-          if (!t) return;
-          // tolerate optional spaces after "data:" and stray CRLF variants
-          const m = t.match(/^data:\s*(.*)$/);
-          if (!m) return;
-          const data = m[1].trim();
-          if (!data || data === '[DONE]') return;
-          try {
-            const parsed = JSON.parse(data);
-            // reasoning models (deepseek-r1-style) stream reasoning_content first
-            const choice = parsed.choices?.[0] || {};
-            const reasoning = choice.delta?.reasoning_content ?? choice.message?.reasoning_content ?? '';
-            const content = choice.delta?.content ?? choice.message?.content ?? '';
-            if (reasoning) {
-              lastChunkAt = Date.now();
-              emitted = true;
-              send('reasoning', { text: reasoning });
-            }
-            if (content) {
-              lastChunkAt = Date.now();
-              emitted = true;
-              send('chunk', { text: content });
-            }
-          } catch {}
-        };
-        for await (const part of res.body) {
-          buf += decoder.decode(part, { stream: true });
-          let nl;
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            consume(buf.slice(0, nl));
-            buf = buf.slice(nl + 1);
+        } catch (err) {
+          if (err.name === 'AbortError' || timedOut) throw err;
+          const status = err.status || 0;
+          const retryable =
+            status === 429 || status === 503 || status >= 500 ||
+            /fetch|network|ECONN|ETIMEDOUT|socket/i.test(err.message || '');
+          const exhausted = !retryable || attempt >= maxRetries;
+          if (exhausted && !isLastProvider) {
+            // Hand over to the backup endpoint. Anything already painted belongs to
+            // the failed provider and is dropped so the answer is not two halves.
+            if (emitted) send('reset', {});
+            emitted = false;
+            gotFirstByte = false;
+            lastChunkAt = Date.now(); // the watchdog clock restarts with the new origin
+            send('notice', {
+              level: 'warn',
+              message: `Provider failed (${String(err.message || err).slice(0, 120)}) — retrying on the backup endpoint.`,
+            });
+            break;
           }
+          if (exhausted) throw err;
+          // A retry re-sends the completion from its first token. If part of the failed
+          // attempt is already painted, tell the renderer to drop it — otherwise the
+          // answer reads as the partial reply followed by the full one.
+          if (emitted) {
+            send('reset', {});
+            emitted = false;
+            gotFirstByte = false;
+          }
+          lastChunkAt = Date.now(); // backoff is not a stalled stream
+          await delay(Math.min(1000 * 2 ** attempt, 8000));
+          attempt++;
         }
-        buf += decoder.decode(); // flush a multi-byte character split across chunks
-        consume(buf);
-        send('done', {});
-        return;
-      } catch (err) {
-        if (err.name === 'AbortError' || timedOut) throw err;
-        const status = err.status || 0;
-        const retryable =
-          status === 429 || status === 503 || status >= 500 ||
-          /fetch|network|ECONN|ETIMEDOUT|socket/i.test(err.message || '');
-        if (!retryable || attempt >= maxRetries) throw err;
-        // A retry re-sends the completion from its first token. If part of the failed
-        // attempt is already painted, tell the renderer to drop it — otherwise the
-        // answer reads as the partial reply followed by the full one.
-        if (emitted) {
-          send('reset', {});
-          emitted = false;
-          gotFirstByte = false;
-        }
-        lastChunkAt = Date.now(); // backoff is not a stalled stream
-        await delay(Math.min(1000 * 2 ** attempt, 8000));
-        attempt++;
       }
     }
   } catch (err) {
@@ -1257,6 +1438,12 @@ if (!singleInstance) {
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('use-gl', 'swiftshader');
+// An overlay is covered by whatever is behind/over it all the time. Without these
+// Chromium throttles a fully occluded window, so the panel can look frozen or
+// repaint late exactly when a call is on top of it.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
 // Serve vendored MediaPipe assets over a custom scheme so the renderer can
 // fetch()/XHR them. Chromium refuses cross-origin fetch/XHR on file:// into an
@@ -1598,6 +1785,15 @@ app.whenReady().then(() => {
     applyDeepStealth(Boolean(on));
     return { ok: true };
   });
+  // "Prove it here" — the Ghost check measures the exclusion on this machine
+  // instead of repeating a claim from the README.
+  handle('ghost:check', async () => {
+    try {
+      return await ghostCheck();
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  });
   handle('window:move', (_e, { dx, dy }) => {
     if (!win) return;
     const [x, y] = win.getPosition();
@@ -1722,6 +1918,10 @@ app.whenReady().then(() => {
     createWindow();
     mlog(`createWindow returned`);
     setupHostBlend();
+    // The host is a brand-new top-level window created with an empty title, and
+    // the periodic blend only reaches it on its next pass — until then the audit
+    // (and any detector) sees an untitled window. Blend once now that it exists.
+    if (process.platform === 'win32') blendProcessTitles();
   } catch (e) {
     mlog(`createWindow threw: ${e.stack || e}`);
     throw e;

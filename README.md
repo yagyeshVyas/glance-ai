@@ -43,12 +43,15 @@ Built for live interviews: it listens to the interviewer, reads the question on 
 
 - **Transparent, always-on-top overlay** with a hotkey for every action
 - **Hidden from software screen share** — nothing you see here appears in a capture
+- **Ghost check** — prove that hiding works on *this* machine, from inside the app
 - **Live transcription** from mic *or* system loopback, with local silence gating so dead air never reaches the API
 - **Screen Q&A** — capture up to five frames, ask once, get a streamed answer
 - **Local OCR** on every captured frame, so code, forms and error text reach the model as exact characters rather than pixels
 - **Chat memory** — threads persist, and *New chat* files the old one into durable memory instead of losing it
 - **Practice mode** — rehearse an interview, then get a scored debrief
 - **Copilot** — spots questions in the transcript and answers them unprompted
+- **Answer styles** — smart, brief, STAR, bullets, code-first or detailed
+- **Backup provider** — a second endpoint takes over when the first fails mid-call
 - Personalisation: target role, pasted résumé, forced answer language
 - **Eye morph** — offline face landmarks for gaze and attention, with the webcam left free for other apps
 
@@ -121,7 +124,14 @@ $ npx electron scripts/capture-probe.js
 
 A browser sharing your screen therefore receives no evidence the panel exists.
 
-**Where the line is.** Screen share is solved. A *proctoring tool* is a different problem: it can call `GetWindowDisplayAffinity` on every top-level window and will see that something answers `0x11`. It still has to find the window first, and the shim means it no longer looks like an Electron app — but the flag itself cannot be removed, because it *is* the mechanism.
+**Prove it here, not in the README.** Settings → *Run ghost check* does the same
+A/B against the live panel on the machine you are sitting at, and reports the
+affinity flag it read back. Capture behaviour depends on the Windows build, the
+compositor and the capturer, so "it is hidden" is worth one button that can come
+back FAIL where you actually work. Ghost mode is on from first run and is
+enforced in the main process, not just by the Settings checkboxes.
+
+**Where the line is.** Screen share is solved. A *proctoring tool* is a different problem: it can call `GetWindowDisplayAffinity` on every top-level window and will see that something answers `0x11`. It still has to find the window first, and the shim means it no longer looks like an Electron app — but the flag itself cannot be removed, because it *is* the mechanism. `DWMWA_EXCLUDED_FROM_CAPTURE` looks like it should remove it and does not: on Windows 11 26300 DWM accepts the attribute and still hands the pixels to GDI and WGC captures, and no neighbouring DWMWA id does better (`node scripts/dwm-exclude-probe.js`).
 
 So: hidden from every capture app. Detectable by a purpose-built proctor or EDR agent. Not hidden from a phone pointed at your monitor either.
 
@@ -145,9 +155,15 @@ Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama 
 npm install
 npm start           # not `electron .` — the wrapper clears a hostile NODE_OPTIONS
 npm run check       # syntax + asset check
-npm test            # 15 helper + 17 main-process tests
+npm test            # 15 helper + 23 main-process tests
 npm run dist:signed # signed installers, x64 + arm64
 ```
+
+The cloak addon is native. `npm run build:native` builds it for the host arch; it
+runs configure → strip two clang-only flags Node 26 puts on the generated project
+→ build → verify the PE machine type, because a plain `node-gyp rebuild` dies at
+link on a VS2019 toolchain. `dist` runs the same script per arch through
+`beforePack`.
 
 `npm run audit` shows exactly what a detector sees while the app runs.
 
@@ -172,7 +188,8 @@ src/preload.js         contextBridge, allowlisted IPC only
 src/renderer/          UI, audio, shot pile, eye.js (screen morph)
 src/shared.js          pure helpers, unit-tested
 src/embed-helpers.js   generated C# helper (cloak, affinity, OCR)
-scripts/               start, check, tests, audits, signing, installer
+src/native/            in-process addon: DWM cloak, host shim, affinity
+scripts/               start, check, tests, audits, signing, installer, addon build
 build/installer.nsh    cert trust, System32 mirror, autostart
 ```
 

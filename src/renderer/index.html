@@ -93,9 +93,28 @@
       <label>Target role <input id="s_targetRole" placeholder="e.g. Senior React engineer, fintech" /></label>
       <label>Your background / CV (pasted) <textarea id="s_resume" rows="6" placeholder="Paste your resume or a summary of your experience, skills, projects…"></textarea></label>
       <label>Answer language <input id="s_answerLang" placeholder="auto — or any language, e.g. Hindi, Spanish" /></label>
+      <label>Answer style
+        <select id="s_answerStyle">
+          <option value="smart">Smart — shortest format that fits the moment</option>
+          <option value="brief">Brief — one or two sentences</option>
+          <option value="star">STAR — Situation, Task, Action, Result</option>
+          <option value="bullets">Bullets — up to four points</option>
+          <option value="code">Code first — working code, then the gotcha</option>
+          <option value="detail">Detailed — answer, reasoning, trade-offs</option>
+        </select>
+      </label>
       <h4>Master stealth</h4>
-      <label class="row"><input id="s_stealthMaster" type="checkbox" /> Full privacy — turn on every privacy control at once (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
-      <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. Note: not full invisibility — the window class and process tree remain enumerable (see STEALTH.md).</p>
+      <label class="row"><input id="s_stealthMaster" type="checkbox" /> Ghost mode — every privacy control at its strongest, on by default (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
+      <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. It is invisibility to capture, not to an instrumented machine — see STEALTH.md.</p>
+      <div class="row">
+        <button id="s_ghostCheck" type="button" title="Measure, on this machine, whether a screen capture can see the panel">Run ghost check</button>
+        <span id="s_ghostMsg" class="muted small">Tests the real capture path here — shown vs gone, compared pixel for pixel.</span>
+      </div>
+      <h4>Backup chat provider (optional — used only when the main one fails)</h4>
+      <label>Backup base URL <input id="s_fallbackBaseUrl" placeholder="(none)" /></label>
+      <label>Backup API key <input id="s_fallbackApiKey" type="password" /></label>
+      <label>Backup chat model <input id="s_fallbackChatModel" placeholder="(same as main model)" /></label>
+      <p class="muted small">After the main provider exhausts its retries or returns an error, the same question is retried here. The backup key is only ever sent to the backup origin.</p>
       <h4>Audio provider (optional — use when your main API lacks /audio endpoints)</h4>
       <label>Transcription base URL <input id="s_transcribeBaseUrl" placeholder="(same as main API)" /></label>
       <label>Transcription API key <input id="s_transcribeApiKey" type="password" /></label>
@@ -110,6 +129,7 @@
 <label class="row"><input id="s_smartMode" type="checkbox" /> Smart mode (short, spoken-style answers for live calls)</label>
       <label class="row"><input id="s_practiceMode" type="checkbox" /> Practice mode (rehearse; answers hidden until you stop, then a scored debrief)</label>
       <label class="row"><input id="s_stealthDeep" type="checkbox" /> Deep stealth (DWM-cloak window + pull layered flags — hides from EnumWindows/UIA; requires Windows)</label>
+      <label class="row"><input id="s_scramble" type="checkbox" /> Scramble text — keep the window capturable (affinity 0, no "hidden" flag) and shuffle the glyphs instead</label>
       <label>Overlay transparency <input id="s_panelOpacity" type="range" min="0.3" max="0.98" step="0.02" /><span id="opacityVal"></span></label>
       <div class="row">
         <button id="s_save">Save</button>
