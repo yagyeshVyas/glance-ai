@@ -416,6 +416,32 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
     assert.match(await sysPromptOf('nonsense'), /live call, not a chatbot/i);
   });
 
+  // ---------- local knowledge injection ----------
+  await okAsync('only the knowledge blocks that match the question are injected', async () => {
+    call('config:set', fakeEvent, {
+      knowledge: 'Payments migration: moved 40 services to Postgres with zero downtime.\n\nCoffee machine is on the third floor.',
+    });
+    let body = null;
+    global.fetch = async (_url, opts) => {
+      body = JSON.parse(opts.body);
+      return new Response(sse(delta('ok')), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    await call('ask', fakeEvent, { id: 14, messages: [{ role: 'user', content: 'tell me about the payments migration' }], withScreen: false });
+    assert.match(body.messages[0].content, /Payments migration/);
+    assert.doesNotMatch(body.messages[0].content, /Coffee machine/);
+  });
+
+  await okAsync('no knowledge in config means no knowledge section', async () => {
+    call('config:set', fakeEvent, { knowledge: '' });
+    let body = null;
+    global.fetch = async (_url, opts) => {
+      body = JSON.parse(opts.body);
+      return new Response(sse(delta('ok')), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    await call('ask', fakeEvent, { id: 15, messages: [{ role: 'user', content: 'hello' }], withScreen: false });
+    assert.doesNotMatch(body.messages[0].content, /knowledge base/);
+  });
+
   // ---------- state round-trip ----------
   await okAsync('state:set encrypts history at rest', async () => {
     await call('state:set', fakeEvent, { history: [{ role: 'user', content: 'secret turn' }], transcript: 'hello' });

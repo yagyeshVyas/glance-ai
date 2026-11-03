@@ -2,6 +2,44 @@
 
 The project is **Glance AI**. It was renamed `Glance` → `wshx-host` → `svchost`, and is now Glance AI again — product, binary, install folder and data folder all agree.
 
+## 3.0.0
+
+Answering quality and the detection surface, not just the capture.
+
+**Detection surface — measured, per tell**
+- The single ghost check became a **stealth report**: it captures the panel, hides
+  it, captures again, and then also reads back the window class, ex-style, title,
+  Chromium child count, accessibility state and the DevTools port file. Each row
+  is what this machine answers right now, with a green/amber/red verdict, so a
+  weak machine shows the weak row instead of a blanket "hidden". New addon
+  probes: `className`, `exStyle`, `title`, `childChromiumClasses`.
+- The report no longer short-circuits when capture hiding is off — that is the
+  case it is most useful for.
+- **Panic hide** on `Ctrl+Alt+X`: the panel vanishes immediately from any state.
+
+**Answers that are actually right**
+- **Offline knowledge base.** Paste a cheat sheet, star stories, project notes —
+  entries are split on blank lines and scored locally against the question; only
+  the best few ride along. No embeddings, no network, no cost, and the model gets
+  your facts instead of guessing. `rankNotes` is pure and unit-tested.
+- **Dual-stream listening.** "Both" runs a mic loop and a system-loopback loop at
+  once and labels each line You / Them, so an interview reads as two sides while
+  the text sent to the model stays plain speech.
+- **Meeting detection.** Zoom, Teams, Webex, Discord, Skype or a browser tab
+  titled like a meeting produces one notice per run with the listen hotkey.
+
+**UI**
+- Reworked panel: status is a pill rather than loose text, primary actions are
+  marked, the toolbar and inputs are quieter, answers get a readable type scale
+  and real code blocks, and settings gained sections and focus rings.
+
+**Release pipeline**
+- `latest.yml` is re-stamped from the signed artifacts after signing and the
+  stale blockmaps are dropped. Signing runs after electron-builder hashes the
+  installers, so every published checksum described the pre-signature file and
+  `electron-updater` rejected the download — silently, since nothing surfaces a
+  failed checksum to the user. Verified fixed on the 2.0.0 release assets.
+
 ## 2.0.0
 
 Ghost mode, and a way to prove it.

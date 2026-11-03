@@ -4,6 +4,7 @@
 #include <node_api.h>
 #include <dwmapi.h>
 #include <windows.h>
+#include <string>
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "user32.lib")
@@ -232,8 +233,97 @@ static napi_value GetAffinity(napi_env env, napi_callback_info info) {
   return r;
 }
 
+// ---- read-only probes used by the stealth report ----
+// The report has to show what a detector actually reads, so these return the
+// real values rather than a restatement of what the app believes it set.
+
+static napi_value ClassName(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1], t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  wchar_t buf[256] = {};
+  int n = 0;
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  if (IsWindow(h)) n = GetClassNameW(h, buf, 256);
+  napi_value r;
+  std::wstring w(buf, n > 0 ? n : 0);
+  std::string s(w.begin(), w.end());
+  napi_create_string_utf8(env, s.c_str(), s.size(), &r);
+  return r;
+}
+
+static napi_value ExStyle(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1], t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  LONG_PTR v = IsWindow(h) ? GetWindowLongPtrW(h, GWL_EXSTYLE) : 0;
+  napi_value r;
+  napi_create_double(env, static_cast<double>(v), &r);
+  return r;
+}
+
+static napi_value Title(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1], t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  wchar_t buf[512] = {};
+  int n = 0;
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  if (IsWindow(h)) n = GetWindowTextW(h, buf, 512);
+  std::wstring w(buf, n > 0 ? n : 0);
+  std::string s(w.begin(), w.end());
+  napi_value r;
+  napi_create_string_utf8(env, s.c_str(), s.size(), &r);
+  return r;
+}
+
+// Child windows whose class still says Chromium. The host hides the Electron
+// window from the top-level enumeration; a detector that walks children finds
+// these, so the report states how many exist instead of hiding the fact.
+static BOOL CALLBACK countChromiumChildren(HWND h, LPARAM param) {
+  wchar_t buf[256] = {};
+  if (GetClassNameW(h, buf, 256) > 0) {
+    std::wstring c(buf);
+    if (c.find(L"Chrome_WidgetWin") != std::wstring::npos) (*(int*)param)++;
+  }
+  return TRUE;
+}
+
+static napi_value ChildChromiumClasses(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1], t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  int n = 0;
+  if (IsWindow(h)) EnumChildWindows(h, countChromiumChildren, reinterpret_cast<LPARAM>(&n));
+  napi_value r;
+  napi_create_int32(env, n, &r);
+  return r;
+}
+
 static napi_value Init(napi_env env, napi_value exports) {
   napi_value fn;
+  napi_create_function(env, "className", NAPI_AUTO_LENGTH, ClassName, nullptr, &fn);
+  napi_set_named_property(env, exports, "className", fn);
+  napi_create_function(env, "exStyle", NAPI_AUTO_LENGTH, ExStyle, nullptr, &fn);
+  napi_set_named_property(env, exports, "exStyle", fn);
+  napi_create_function(env, "title", NAPI_AUTO_LENGTH, Title, nullptr, &fn);
+  napi_set_named_property(env, exports, "title", fn);
+  napi_create_function(env, "childChromiumClasses", NAPI_AUTO_LENGTH, ChildChromiumClasses, nullptr, &fn);
+  napi_set_named_property(env, exports, "childChromiumClasses", fn);
   napi_create_function(env, "getAffinity", NAPI_AUTO_LENGTH, GetAffinity, nullptr, &fn);
   napi_set_named_property(env, exports, "getAffinity", fn);
   napi_create_function(env, "dwmAttr", NAPI_AUTO_LENGTH, DwmAttr, nullptr, &fn);

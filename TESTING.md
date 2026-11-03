@@ -52,10 +52,10 @@ Exit codes: `0` ownership proven (toggle flipped the window) · `1` a binding is
 
 ## 5. Stealth verification
 
-Fastest path — in the app, not in this file: Settings → *Run ghost check*. It
-captures the panel region, hides the panel, captures again and compares. PASS
-means the pixels were absent and the affinity flag was `0x11`; FAIL means this
-machine's capture path can see the overlay and you should not rely on it.
+Fastest path — in the app, not in this file: Settings → *Run stealth report*. It
+captures the panel region, hides the panel, captures again, then reads back the
+class, ex-style, title, child windows, accessibility state and DevTools port. Each
+row is green/amber/red; any red means do not rely on it on this machine.
 
 ```bash
 node scripts/capture-ab.js            # same A/B, exit 1 on failure
@@ -79,7 +79,6 @@ What Windows reports, without starting a call (measured 2026-10-25, Windows 11, 
 - [ ] With the AppUserModelId override on, Task Manager still shows `assistant.exe` / `electron.exe` — the setting is a shell/taskbar grouping hint only (see `STEALTH.md` §3)
 
 ### 5b. New in 2.0.0
-
 Drivable without clicking, against a running app with `--remote-debugging-port=9333`:
 
 ```bash
@@ -90,11 +89,19 @@ node scripts/scramble-probe.js      # text mutates and restores; copy path untou
 
 - [ ] Ghost mode is checked on a fresh profile (Settings → the first checkbox) and survives a restart
 - [ ] Un-checking Ghost mode restores the individual toggles instead of leaving them on
-- [ ] *Run ghost check* returns PASS with affinity `0x11`, and the result line stays readable
-- [ ] With Ghost mode off and stealth off, the ghost check reports a fail with affinity `none`
+- [ ] *Run stealth report* returns no red rows, and every row reads as a measurement rather than a restatement
+- [ ] With Ghost mode off and stealth off, the report shows the capture row red
 - [ ] Scramble on + stealth off: the answer pane's text visibly changes ~8×/s, keeps its word count, and Copy still produces the real text
 - [ ] Scramble off restores the exact original text
 - [ ] Scramble does not fight streaming: start a long answer with it on and confirm the pane keeps updating
+- [ ] `Ctrl+Alt+X` hides the panel from any state, including click-through
+
+### 5d. New in 3.0.0 — answers
+
+- [ ] Paste two unrelated note blocks into Settings → Knowledge base, ask about one; the answer uses it and ignores the other
+- [ ] Set the audio source to *Both*: both loops start, transcript lines are labelled You / Them, and the prompt text itself has no labels
+- [ ] Start Zoom or Teams: exactly one notice appears, once per run
+- [ ] Ask a question nobody's notes cover; the knowledge section does not appear in the prompt
 
 ## 5c. Provider failover
 - [ ] Set a backup base URL + key, then break the main one (wrong key) — the status shows the failover notice and the answer still arrives from the backup

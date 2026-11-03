@@ -12,7 +12,7 @@ Hear the room, read the screen, get the answer — in a small panel that Zoom, M
 [![Downloads](https://img.shields.io/github/downloads/yagyeshVyas/glance-ai/total?color=success)](#install)
 [![Release](https://img.shields.io/github/v/release/yagyeshVyas/glance-ai?color=blue)](#install)
 
-[Install](#install) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Build](#build-from-source)
+[Install](#install) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
 
 </div>
 
@@ -43,10 +43,13 @@ Built for live interviews: it listens to the interviewer, reads the question on 
 
 - **Transparent, always-on-top overlay** with a hotkey for every action
 - **Hidden from software screen share** — nothing you see here appears in a capture
-- **Ghost check** — prove that hiding works on *this* machine, from inside the app
-- **Live transcription** from mic *or* system loopback, with local silence gating so dead air never reaches the API
+- **Stealth report** — a per-tell measurement of what a detector can see on *this* machine
+- **Panic hide** on `Ctrl+Alt+X` — the panel is gone before the call reacts
+- **Live transcription** from mic, system loopback, or **both at once** with You/Them labels
 - **Screen Q&A** — capture up to five frames, ask once, get a streamed answer
 - **Local OCR** on every captured frame, so code, forms and error text reach the model as exact characters rather than pixels
+- **Offline knowledge base** — paste notes; only the entries matching the question ride along, scored on-device
+- **Meeting detection** — sees Zoom, Teams, Webex, Discord or a browser meeting tab and says so once
 - **Chat memory** — threads persist, and *New chat* files the old one into durable memory instead of losing it
 - **Practice mode** — rehearse an interview, then get a scored debrief
 - **Copilot** — spots questions in the transcript and answers them unprompted
@@ -75,6 +78,7 @@ Nothing is uploaded until there is something to send, and the screenshot only ri
 | Key | Action |
 |---|---|
 | `Ctrl+Shift+H` / `Ctrl+Alt+Space` | show / hide |
+| `Ctrl+Alt+X` | panic hide — vanish now |
 | `Ctrl+Alt+Enter` | ask with a screenshot |
 | `Ctrl+Shift+L` | start / stop listening |
 | `Ctrl+Shift+S` | capture a shot into the pile |
@@ -124,11 +128,12 @@ $ npx electron scripts/capture-probe.js
 
 A browser sharing your screen therefore receives no evidence the panel exists.
 
-**Prove it here, not in the README.** Settings → *Run ghost check* does the same
-A/B against the live panel on the machine you are sitting at, and reports the
-affinity flag it read back. Capture behaviour depends on the Windows build, the
-compositor and the capturer, so "it is hidden" is worth one button that can come
-back FAIL where you actually work. Ghost mode is on from first run and is
+**Prove it here, not in the README.** Settings → *Run stealth report* does the
+same A/B against the live panel on the machine you are sitting at, then reads
+back the class, ex-style, title, child windows, accessibility state and DevTools
+port — one row each, green/amber/red. Capture behaviour depends on the Windows
+build, the compositor and the capturer, so "it is hidden" is worth a button that
+can come back red where you actually work. Ghost mode is on from first run and is
 enforced in the main process, not just by the Settings checkboxes.
 
 **Where the line is.** Screen share is solved. A *proctoring tool* is a different problem: it can call `GetWindowDisplayAffinity` on every top-level window and will see that something answers `0x11`. It still has to find the window first, and the shim means it no longer looks like an Electron app — but the flag itself cannot be removed, because it *is* the mechanism. `DWMWA_EXCLUDED_FROM_CAPTURE` looks like it should remove it and does not: on Windows 11 26300 DWM accepts the attribute and still hands the pixels to GDI and WGC captures, and no neighbouring DWMWA id does better (`node scripts/dwm-exclude-probe.js`).
@@ -145,6 +150,46 @@ No overlay is undetectable: a purpose-built proctoring or EDR agent can still fi
 
 The naming is honest: the product is **Glance AI**, it installs and runs as `assistant`, the certificate subject is the author, and nothing claims to be Microsoft.
 
+## How it compares
+
+Read as "*what can you check yourself*", not as a spec sheet of anyone's marketing.
+The commercial rows are the paid interview copilots people ask about; the open-source
+rows are the projects this one is most often measured against. Cell values are the
+feature as publicly shipped, not a claim about how well it works.
+
+**Open source**
+
+| | Glance AI | NexQ | Ghostbar | Meetingly / Shiping / Aura |
+|---|---|---|---|---|
+| Platform | Windows | Windows, macOS beta | **macOS only** | Windows |
+| Free, no account | ✅ | ✅ | ✅ | ✅ |
+| Hidden from screen capture | ✅ + class shim | ✅ flag only | ✅ native AppKit | varies |
+| In-app proof of hiding | ✅ per-tell report | — | — | — |
+| Capturable-but-scrambled mode | ✅ | — | — | — |
+| Offline OCR of the screen | ✅ | — | — | — |
+| Offline knowledge base | ✅ | ✅ local RAG (files) | — | — |
+| Dual-stream You/Them labels | ✅ | ✅ 11 STT engines | — | — |
+| Local LLM / local STT models | ⚠️ via any local OpenAI-compatible URL | ✅ | ✅ Ollama | varies |
+| Meeting app detection | ✅ | ✅ | — | — |
+| Native UI, no Chromium | — | — | ✅ Swift | — |
+
+**Commercial**
+
+| | Glance AI | Cluely | Interview Coder | Final Round AI | LockedIn AI | Parakeet AI |
+|---|---|---|---|---|---|---|
+| Price | **free** | subscription | subscription | subscription | subscription | subscription |
+| Source available | ✅ MIT | — | partially | — | — | — |
+| Hidden from screen share | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| Proof you can run locally | ✅ | — | — | — | — | — |
+| Works with your own API key | ✅ any OpenAI-compatible endpoint | — | — | — | — | — |
+| Data stays on your machine | ✅ except your API calls | ❌ cloud | partial | ❌ cloud | ❌ cloud | ❌ cloud |
+
+**Where this is behind, honestly:** macOS support does not exist here (Ghostbar is
+native Swift and will feel better on a Mac), there is no bundled local STT model
+or file-importing RAG index (NexQ has both), and the commercial products have
+polished onboarding, scheduling and company-research features that a single-binary
+open-source project does not.
+
 ## API compatibility
 
 Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama with a compatible shim. The chat model needs vision for screen questions; transcription needs a Whisper-compatible endpoint. Keys never reach the renderer, and the IPC bridge is an explicit 27-method allowlist.
@@ -155,7 +200,7 @@ Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama 
 npm install
 npm start           # not `electron .` — the wrapper clears a hostile NODE_OPTIONS
 npm run check       # syntax + asset check
-npm test            # 15 helper + 23 main-process tests
+npm test            # 20 helper + 25 main-process tests
 npm run dist:signed # signed installers, x64 + arm64
 ```
 

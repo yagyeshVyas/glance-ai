@@ -2,7 +2,7 @@ const { app, BrowserWindow, dialog, globalShortcut, ipcMain, desktopCapturer, sc
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { estimateTokens, fitContext, visionTokens, fitFrames } = require('./shared');
+const { estimateTokens, fitContext, visionTokens, fitFrames, rankNotes } = require('./shared');
 const HIDE_HELPER_CS = require('./embed-helpers');
 
 const DEFAULTS = {
@@ -39,6 +39,7 @@ const DEFAULTS = {
   answerStyle: 'smart', // smart | brief | star | bullets | code | detail — shape of the answer
   targetRole: '', // e.g. "Senior React engineer at a fintech" — grounds every answer
   resume: '', // pasted CV — answers grounded in real experience, never invented
+  knowledge: '', // pasted notes / cheat sheet — local retrieval, injected only when relevant
   smartMode: true, // short, spoken-only answers tuned for a live call
   practiceMode: false, // rehearse + debrief: transcript recorded, answers hidden until the session ends
   systemPrompt:
@@ -702,6 +703,14 @@ function toggleClickThrough() {
   win.webContents.send('click-through', clickThrough);
 }
 
+// Panic: make the panel disappear right now, whatever state it is in. Bound to a
+// key that takes one hand, because the moment it matters the user is mid-answer
+// and looking at a camera, not at the overlay.
+function panicHide() {
+  if (!win || win.isDestroyed() || !isShown) return;
+  toggleVisible(); // the hide branch cloaks off-screen and drops the flag state
+}
+
 function registerShortcuts() {
   // chosen to avoid every common browser/app binding (Ctrl+Enter, Ctrl+Shift+M/Q in Firefox,
   // Ctrl+Shift+Space is often held by IME/overlays). Failed registrations surface in the log + status line.
@@ -715,6 +724,7 @@ function registerShortcuts() {
   reg('CommandOrControl+Shift+L', () => win?.webContents.send('trigger', 'toggle-listen'));
   reg('CommandOrControl+Shift+A', () => win?.webContents.send('trigger', 'answer-transcript'));
   reg('CommandOrControl+Alt+M', toggleClickThrough);
+  reg('CommandOrControl+Alt+X', panicHide); // panic: vanish now
   reg('CommandOrControl+Alt+Left', () => nudge(-40, 0));
   reg('CommandOrControl+Alt+Right', () => nudge(40, 0));
   reg('CommandOrControl+Alt+Up', () => nudge(0, -40));
@@ -865,16 +875,16 @@ async function regionHash() {
   return hash.digest('hex').slice(0, 16);
 }
 
-async function ghostCheck() {
+async function stealthReport() {
   if (process.platform !== 'win32') return { ok: false, reason: 'Windows only' };
   if (!win || win.isDestroyed()) return { ok: false, reason: 'no window' };
   const nat = loadCloak();
-  if (!nat || !nat.hostHandle) return { ok: false, reason: 'native addon unavailable' };
+  if (!nat || !nat.hostHandle) return { ok: false, reason: 'native addon unavailable (host shim off)' };
   const host = nat.hostHandle();
-  if (!host) return { ok: false, reason: 'host window missing' };
-  if (cfg.stealth === false) {
-    return { ok: false, reason: 'Capture hiding is off — enable it in Settings first.', affinity: nat.getAffinity(host) };
-  }
+  if (!host) return { ok: false, reason: 'host window missing — class and flag are unprotected' };
+
+  // Deliberately not short-circuited when stealth is off: the report is most
+  // useful as a diagnosis of the bad case, so it runs and fails the capture row.
 
   const wasShown = isShown;
   if (!isShown) { win.showInactive(); isShown = true; }
@@ -900,20 +910,108 @@ async function ghostCheck() {
 
   const excluded = shown === hidden;
   const mechanism = affinity === 17 ? 'excluded' : affinity === 1 ? 'monitor' : 'none';
+
+  // Everything a detector can read, measured — not restated from settings. Each
+  // row says what the machine actually reports right now, so a weak machine shows
+  // the weak row instead of a blanket "hidden".
+  const cls = nat.className(host);
+  const ex = Number(nat.exStyle(host)) || 0;
+  const title = nat.title(host);
+  const chromiumChildren = nat.childChromiumClasses(host);
+  const hasTool = (ex & 0x80) !== 0; // WS_EX_TOOLWINDOW → no taskbar, no Alt+Tab
+  const hasTop = (ex & 0x8) !== 0; // WS_EX_TOPMOST
+
+  const tell = (id, label, status, detail) => ({ id, label, status, detail });
+  const tells = [
+    tell('capture', 'Pixels absent from a screen capture', excluded ? 'pass' : 'fail',
+      excluded ? 'An identical region hashes the same with the panel shown and gone.'
+        : 'The capture contains the panel. Screen share can see it.'),
+    tell('affinity', 'Capture-exclusion flag', affinity === 17 ? 'pass' : affinity === 1 ? 'warn' : 'fail',
+      affinity === 17 ? 'GetWindowDisplayAffinity reads 0x11 (WDA_EXCLUDEFROMCAPTURE).'
+        : affinity === 1 ? 'Reads 0x1 (WDA_MONITOR): a black block, not a hidden window. Windows 10 2004+ is needed for 0x11.'
+          : 'No flag set — the window is capturable.'),
+    tell('class', 'Window class', /chrome/i.test(cls) ? 'fail' : 'pass',
+      /chrome/i.test(cls) ? `Enumerated window is ${cls}, which says Electron.`
+        : `Enumerated window is "${cls}", an innocuous shell-style class.`),
+    tell('estyle', 'Not in the taskbar or Alt-Tab', hasTool ? 'pass' : 'warn',
+      hasTool ? 'WS_EX_TOOLWINDOW set: no taskbar button and no Alt+Tab entry.'
+        : 'WS_EX_TOOLWINDOW missing — the window shows up in Alt+Tab.'),
+    tell('topmost', 'Stays above other windows', hasTop ? 'pass' : 'warn',
+      hasTop ? 'WS_EX_TOPMOST set.' : 'Not topmost; the window can be covered.'),
+    tell('title', 'Window title', title ? 'warn' : 'pass',
+      title ? `Title reads "${title}" — a word, not a random hex string, but it does name the tool.`
+        : 'No title at all, so the enumeration shows nothing to read.'),
+    tell('children', 'Chromium child windows', chromiumChildren === 0 ? 'pass' : 'warn',
+      chromiumChildren === 0 ? 'No Chromium-classed children under the host.'
+        : `${chromiumChildren} child window(s) still use a Chrome_WidgetWin class — only visible if a detector walks children.`),
+    tell('uia', 'Accessibility tree', app.accessibilitySupportEnabled ? 'warn' : 'pass',
+      app.accessibilitySupportEnabled ? 'UIA is enabled; the panel text can be walked by an accessibility tool.'
+        : 'Chromium accessibility is off, so the UIA tree is minimal.'),
+    tell('devtools', 'DevTools port file', fs.existsSync(path.join(app.getPath('userData'), 'DevToolsActivePort')) ? 'warn' : 'pass',
+      fs.existsSync(path.join(app.getPath('userData'), 'DevToolsActivePort')) ? 'DevToolsActivePort exists next to the profile.'
+        : 'No DevToolsActivePort file left in the profile.'),
+    tell('process', 'Process identity', 'info',
+      `${path.basename(process.execPath)} — visible in any process list; the mirror path and version resource are what a scraper reads.`),
+  ];
+
+  const fails = tells.filter((t) => t.status === 'fail').length;
+  const warns = tells.filter((t) => t.status === 'warn').length;
+  const ok = fails === 0;
   return {
-    ok: excluded && affinity !== 0,
-    // shown === hidden means the pixels are absent from the capture
+    ok,
+    fails,
+    warns,
+    tells,
+    // kept for the older single-check callers
     pixelExcluded: excluded,
-    // 17 = WDA_EXCLUDEFROMCAPTURE (true exclusion), 1 = WDA_MONITOR (blank block)
     affinity,
     mechanism,
     bounds,
     shown,
     hidden,
-    verdict: excluded
-      ? 'PASS — a screen capture of this region is identical with the panel shown and gone.'
-      : 'FAIL — the panel appeared in the capture. It is not hidden on this machine.',
+    verdict: ok
+      ? `PASS — ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} unavoidable caveat(s)` : ''}. A screen capture returns your screen without this panel.`
+      : `FAIL — ${fails} tell(s) let a detector notice the panel.`,
   };
+}
+
+// ---------- meeting detection ----------
+// The overlay is most useful at the moment a call starts, and that is exactly the
+// moment the user is joining rather than looking at the panel. Watch the process
+// list for the usual clients (and browser tabs titled like a meeting) and say so
+// once per app per run. Detection only — it never starts the mic behind your back.
+const MEETING_PROCS = ['zoom', 'teams', 'ms-teams', 'webex', 'webexmta', 'skype', 'discord'];
+const MEETING_TITLE = /meet|zoom|teams|webex/i;
+const meetingsSeen = new Set();
+
+function detectMeeting() {
+  try {
+    const { execFileSync } = require('child_process');
+    const refs = MEETING_PROCS.map((n) => `$_.ProcessName -eq '${n}'`).join(' -or ');
+    const ps = [
+      `$p = Get-Process -ErrorAction SilentlyContinue | Where-Object { ${refs} -or (($_.ProcessName -eq 'chrome' -or $_.ProcessName -eq 'msedge') -and $_.MainWindowTitle -match '${MEETING_TITLE.source}') } | Select-Object -First 1`,
+      `if ($p) { $p.ProcessName }`,
+    ].join('; ');
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
+      encoding: 'utf8', timeout: 8000, windowsHide: true,
+    }).trim();
+    const name = String(out || '').split(/\r?\n/)[0].trim();
+    if (!name || meetingsSeen.has(name)) return;
+    meetingsSeen.add(name);
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('notice', {
+        level: 'info',
+        message: `${name} is running — Ctrl+Shift+L starts listening (pick "Both" to hear the interviewer too).`,
+      });
+    }
+  } catch {}
+}
+
+function watchForMeetings() {
+  if (process.platform !== 'win32') return;
+  const t = setInterval(detectMeeting, 20000);
+  if (t.unref) t.unref();
+  setTimeout(detectMeeting, 6000); // after the first paint, not before it
 }
 
 // ---------- auto-update (GitHub Releases via electron-updater) ----------
@@ -1071,6 +1169,17 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
       .join('\n');
     if (digest.trim()) {
       sys += `\n\nSaved memory from earlier sessions (treat as user-provided background; prefer it over guessing, but never invent beyond it):\n${digest}`;
+    }
+  }
+
+  // Local knowledge: only the blocks that overlap the question ride along, so a
+  // large cheat sheet costs almost nothing per turn and the model gets the
+  // user's own facts instead of guessing.
+  if (cfg.knowledge) {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const relevant = rankNotes(cfg.knowledge, lastUser ? String(lastUser.content || '') : '');
+    if (relevant) {
+      sys += `\n\nNotes from the user's own knowledge base — authoritative, prefer them over general knowledge:\n${relevant}`;
     }
   }
 
@@ -1574,6 +1683,7 @@ app.whenReady().then(() => {
   try { app.accessibilitySupportEnabled = false; } catch {}
 
   setupUpdater();
+  watchForMeetings();
 
   // stealth: AUMID grouping hint so the shell/taskbar associates the window
   // with a familiar Windows component. This does NOT rename the process or
@@ -1789,7 +1899,15 @@ app.whenReady().then(() => {
   // instead of repeating a claim from the README.
   handle('ghost:check', async () => {
     try {
-      return await ghostCheck();
+      return await stealthReport();
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  });
+  // v3 name; ghost:check is kept so older probes and the renderer keep working
+  handle('stealth:report', async () => {
+    try {
+      return await stealthReport();
     } catch (err) {
       return { ok: false, reason: err.message };
     }
