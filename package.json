@@ -18,7 +18,8 @@
     "resedit": "node scripts/resedit.js",
     "dist:final": "npm run test && npm run dist",
     "build:native": "node scripts/build-native.js x64",
-    "postinstall": "npm run build:native || echo native build skipped"
+    "postinstall": "npm run build:native || echo native build skipped",
+    "capture-probe": "node scripts/capture-probe.js"
   },
   "license": "MIT",
   "devDependencies": {

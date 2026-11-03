@@ -68,7 +68,7 @@ app.whenReady().then(async () => {
       document.getElementById('gear').click();
       await new Promise(r => setTimeout(r, 700));
       const raw = await window.glance.stealthReport();
-      const out = { probe: raw.probe, aff: raw.affinity, affAfter: raw.affinityAfter, ok: raw.ok, fails: raw.fails, warns: raw.warns, reason: raw.reason };
+      const out = { capture: raw.probe, aff: raw.affinity, affAfter: raw.affinityAfter, ok: raw.ok, fails: raw.fails, warns: raw.warns, reason: raw.reason };
       document.getElementById('s_close').click();
       return JSON.stringify(out);
     })()`;

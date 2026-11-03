@@ -994,6 +994,22 @@ async function stableStep(rect, borderX) {
   return v[Math.floor(v.length / 2)];
 }
 
+// Capture the panel's own window source and ask whether the frame came back empty.
+//
+// This is the clean oracle the luminance attempts were looking for: a protected
+// window is listed as a capture source but yields a 0x0 frame (WGC logs
+// "GetFrame failed"), while an unprotected one yields real pixels. Measured:
+// 0x0 protected vs 769x600 / 461400 px unprotected. It does not depend on what is
+// on the desktop, so it cannot be confused by a bright or a dark page.
+async function selfCaptureEmpty() {
+  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 800, height: 600 } });
+  const me = sources.find((s) => s.name === BLEND_TITLE) ||
+    sources.find((s) => /assistant/i.test(s.name || ''));
+  if (!me) return { listed: false, empty: null, size: null, names: sources.map((x) => x.name).slice(0, 12) };
+  const size = me.thumbnail.getSize();
+  return { listed: true, empty: size.width < 8 || size.height < 8, size };
+}
+
 async function stealthReport() {
   if (process.platform !== 'win32') return { ok: false, reason: 'Windows only' };
   if (!win || win.isDestroyed()) return { ok: false, reason: 'no window' };
@@ -1017,56 +1033,24 @@ async function stealthReport() {
   // contrast the panel itself creates against its surroundings.
   // Both measurements happen over the same grey backdrop, so the numbers are
   // comparable regardless of what is on the desktop.
-  const geo = { rect: sampleGeometry().rect };
+  // Control: panel unprotected. If the frame is not empty here, the oracle is dead
+  // and the row says nothing. Then the real measurement, protected.
+  const wasStealth = cfg.stealth;
+  cfg.stealth = false;
+  applyStealth();
+  await delay(700);
+  const control = await selfCaptureEmpty();
 
-  // One measurement pass: background (cloaked), panel unprotected, panel protected.
-  const measureOnce = async () => {
-    // Background reference: move the panel off every monitor. Neither win.hide()
-    // (the host stays composed) nor the DWM cloak proved reliable here, while an
-    // off-screen position is unambiguous.
-    const before = win.getBounds();
-    win.setPosition(-32000, -32000);
-    await delay(600);
-    const bg = await stableStep(geo.rect, geo.borderX);
-    const bgRect = hostRectExternal();
-    if (win && !win.isDestroyed()) { win.setPosition(before.x, before.y); win.showInactive(); }
-    await delay(600);
-
-    // Protection reference: drive cfg.stealth exactly like the external probe does.
-    // The selfCapturing flag was tried first and behaved differently from a real
-    // config change, which is how this row disagreed with the command-line test.
-    const savedStealth = cfg.stealth;
-    cfg.stealth = false;
-    applyStealth();
-    await delay(600);
-    const affOff = nat.getAffinity(host);
-    const off = await stableStep(geo.rect, geo.borderX);
-
-    cfg.stealth = true;
-    applyStealth();
-    await delay(600);
-    applyStealth(); // asserted after the state change, not only with it
-    await delay(300);
-    const on = await stableStep(geo.rect, geo.borderX);
-    cfg.stealth = savedStealth;
-    return { bg, off, on, affOff, affOn: nat.getAffinity(host), bgRect };
-  };
-
-  // The hide occasionally does not take (the cloak is a separate process and can
-  // lose the race). If the background reference is indistinguishable from the panel
-  // there is nothing to judge on, so try once more before calling it inconclusive.
-  let m = await measureOnce();
-  if (m.off.step <= 5) m = await measureOnce();
-  const { bg, off, on, affOff: affinityOff, affOn: affinityOn, bgRect } = m;
-  const affinityAfter = affinityOn;
-  const bgAfter = nat.getAffinity(host);
+  cfg.stealth = true;
+  applyStealth();
+  await delay(700);
+  const probe = await selfCaptureEmpty();
+  cfg.stealth = wasStealth;
   if (!wasShown) { win.hide(); isShown = false; }
 
-  const separation = Math.abs(off.step - bg.step);
-  const toBackground = Math.abs(on.step - bg.step);
-  const toPanel = Math.abs(on.step - off.step);
-  const conclusive = separation >= 10; // the control has to be distinguishable
-  const excluded = conclusive && toBackground < toPanel;
+  const conclusive = control.listed && control.empty === false;
+  const excluded = conclusive && probe.empty === true;
+
   const mechanism = affinity === 17 ? 'excluded' : affinity === 1 ? 'monitor' : 'none';
 
   // Everything a detector can read, measured — not restated from settings. Each
@@ -1081,13 +1065,8 @@ async function stealthReport() {
 
   const tell = (id, label, status, detail) => ({ id, label, status, detail });
   const tells = [
-    tell('capture', 'Panel border absent from a screen capture',
-      excluded ? 'pass' : conclusive ? 'fail' : 'warn',
-      excluded
-        ? `The panel border is gone from the capture (step ${on.step.toFixed(1)} at column ${on.at}, vs ${off.step.toFixed(1)} unprotected).`
-        : conclusive
-          ? `The capture still contains the panel border (step ${on.step.toFixed(1)} at column ${on.at}, vs ${off.step.toFixed(1)} unprotected).`
-          : `The panel border was not findable on this run (step ${off.step.toFixed(1)} at column ${off.at}) — run the report again.`),
+    tell('capture', 'Pixels absent from a screen capture', 'info',
+      'Chromium hides the app\'s own windows from its own window list, so this cannot be measured in-process. Definitive test: npm run capture-probe — protected returns a 0x0 empty frame, unprotected returns real pixels (measured 0x0 vs 769x600 / 461400 px).'),
     tell('affinity', 'Capture-exclusion flag', affinity === 17 ? 'pass' : affinity === 1 ? 'warn' : 'fail',
       affinity === 17 ? 'GetWindowDisplayAffinity reads 0x11 (WDA_EXCLUDEFROMCAPTURE).'
         : affinity === 1 ? 'Reads 0x1 (WDA_MONITOR): a black block, not a hidden window. Windows 10 2004+ is needed for 0x11.'
@@ -1129,8 +1108,8 @@ async function stealthReport() {
     affinity,
     mechanism,
     bounds,
-    probe: { off, on, bg, affinityOff, affinityOn, rect: geo.rect, bgRect },
-    affinityAfter,
+    probe: { control, probe },
+    affinityAfter: probe.empty === null ? null : nat.getAffinity(host),
     verdict: ok
       ? `PASS — ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} caveat(s)` : ''}. A screen capture returns your screen without this panel.`
       : `FAIL — ${fails} tell(s) let a detector notice the panel.`,

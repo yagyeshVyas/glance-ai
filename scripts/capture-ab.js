@@ -179,9 +179,6 @@ async function regionHash(rect) {
 
 app.whenReady().then(async () => {
   try {
-    const rect = hostRect();
-    if (!rect) throw new Error('panel window not found');
-    console.log('panel rect:', JSON.stringify(rect));
 
     const targets = await getJson('/json/list');
     const t = targets.find((k) => k.type === 'page' && k.url.includes('renderer'));
@@ -194,6 +191,11 @@ app.whenReady().then(async () => {
       await ev('window.glance.hide()');
       await new Promise((r) => setTimeout(r, 1200));
     }
+    // resolve the region only now: showing can re-centre the window, and a stale
+    // rect would make both captures sample empty desktop and "pass" for nothing
+    const rect = hostRect();
+    if (!rect) throw new Error('panel window not found');
+    console.log('panel rect:', JSON.stringify(rect));
 
     const shown = await regionHash(rect);
     console.log('shown :', shown);
@@ -204,10 +206,26 @@ app.whenReady().then(async () => {
     await ev(`window.glance.hide()`);
     await new Promise((r) => setTimeout(r, 1200));
 
+    // Hash equality alone is noisy: an excluded capture shows the live desktop,
+    // which changes between samples. The window-source frame does not have that
+    // problem — a protected window returns 0x0 — so it decides the verdict and the
+    // hashes are printed for context.
+    const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 800, height: 600 } });
+    const me = sources.find((s) => /assistant|wshx-host/i.test(s.name || ''));
+    const size = me ? me.thumbnail.getSize() : null;
+    const windowEmpty = size ? size.width < 8 || size.height < 8 : null;
+    if (windowEmpty !== null) {
+      console.log(`window source frame: ${size.width}x${size.height}${windowEmpty ? ' (empty)' : ''}`);
+      console.log(windowEmpty
+        ? '\nPASS — the window itself captures as an empty frame; a screen share receives no pixels'
+        : '\nFAIL — the window still captures real pixels, a screen share can see it');
+      app.exit(windowEmpty ? 0 : 1);
+      return;
+    }
+
     const same = shown === hidden;
-    console.log(same
-      ? '\nPASS — identical pixels: the capture cannot see the panel'
-      : '\nFAIL — the region changed, the panel is being captured');
+    console.log('window source not listed — falling back to the pixel comparison');
+    console.log(same ? '\nPASS (weak)' : '\nFAIL (weak)');
     app.exit(same ? 0 : 1);
   } catch (e) {
     console.error('ERR:', e.message);
