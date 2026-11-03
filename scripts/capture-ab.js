@@ -188,6 +188,13 @@ app.whenReady().then(async () => {
     if (!t) throw new Error('run the app with --remote-debugging-port=' + PORT);
     const ev = await cdp(t.webSocketDebuggerUrl);
 
+    // the app parks itself off-screen when hidden; a parked panel makes "shown" and
+    // "hidden" both the desktop and the A/B meaningless
+    if (!(await ev('window.glance.windowShown()'))) {
+      await ev('window.glance.hide()');
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+
     const shown = await regionHash(rect);
     console.log('shown :', shown);
     await ev(`window.glance.hide()`);

@@ -31,7 +31,7 @@ const ps = (body) => {
   finally { try { fs.unlinkSync(f); } catch {} }
 };
 
-const RECT = ps(`
+const readRect = () => ps(`
 Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;
 public class W { public delegate bool Proc(IntPtr h, IntPtr l);
  [DllImport("user32.dll")] public static extern bool EnumWindows(Proc p, IntPtr l);
@@ -54,11 +54,7 @@ $script:best = $null; $script:area = 0
 if (-not $script:best) { 'none'; exit }
 "$($script:best.l) $($script:best.t) $($script:best.r - $script:best.l) $($script:best.b - $script:best.t)"`);
 
-if (!RECT || RECT === 'none') { console.error('panel window not found — is the app running?'); process.exit(2); }
-const [px, py, pw, ph] = RECT.split(/\s+/).map(Number);
 // a big area well inside the panel
-const sx = px + Math.round(pw * 0.2), sy = py + Math.round(ph * 0.3);
-const sw = Math.min(420, Math.round(pw * 0.6)), sh = Math.min(260, Math.round(ph * 0.45));
 
 const luma = () => {
   const out = ps(`
@@ -109,6 +105,7 @@ function cdp(wsUrl) {
   });
 }
 
+let sx = 0, sy = 0, sw = 0, sh = 0; // region, resolved after the panel is known to be shown
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const avg = async (n = 3) => { const v = []; for (let i = 0; i < n; i++) { v.push(luma()); await sleep(500); } return v.reduce((a, b) => a + b, 0) / v.length; };
 
@@ -117,6 +114,23 @@ const avg = async (n = 3) => { const v = []; for (let i = 0; i < n; i++) { v.pus
   if (!t) throw new Error('no renderer target — start with --remote-debugging-port=' + PORT);
   const ev = await cdp(t.webSocketDebuggerUrl);
 
+
+
+  // the app may be parked off-screen from a previous hide; a hidden panel makes all
+  // three references identical and the test meaningless
+  if (!(await ev('window.glance.windowShown()'))) {
+    await ev('window.glance.hide()');
+    await sleep(1200);
+  }
+
+  // resolve the region only now: showing the panel can re-centre it
+  const RECT = readRect();
+  if (!RECT || RECT === 'none') throw new Error('panel window not found');
+  const [px, py, pw, ph] = RECT.split(/\s+/).map(Number);
+  sx = px + Math.round(pw * 0.2);
+  sy = py + Math.round(ph * 0.3);
+  sw = Math.min(420, Math.round(pw * 0.6));
+  sh = Math.min(260, Math.round(ph * 0.45));
   console.log(`region ${sx},${sy} ${sw}x${sh} inside panel ${px},${py} ${pw}x${ph} (GDI, external process)`);
 
   await ev('window.glance.setConfig({ stealth: false })');
