@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/hero.svg" alt="Glance AI" width="900" />
+
 # Glance AI
 
 **An AI interview assistant for Windows that stays out of your screen share.**
@@ -16,9 +18,18 @@ Hear the room, read the screen, get the answer — in a small panel that Zoom, M
 
 </div>
 
-![Glance AI in use](assets/demo.gif)
+<p align="center">
+  <img src="assets/demo.gif" alt="Glance AI in use" width="820" />
+</p>
+
+<p align="center">
+  <img src="docs/panel.png" alt="The Glance AI panel" width="820" />
+  <br/>
+  <sub>The overlay itself: visible to you, missing from every capture.</sub>
+</p>
 
 ---
+
 
 ## Install
 
@@ -87,6 +98,8 @@ Nothing is uploaded until there is something to send, and the screenshot only ri
 | `Ctrl+Alt+M` | click-through toggle |
 | `Ctrl+Alt+Arrows` | move the panel |
 | `Ctrl+Alt+Q` / `Ctrl+Shift+Q` | quit |
+
+Header buttons, left to right: **settings · minimize · hide · close**. Minimizing hands the window a taskbar button so it can also be restored from there; `Ctrl+Shift+H` always brings it back.
 
 Chosen to avoid browser shortcuts. Conflicts are reported by name, and `npm run hotkeys` lists what is currently held.
 
