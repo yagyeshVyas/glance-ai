@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, globalShortcut, ipcMain, desktopCapturer, screen, session, safeStorage, nativeImage, protocol } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, desktopCapturer, screen, session, safeStorage, nativeImage, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -673,6 +673,21 @@ function createWindow() {
     setTimeout(deepApply, 3000);
   }
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  // An opaque window that is reparented into the blend host can keep the size it
+  // had while the page was laid out, leaving the panel squeezed into a corner of
+  // a larger window (it reads as an empty/black overlay). A one-pixel resize after
+  // the first paint forces a relayout, then the real bounds are restored.
+  win.webContents.once('did-finish-load', () => {
+    try {
+      const b = win.getBounds();
+      win.setBounds({ x: b.x, y: b.y, width: b.width + 1, height: b.height });
+      setTimeout(() => {
+        try {
+          if (win && !win.isDestroyed()) win.setBounds(b);
+        } catch {}
+      }, 80);
+    } catch {}
+  });
   isShown = true;
 
   // save bounds on move/resize Ã¢â‚¬â€ debounced off the main-thread hot path
