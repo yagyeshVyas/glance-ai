@@ -1,4 +1,4 @@
-// Host-window shim.
+﻿// Host-window shim.
 //
 // A detector finds the overlay by enumerating top-level windows, then reads the
 // class name and GetWindowDisplayAffinity from whatever it found. Both are
@@ -21,7 +21,9 @@
 #include <windows.h>
 
 static const wchar_t* HOST_CLASS = L"WinUIDesktopWin32WindowClass";
-static const COLORREF HOST_KEY = RGB(255, 0, 255); // colour-key, never visible
+// no colour key any more: blend mode forces an opaque window, and a layered host
+// would swallow mouse input (children of a layered window never get clicks)
+static const COLORREF HOST_KEY = RGB(20, 22, 26); // matches the window colour
 
 static HWND g_host = nullptr;
 static HWND g_child = nullptr;
@@ -90,12 +92,12 @@ HWND hostAttach(HWND child) {
   int h = r.bottom - r.top;
 
   HWND host = CreateWindowExW(
-    WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
+    WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
     HOST_CLASS, L"", WS_POPUP | WS_VISIBLE,
     r.left, r.top, w, h, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
   if (!host) return nullptr;
 
-  SetLayeredWindowAttributes(host, HOST_KEY, 0, LWA_COLORKEY);
+  // not layered on purpose - see HOST_KEY above
 
   // make it a genuine child, remembering the original style for detach
   g_childStyle = GetWindowLongPtrW(child, GWL_STYLE);
@@ -135,7 +137,7 @@ bool hostSync() {
 
   // The client offset IS Electron's intended screen position (it still believes
   // it owns a top-level window). Pin the child to the host origin and put the
-  // host exactly there — not at host+offset, which compounds every poll.
+  // host exactly there â€” not at host+offset, which compounds every poll.
   SetWindowPos(g_child, nullptr, 0, 0, w, h,
     SWP_NOZORDER | SWP_NOACTIVATE);
   SetWindowPos(g_host, nullptr, ox, oy, w, h,
@@ -160,3 +162,5 @@ void hostDetach() {
 
 HWND hostHandle() { return (g_host && IsWindow(g_host)) ? g_host : nullptr; }
 bool hostActive() { return g_host != nullptr && IsWindow(g_host); }
+
+
