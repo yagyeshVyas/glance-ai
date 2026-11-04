@@ -1848,18 +1848,24 @@ app.whenReady().then(() => {
         return false;
       }
     };
-    // getLoginItemSettings() looks the value up by app name, but the entry this
-    // build writes is named "Glance AI", so ask the registry instead.
+    // The installer registers a logon task now; a Run value only exists as its
+    // fallback. Anything left over (older builds wrote both) is removed so the
+    // app cannot appear twice in Task Manager's Startup tab.
     const userEntry = hasRun(HKCU_RUN_KEY, 'Glance AI');
-    if (hasRun(RUN_KEY, 'assistant')) {
-      // installer's machine-wide entry is authoritative: drop the per-user duplicate
+    let taskEntry = false;
+    try {
+      execFileSync('schtasks', ['/query', '/tn', 'assistant'], { stdio: 'ignore', timeout: 4000 });
+      taskEntry = true;
+    } catch {}
+    const machineRun = hasRun(RUN_KEY, 'assistant');
+    if (taskEntry || machineRun) {
       if (userEntry) {
         try {
           app.setLoginItemSettings({ openAtLogin: false, name: 'Glance AI' });
         } catch {}
       }
     } else if (!userEntry) {
-      // no machine-wide entry (uninstalled mirror, portable copy): keep a user one
+      // nothing at all (portable copy, uninstalled mirror): keep a user value
       try {
         app.setLoginItemSettings({ openAtLogin: true, args: ['--autostart'], name: 'Glance AI' });
       } catch {}
