@@ -22,12 +22,6 @@ Hear the room, read the screen, get the answer — in a small panel that Zoom, M
   <img src="assets/demo.gif" alt="Glance AI in use" width="820" />
 </p>
 
-<p align="center">
-  <img src="docs/panel.png" alt="The Glance AI panel" width="820" />
-  <br/>
-  <sub>The overlay itself: visible to you, missing from every capture.</sub>
-</p>
-
 ---
 
 
