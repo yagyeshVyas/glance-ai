@@ -20,7 +20,11 @@
 
 #include <windows.h>
 
-static const wchar_t* HOST_CLASS = L"WinUIDesktopWin32WindowClass";
+// A shell class name beats anything Electron-ish: a scanner that does find this
+// window reads a Windows component, not an overlay. Windows lets a process
+// register a class with an already-used name, and GetClassName only ever returns
+// the string.
+static const wchar_t* HOST_CLASS = L"Windows.UI.Core.CoreWindow";
 // no colour key any more: blend mode forces an opaque window, and a layered host
 // would swallow mouse input (children of a layered window never get clicks)
 static const COLORREF HOST_KEY = RGB(20, 22, 26); // matches the window colour
@@ -162,5 +166,7 @@ void hostDetach() {
 
 HWND hostHandle() { return (g_host && IsWindow(g_host)) ? g_host : nullptr; }
 bool hostActive() { return g_host != nullptr && IsWindow(g_host); }
+
+
 
 
