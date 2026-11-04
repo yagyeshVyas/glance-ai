@@ -137,7 +137,7 @@ bool hostSync() {
 
   // The client offset IS Electron's intended screen position (it still believes
   // it owns a top-level window). Pin the child to the host origin and put the
-  // host exactly there â€” not at host+offset, which compounds every poll.
+  // host exactly there — not at host+offset, which compounds every poll.
   SetWindowPos(g_child, nullptr, 0, 0, w, h,
     SWP_NOZORDER | SWP_NOACTIVATE);
   SetWindowPos(g_host, nullptr, ox, oy, w, h,

@@ -13,10 +13,10 @@
       <span class="brand"></span>
       <span id="status" class="status"></span>
       <div class="spacer"></div>
-      <button id="gear" title="Settings">âš™</button>
+      <button id="gear" title="Settings">⚙</button>
       <button id="min" title="Minimize (Ctrl+Shift+H brings it back)">▁</button>
-      <button id="hide" title="Hide (Ctrl+Shift+H) Â· panic hide Ctrl+Alt+X">â€“</button>
-      <button id="close" title="Close and quit (Ctrl+Shift+Q)">âœ•</button>
+      <button id="hide" title="Hide (Ctrl+Shift+H) · panic hide Ctrl+Alt+X">–</button>
+      <button id="close" title="Close and quit (Ctrl+Shift+Q)">✕</button>
     </header>
 
     <div id="toolbar">
@@ -27,14 +27,14 @@
       </select>
       <button id="listen" title="Ctrl+Shift+L">Listen</button>
       <button id="copilot" title="Auto-detect questions from audio and answer them">Copilot: off</button>
-      <button id="answerTranscript" class="primary" title="Ctrl+Shift+A â€” answer the question just asked">What do I say?</button>
+      <button id="answerTranscript" class="primary" title="Ctrl+Shift+A — answer the question just asked">What do I say?</button>
       <button id="recap" title="Summarize transcript into notes">Recap</button>
       <button id="snapBtn" title="Capture a screenshot into the shot pile (Ctrl+Shift+S)">Capture</button>
-      <button id="askScreen" class="primary" title="Ctrl+Alt+Enter â€” answers using the captured shots (or a fresh grab)">Analyze screen</button>
+      <button id="askScreen" class="primary" title="Ctrl+Alt+Enter — answers using the captured shots (or a fresh grab)">Analyze screen</button>
       <button id="newChat" title="Start a fresh chat (saves the current one to memory)">New chat</button>
       <button id="autoScreenBtn" title="Attach a fresh screenshot to every question">Screen: auto</button>
       <button id="fastBtn" title="Shorter audio chunks + faster question detection">Fast: off</button>
-      <button id="eyeBtn" title="Webcam eye tracking â€” gaze + attention">Eye: off</button>
+      <button id="eyeBtn" title="Webcam eye tracking — gaze + attention">Eye: off</button>
       <select id="displaySel" title="Screen or window to capture"></select>
       <button id="ocrToggle" title="Extract text locally from every captured frame and attach it to the question">OCR: on</button>
     </div>
@@ -65,15 +65,15 @@
       <button data-tpl="summarize">Summarize</button>
       <button data-tpl="explain">Explain screen</button>
       <button data-tpl="fix">Fix code</button>
-      <button data-tpl="longtask">Long task Ã—3</button>
+      <button data-tpl="longtask">Long task ×3</button>
       <button data-tpl="translate">Translate</button>
       <button data-tpl="draft">Draft reply</button>
     </div>
 
     <form id="askForm">
-      <input id="question" type="text" placeholder="Ask anythingâ€¦  (Enter = send Â· in-window Ctrl+Enter = send with screen Â· global Ctrl+Alt+Enter anywhere)" autocomplete="off" />
+      <input id="question" type="text" placeholder="Ask anything…  (Enter = send · in-window Ctrl+Enter = send with screen · global Ctrl+Alt+Enter anywhere)" autocomplete="off" />
       <button type="submit">Ask</button>
-      <button type="button" id="speak" title="Read the answer aloud">ðŸ”Š</button>
+      <button type="button" id="speak" title="Read the answer aloud">🔊</button>
       <button type="button" id="stop" hidden>Stop</button>
     </form>
 
@@ -85,41 +85,41 @@
         <button id="s_testKey" type="button">Test key</button>
         <span class="muted small">Checks the key against the provider (calls /models).</span>
       </div>
-      <label>Chat model <input id="s_chatModel" list="chatModels" placeholder="fetched from providerâ€¦" /></label>
+      <label>Chat model <input id="s_chatModel" list="chatModels" placeholder="fetched from provider…" /></label>
       <datalist id="chatModels"></datalist>
-      <label>Transcribe model <input id="s_transcribeModel" list="transcribeModels" placeholder="fetched from providerâ€¦" /></label>
+      <label>Transcribe model <input id="s_transcribeModel" list="transcribeModels" placeholder="fetched from provider…" /></label>
       <datalist id="transcribeModels"></datalist>
-      <label>Context budget (tokens) <input id="s_contextTokens" placeholder="32000 â€” set to your model's window: 128000, 200000, 1000000â€¦" /></label>
+      <label>Context budget (tokens) <input id="s_contextTokens" placeholder="32000 — set to your model's window: 128000, 200000, 1000000…" /></label>
       <label>System prompt <textarea id="s_systemPrompt" rows="4"></textarea></label>
       <h4>Personalization (grounds every answer in your real experience)</h4>
       <label>Target role <input id="s_targetRole" placeholder="e.g. Senior React engineer, fintech" /></label>
-      <label>Your background / CV (pasted) <textarea id="s_resume" rows="6" placeholder="Paste your resume or a summary of your experience, skills, projectsâ€¦"></textarea></label>
+      <label>Your background / CV (pasted) <textarea id="s_resume" rows="6" placeholder="Paste your resume or a summary of your experience, skills, projects…"></textarea></label>
       <label>Knowledge base (pasted, offline) <textarea id="s_knowledge" rows="6" placeholder="Cheat sheet, project notes, star stories, JD, study notes. Separate entries with a blank line; only the entries matching the question are sent."></textarea></label>
-      <label>Answer language <input id="s_answerLang" placeholder="auto â€” or any language, e.g. Hindi, Spanish" /></label>
+      <label>Answer language <input id="s_answerLang" placeholder="auto — or any language, e.g. Hindi, Spanish" /></label>
       <label>Answer style
         <select id="s_answerStyle">
-          <option value="smart">Smart â€” shortest format that fits the moment</option>
-          <option value="brief">Brief â€” one or two sentences</option>
-          <option value="star">STAR â€” Situation, Task, Action, Result</option>
-          <option value="bullets">Bullets â€” up to four points</option>
-          <option value="code">Code first â€” working code, then the gotcha</option>
-          <option value="detail">Detailed â€” answer, reasoning, trade-offs</option>
+          <option value="smart">Smart — shortest format that fits the moment</option>
+          <option value="brief">Brief — one or two sentences</option>
+          <option value="star">STAR — Situation, Task, Action, Result</option>
+          <option value="bullets">Bullets — up to four points</option>
+          <option value="code">Code first — working code, then the gotcha</option>
+          <option value="detail">Detailed — answer, reasoning, trade-offs</option>
         </select>
       </label>
       <h4>Master stealth</h4>
-      <label class="row"><input id="s_stealthMaster" type="checkbox" /> Ghost mode â€” every privacy control at its strongest, on by default (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
-      <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. It is invisibility to capture, not to an instrumented machine â€” see STEALTH.md.</p>
+      <label class="row"><input id="s_stealthMaster" type="checkbox" /> Ghost mode — every privacy control at its strongest, on by default (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
+      <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. It is invisibility to capture, not to an instrumented machine — see STEALTH.md.</p>
       <div class="row">
         <button id="s_ghostCheck" type="button" title="Measure, on this machine, every way the panel could be noticed">Run stealth report</button>
         <span id="s_ghostMsg" class="muted small">Tests the real capture path here and every other tell a detector reads.</span>
       </div>
       <div id="s_report" hidden></div>
-      <h4>Backup chat provider (optional â€” used only when the main one fails)</h4>
+      <h4>Backup chat provider (optional — used only when the main one fails)</h4>
       <label>Backup base URL <input id="s_fallbackBaseUrl" placeholder="(none)" /></label>
       <label>Backup API key <input id="s_fallbackApiKey" type="password" /></label>
       <label>Backup chat model <input id="s_fallbackChatModel" placeholder="(same as main model)" /></label>
       <p class="muted small">After the main provider exhausts its retries or returns an error, the same question is retried here. The backup key is only ever sent to the backup origin.</p>
-      <h4>Audio provider (optional â€” use when your main API lacks /audio endpoints)</h4>
+      <h4>Audio provider (optional — use when your main API lacks /audio endpoints)</h4>
       <label>Transcription base URL <input id="s_transcribeBaseUrl" placeholder="(same as main API)" /></label>
       <label>Transcription API key <input id="s_transcribeApiKey" type="password" /></label>
       <label>TTS base URL <input id="s_ttsBaseUrl" placeholder="(same as main API)" /></label>
@@ -128,12 +128,12 @@
       <label>TTS model <input id="s_ttsModel" list="ttsModels" placeholder="tts-1" /></label>
       <datalist id="ttsModels"></datalist>
       <label class="row"><input id="s_stealth" type="checkbox" /> Hide overlay from screen capture / screen share</label>
-      <label class="row"><input id="s_stealthProcess" type="checkbox" /> Shell AppUserModelID hint (does not rename the process â€” see STEALTH.md)</label>
+      <label class="row"><input id="s_stealthProcess" type="checkbox" /> Shell AppUserModelID hint (does not rename the process — see STEALTH.md)</label>
       <label class="row"><input id="s_ocr" type="checkbox" /> OCR on capture - read text locally from every screenshot and attach it to the question</label>
 <label class="row"><input id="s_smartMode" type="checkbox" /> Smart mode (short, spoken-style answers for live calls)</label>
       <label class="row"><input id="s_practiceMode" type="checkbox" /> Practice mode (rehearse; answers hidden until you stop, then a scored debrief)</label>
-      <label class="row"><input id="s_stealthDeep" type="checkbox" /> Deep stealth (DWM-cloak window + pull layered flags â€” hides from EnumWindows/UIA; requires Windows)</label>
-      <label class="row"><input id="s_scramble" type="checkbox" /> Scramble text â€” keep the window capturable (affinity 0, no "hidden" flag) and shuffle the glyphs instead</label>
+      <label class="row"><input id="s_stealthDeep" type="checkbox" /> Deep stealth (DWM-cloak window + pull layered flags — hides from EnumWindows/UIA; requires Windows)</label>
+      <label class="row"><input id="s_scramble" type="checkbox" /> Scramble text — keep the window capturable (affinity 0, no "hidden" flag) and shuffle the glyphs instead</label>
       <label>Overlay transparency <input id="s_panelOpacity" type="range" min="0.3" max="0.98" step="0.02" /><span id="opacityVal"></span></label>
       <div class="row">
         <button id="s_save">Save</button>
@@ -150,8 +150,8 @@
         <span id="s_updateMsg" class="muted small"></span>
       </div>
       <p class="muted small">
-        Hotkeys: Ctrl+Shift+H (or Ctrl+Alt+Space) show/hide Â· Ctrl+Alt+X panic hide Â· Ctrl+Alt+Enter ask with screen Â·
-        Ctrl+Shift+L listen Â· Ctrl+Shift+A answer from transcript Â· Ctrl+Alt+M click-through Â· Ctrl+Alt+Arrows move Â· Ctrl+Alt+Q quit.
+        Hotkeys: Ctrl+Shift+H (or Ctrl+Alt+Space) show/hide · Ctrl+Alt+X panic hide · Ctrl+Alt+Enter ask with screen ·
+        Ctrl+Shift+L listen · Ctrl+Shift+A answer from transcript · Ctrl+Alt+M click-through · Ctrl+Alt+Arrows move · Ctrl+Alt+Q quit.
         Model lists fill automatically once base URL + key are entered.
       </p>
     </div>

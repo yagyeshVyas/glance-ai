@@ -14,7 +14,7 @@ const el = {
 };
 
 let transcriptText = '';
-let transcriptLog = []; // [{ at: ISO, text }] â€” full transcript with timestamps, survives restarts
+let transcriptLog = []; // [{ at: ISO, text }] — full transcript with timestamps, survives restarts
 let history = []; // chat turns kept for follow-ups
 let reqId = 0;
 let activeReq = 0;
@@ -37,7 +37,7 @@ function persistState() {
 
 // ---------- shot pile: capture screenshots first, ask afterwards ----------
 const MAX_SHOTS = 5; // never send more than 5 frames per question
-let shotPile = []; // [{ b64, tokens }] â€” user-collected frames awaiting a question
+let shotPile = []; // [{ b64, tokens }] — user-collected frames awaiting a question
 function clearShotPile() {
   shotPile = [];
   paintShotPile();
@@ -70,8 +70,8 @@ async function captureShot() {
     paintShotPile();
     setStatus(
       shotPile.length >= MAX_SHOTS
-        ? MAX_SHOTS + ' shots is the max â€” ask your question (Enter) or Clear shots'
-        : 'Captured ' + shotPile.length + ' screenshot(s) â€” type your question and press Enter',
+        ? MAX_SHOTS + ' shots is the max — ask your question (Enter) or Clear shots'
+        : 'Captured ' + shotPile.length + ' screenshot(s) — type your question and press Enter',
     );
   } finally {
     snap.disabled = false;
@@ -173,7 +173,7 @@ function showSkeleton() {
 }
 
 // ---------- auto-screen: fresh capture with every question ----------
-let autoScreen = true; // default ON â€” every question sees the current screen
+let autoScreen = true; // default ON — every question sees the current screen
 (function initAutoScreen() {
   const btn = document.getElementById('autoScreenBtn');
   const paint = () => {
@@ -188,7 +188,7 @@ let autoScreen = true; // default ON â€” every question sees the current sc
 })();
 
 // ---------- OCR: text is extracted locally and attached to captures ----------
-let ocrOn = true; // default ON â€” Windows OCR is free, local and offline
+let ocrOn = true; // default ON — Windows OCR is free, local and offline
 function paintOcr() {
   const b = document.getElementById('ocrToggle');
   if (b) {
@@ -202,18 +202,18 @@ paintOcr();
 document.getElementById('ocrToggle').addEventListener('click', () => {
   ocrOn = !ocrOn;
   paintOcr();
-  setStatus(ocrOn ? 'OCR on â€” text is read locally from every capture' : 'OCR off â€” vision model reads pixels only');
+  setStatus(ocrOn ? 'OCR on — text is read locally from every capture' : 'OCR off — vision model reads pixels only');
   persistState();
 });
 let practiceLive = false; // true while a practice-mode session records
 let pendingDebrief = false; // finish() turns the matching answer into a saved debrief
-let debriefReqId = 0; // request the debrief belongs to â€” a bare boolean leaked into later answers
+let debriefReqId = 0; // request the debrief belongs to — a bare boolean leaked into later answers
 let lastDebrief = ''; // the debrief text as it was saved, so Export cannot drift
 
 function send(text, withScreen, shots, noScreen, images) {
   text = text.trim();
   if (!text) return;
-  if (practiceLive) return setStatus('Practice session recording â€” press Stop for the debrief', true);
+  if (practiceLive) return setStatus('Practice session recording — press Stop for the debrief', true);
   // Captured shots take priority: if the user piled up screenshots, every
   // question answers from them (even a plain Enter) unless it opted out.
   const pile = noScreen ? null : (Array.isArray(images) ? images : (shotPile.length ? shotPile.slice() : null));
@@ -231,7 +231,7 @@ function send(text, withScreen, shots, noScreen, images) {
   showSkeleton();
   el.shot.hidden = true;
   el.stop.hidden = false;
-  setStatus(pile && pile.length ? `Using ${pile.length} captured shot(s)â€¦` : screen ? 'Capturing screenâ€¦' : 'Thinkingâ€¦');
+  setStatus(pile && pile.length ? `Using ${pile.length} captured shot(s)…` : screen ? 'Capturing screen…' : 'Thinking…');
   history.push({ role: 'user', content: text, at: new Date().toISOString() });
   // the screenshot is attached only to the newest turn; keep history text-only
   api.ask({
@@ -251,7 +251,7 @@ function finish(commit = true, id = activeReq) {
   if (commit && answerRaw) {
     history.push({ role: 'assistant', content: answerRaw, at: new Date().toISOString() });
     lastAssistantShown = answerRaw;
-    // auto-memory: keep a compact Qâ†’A note of screen analyses so a later chat
+    // auto-memory: keep a compact Q→A note of screen analyses so a later chat
     // (even after "New chat") can answer from what was already on screen,
     // without replaying raw turns or re-capturing frames
     if (lastQuery && lastQuery.withScreen) {
@@ -273,11 +273,11 @@ api.onShot(({ id, b64 }) => {
   if (id !== activeReq) return;
   el.shot.src = 'data:image/jpeg;base64,' + b64;
   el.shot.hidden = false;
-  setStatus('Thinkingâ€¦');
+  setStatus('Thinking…');
 });
 api.onReasoning(({ id }) => {
   if (id !== activeReq) return;
-  setStatus('Thinkingâ€¦'); // reasoning tokens â€” keep skeleton up, don't touch answer
+  setStatus('Thinking…'); // reasoning tokens — keep skeleton up, don't touch answer
 });
 // main retries a broken stream from its first token: drop the partial attempt, or the
 // pane shows the partial reply followed by the full one
@@ -296,7 +296,7 @@ api.onNotice(({ level, message }) => {
   setStatus(message, level === 'error');
   // an update that finished downloading is actionable: clicking the status bar
   // restarts into it instead of making the user hunt for Settings
-  const ready = /ready â€” restart to apply/.test(message || '');
+  const ready = /ready — restart to apply/.test(message || '');
   el.status.style.cursor = ready ? 'pointer' : '';
   el.status.onclick = ready ? () => api.updateInstall() : null;
 });
@@ -308,7 +308,7 @@ api.onError(({ id, message }) => {
     `<span class="err">${escapeHtml(message)}</span>` +
     (lastQuery ? ' <button id="retryBtn" class="tiny">Retry</button>' : '');
   const retryBtn = document.getElementById('retryBtn');
-  // retry with the same frame count â€” a Long task Ã—3 stays Ã—3
+  // retry with the same frame count — a Long task ×3 stays ×3
   if (retryBtn) retryBtn.addEventListener('click', () => lastQuery && send(lastQuery.text, lastQuery.withScreen, lastQuery.shots, !lastQuery.withScreen, lastQuery.images));
   el.stop.hidden = true;
   setStatus('Error', true);
@@ -334,7 +334,7 @@ document.addEventListener('keydown', (e) => {
     captureShot();
   }
 });
-// a stopped stream is not a completed turn â€” don't commit a half answer to history
+// a stopped stream is not a completed turn — don't commit a half answer to history
 el.stop.addEventListener('click', () => {
   api.cancel();
   finish(false);
@@ -366,12 +366,12 @@ function newChat() {
   lastQuery = null;
   pendingDebrief = false;
   debriefReqId = 0;
-  el.answer.innerHTML = '<span class="muted">New chat â€” previous chat saved to memory.</span>';
+  el.answer.innerHTML = '<span class="muted">New chat — previous chat saved to memory.</span>';
   el.shot.hidden = true;
   el.exportMd.hidden = true;
   clearShotPile();
   persistState();
-  setStatus('New chat started â€” previous chat saved to memory');
+  setStatus('New chat started — previous chat saved to memory');
 }
 function answerFromTranscript() {
   if (!transcriptText.trim()) return setStatus('No transcript yet', true);
@@ -402,7 +402,7 @@ $('recap').addEventListener('click', recapTranscript);
 // One stream per speaker. "Both" runs a mic loop and a loopback loop side by
 // side so an interview reads as two labelled sides instead of one blended wall;
 // transcriptText stays unlabelled because it is what gets sent to the model.
-const streams = new Map(); // 'you' | 'them' â†’ MediaStream
+const streams = new Map(); // 'you' | 'them' → MediaStream
 let listening = false;
 const WHO = { you: 'You', them: 'Them' };
 
@@ -430,7 +430,7 @@ function recordOnce(who, ms) {
   });
 }
 
-// One AudioContext for the window's lifetime: creating and closing one per 4â€“7 s
+// One AudioContext for the window's lifetime: creating and closing one per 4–7 s
 // chunk churns a capped resource, and a slow close throws on the next chunk.
 let silentCtx = null;
 function audioCtx() {
@@ -453,7 +453,7 @@ function isSilent(arrayBuffer) {
         resolve(Math.sqrt(sum / data.length) < 0.005); // RMS threshold
       },
       () => {
-        resolve(false); // can't decode â€” let the API decide
+        resolve(false); // can't decode — let the API decide
       },
     );
   });
@@ -487,14 +487,14 @@ async function drainQueue() {
       setStatus('Transcribe failed: ' + err.message.slice(0, 60), true);
     }
   }
-  if (listening) setStatus('Listeningâ€¦');
+  if (listening) setStatus('Listening…');
   transcribeWorker = null;
 }
 
 function enqueueChunk(buf, mime, who) {
   if (transcribeQueue.length >= MAX_QUEUE) {
     transcribeQueue.shift();
-    setStatus('Audio backlog â€” dropping oldest chunk', true);
+    setStatus('Audio backlog — dropping oldest chunk', true);
   }
   transcribeQueue.push({ buf, mime, who });
   if (!transcribeWorker) transcribeWorker = drainQueue();
@@ -503,7 +503,7 @@ function enqueueChunk(buf, mime, who) {
 async function listenLoop(who) {
   while (listening && streams.has(who)) {
     const blob = await recordOnce(who, CHUNK_MS);
-    if (!blob || !listening) break; // Stop arrived while this chunk was recording â€” do not enqueue it
+    if (!blob || !listening) break; // Stop arrived while this chunk was recording — do not enqueue it
     if (blob.size < 2000) continue; // near-silence / empty
     const buf = await blob.arrayBuffer();
     if (await isSilent(buf)) continue; // save an API call on silent chunks
@@ -545,7 +545,7 @@ async function toggleListen() {
     el.listen.disabled = false;
     return setStatus('Audio: ' + failed.join('; '), true);
   }
-  if (failed.length) setStatus('Partial audio â€” ' + failed.join('; '), true);
+  if (failed.length) setStatus('Partial audio — ' + failed.join('; '), true);
   listening = true;
   el.listen.classList.remove('on');
   el.listen.classList.add('on');
@@ -554,10 +554,10 @@ async function toggleListen() {
   if (appCfg.practiceMode) {
     // practice session: record and transcribe, but no live answers
     practiceLive = true;
-    el.answer.innerHTML = '<span class="muted">Practice session recording â€” answers stay hidden. Press Stop for your scored debrief.</span>';
-    setStatus('Practice recordingâ€¦');
+    el.answer.innerHTML = '<span class="muted">Practice session recording — answers stay hidden. Press Stop for your scored debrief.</span>';
+    setStatus('Practice recording…');
   } else {
-    setStatus(wanted.length > 1 ? 'Listening to both sidesâ€¦' : 'Listeningâ€¦');
+    setStatus(wanted.length > 1 ? 'Listening to both sides…' : 'Listening…');
   }
   for (const who of streams.keys()) {
     listenLoop(who).catch((err) => {
@@ -594,12 +594,12 @@ const MASTER_SUB_TOGGLES = ['stealth', 'stealthProcess', 'stealthDeep'];
 let masterSnapshot = null;
 function paintKeyPlaceholders(c) {
   for (const f of keyFields) {
-    $('s_' + f).placeholder = c[hasFlag[f]] ? 'â€¢â€¢â€¢â€¢â€¢â€¢ (saved â€” leave blank to keep)' : '';
+    $('s_' + f).placeholder = c[hasFlag[f]] ? '•••••• (saved — leave blank to keep)' : '';
   }
 }
 // Full privacy = strongest of every privacy control. The eye tracker is
 // already offline-by-default (vendored MediaPipe), so master only has to flip
-// the capture/process/cloak boxes. Not full invisibility â€” see STEALTH.md.
+// the capture/process/cloak boxes. Not full invisibility — see STEALTH.md.
 function applyMasterStealth(enabled) {
   if (enabled) {
     masterSnapshot = {};
@@ -620,7 +620,7 @@ async function openSettings() {
   $('s_msg').textContent = '';
   el.settings.hidden = false;
   el.settings.scrollTop = 0; // reopening must land on the top fields, not wherever it was last scrolled
-  refreshModels(); // async â€” fills the dropdowns once the provider answers
+  refreshModels(); // async — fills the dropdowns once the provider answers
 }
 
 // fill model dropdowns from the provider's /models endpoint (works with a typed-but-unsaved key too)
@@ -637,7 +637,7 @@ async function refreshModels() {
       ? $('s_transcribeBaseUrl').value.trim() || base
       : $('s_ttsBaseUrl').value.trim() || base;
     const keyField = purpose === 'chat' ? 'apiKey' : purpose === 'transcribe' ? 'transcribeApiKey' : 'ttsApiKey';
-    // Never borrow the chat key to enumerate a different audio provider's models â€”
+    // Never borrow the chat key to enumerate a different audio provider's models —
     // that is the same cross-provider leak main refuses on the request path. With no
     // transcription/TTS key there is nothing legitimate to send to that host.
     if (purpose !== 'chat' && !$('s_' + keyField).value.trim()) {
@@ -655,13 +655,13 @@ async function refreshModels() {
       apiKey: purpose === 'chat' ? key : $('s_' + keyField).value.trim() || key,
       purpose,
     });
-    if (seq !== modelsSeq) return; // user typed again â€” discard this result
+    if (seq !== modelsSeq) return; // user typed again — discard this result
     if (r.error) {
-      input.placeholder = 'fetch failed â€” type model manually';
+      input.placeholder = 'fetch failed — type model manually';
       continue;
     }
     list.innerHTML = r.models.map((m) => `<option value="${escapeHtml(m)}"></option>`).join('');
-    input.placeholder = r.models.length ? `${r.models.length} models â€” pick or type` : 'no models listed â€” type manually';
+    input.placeholder = r.models.length ? `${r.models.length} models — pick or type` : 'no models listed — type manually';
   }
 }
 
@@ -683,7 +683,7 @@ $('s_update').addEventListener('click', async () => {
   const msg = $('s_updateMsg');
   const btn = $('s_update');
   btn.disabled = true;
-  msg.textContent = 'Checkingâ€¦';
+  msg.textContent = 'Checking…';
   const r = await api.updateCheck();
   btn.disabled = false;
   if (!r.ok) {
@@ -693,7 +693,7 @@ $('s_update').addEventListener('click', async () => {
     return;
   }
   // download runs in the background; 'notice' events drive the status
-  msg.textContent = 'Check requested â€” progress appears in the status bar';
+  msg.textContent = 'Check requested — progress appears in the status bar';
 });
 $('s_wipe').addEventListener('click', async () => {
   if (!confirm('Delete saved API key, conversation history, transcript and window position? This cannot be undone.')) return;
@@ -730,7 +730,7 @@ $('s_stealthMaster').addEventListener('change', (e) => {
 // replaced by same-length noise several times a second. A capture, a recording or
 // an OCR pass gets a wall of the right shape and nothing legible. Copy and read-
 // aloud use answerRaw, which is never touched, so the real text is still there to
-// take away. See STEALTH.md Â§7.
+// take away. See STEALTH.md §7.
 const SCRAMBLE_GLYPHS = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
 const SCRAMBLE_PUNCT = '################$%&@+=*?!';
 let scrambleTimer = null;
@@ -786,7 +786,7 @@ $('s_ghostCheck').addEventListener('click', async () => {
   const btn = $('s_ghostCheck');
   btn.disabled = true;
   msg.className = 'muted small';
-  msg.textContent = 'Capturing the panel, then capturing again with it goneâ€¦';
+  msg.textContent = 'Capturing the panel, then capturing again with it gone…';
   box.hidden = true;
   try {
     const r = await api.stealthReport();
@@ -822,19 +822,19 @@ $('s_save').addEventListener('click', async () => {
   setScramble(c.scramble);
   api.stealthApply?.(Boolean(c.stealthDeep));
   $('opacityVal').textContent = Math.round((c.panelOpacity ?? 0.78) * 100) + '%';
-  paintKeyPlaceholders(c); // show â€¢â€¢â€¢â€¢â€¢â€¢ so the saved state is visible right away
+  paintKeyPlaceholders(c); // show •••••• so the saved state is visible right away
   if (c.keysNotPersisted?.length) {
     // fail-closed is right, silence is not: the key exists for this session only
     setMsg(
-      'Saved for this session only â€” encryption is unavailable on this machine, so ' +
+      'Saved for this session only — encryption is unavailable on this machine, so ' +
         c.keysNotPersisted.join(', ') +
         ' was NOT written to disk and will be gone after restart.',
       'err',
     );
   } else if (c.hasKey) {
-    setMsg('Saved â€” key stored encrypted on this machine.');
+    setMsg('Saved — key stored encrypted on this machine.');
   } else {
-    setMsg('Saved â€” add an API key to start.');
+    setMsg('Saved — add an API key to start.');
   }
   refreshModels(); // a just-saved key unlocks the real model list
 });
@@ -848,7 +848,7 @@ function setMsg(text, cls) {
 $('s_testKey').addEventListener('click', async () => {
   const btn = $('s_testKey');
   btn.disabled = true;
-  setMsg('Testing keyâ€¦');
+  setMsg('Testing key…');
   const r = await api.listModels({
     baseUrl: $('s_baseUrl').value.trim(),
     apiKey: $('s_apiKey').value.trim(),
@@ -856,9 +856,9 @@ $('s_testKey').addEventListener('click', async () => {
   });
   btn.disabled = false;
   if (r.error) {
-    setMsg('âœ— Key failed: ' + r.error.slice(0, 120), 'err');
+    setMsg('✗ Key failed: ' + r.error.slice(0, 120), 'err');
   } else {
-    setMsg(`âœ“ Key works â€” ${r.models.length} models available (${new Date().toLocaleTimeString()})`, 'ok');
+    setMsg(`✓ Key works — ${r.models.length} models available (${new Date().toLocaleTimeString()})`, 'ok');
   }
 });
 // delete stored keys (chat/transcribe/TTS) without touching anything else
@@ -876,7 +876,7 @@ $('close').addEventListener('click', () => api.quit());
 // ---------- Copilot: auto-detect questions, auto-answer ----------
 let copilotOn = false;
 let copilotTimer = null;
-let copilotSince = 0; // transcript length already handled â€” only inspect new speech
+let copilotSince = 0; // transcript length already handled — only inspect new speech
 let copilotBusy = false;
 
 // fast mode cuts detection latency: shorter audio chunks + shorter end-of-question debounce
@@ -889,25 +889,25 @@ let copilotDebounce = 2500;
 // universal Copilot prompt: the model classifies the question itself, no mode switching
 const COPILOT_PROMPT =
   'You are my live interview copilot. The interviewer just finished a question. ' +
-  'First silently classify it â€” behavioral, coding, system design, case, domain-knowledge, or general â€” then answer in that format:\n' +
+  'First silently classify it — behavioral, coding, system design, case, domain-knowledge, or general — then answer in that format:\n' +
   '- behavioral: a STAR story under 100 words, spoken style\n' +
   '- coding: read any code on my screen; approach in 2 lines, optimal code in a block, then complexity\n' +
   '- system design: requirements (2 lines), component list, key trade-offs (3 bullets)\n' +
   '- case: framework (1 line), structured walkthrough, quick math\n' +
   '- domain/general: direct spoken answer under 80 words\n' +
-  'No preamble, no labels â€” just the answer I can say or use.\n\n' +
+  'No preamble, no labels — just the answer I can say or use.\n\n' +
   'Recent transcript:\n';
 
 function copilotTick() {
   if (!copilotOn || !listening || copilotBusy) return;
   if (appCfg.practiceMode) return; // practice mode: no live answers, ever
-  if (!el.stop.hidden) return; // a request is already streaming â€” don't stomp it
+  if (!el.stop.hidden) return; // a request is already streaming — don't stomp it
   const fresh = transcriptText.slice(copilotSince);
   if (!fresh.trim()) return;
   if (looksLikeQuestion(fresh)) {
-    copilotSince = transcriptText.length; // consume only when we act â€” a split question stays pending
+    copilotSince = transcriptText.length; // consume only when we act — a split question stays pending
     copilotBusy = true;
-    setStatus('Copilot: question detected â€” answeringâ€¦');
+    setStatus('Copilot: question detected — answering…');
     send(COPILOT_PROMPT + transcriptText.slice(-4000), false);
     setTimeout(() => (copilotBusy = false), 15000); // cool-off
   }
@@ -921,7 +921,7 @@ function onTranscriptUpdated() {
 }
 
 function toggleCopilot() {
-  if (!copilotOn && appCfg.practiceMode) return setStatus('Copilot is disabled in practice mode â€” press Stop for the debrief', true);
+  if (!copilotOn && appCfg.practiceMode) return setStatus('Copilot is disabled in practice mode — press Stop for the debrief', true);
   copilotOn = !copilotOn;
   const btn = document.getElementById('copilot');
   btn.classList.toggle('on', copilotOn);
@@ -934,7 +934,7 @@ function toggleCopilot() {
     clearTimeout(copilotTimer);
     // auto-debrief: recap the session when Copilot is turned off
     if (transcriptText.trim().length > 40) {
-      setStatus('Writing session recapâ€¦');
+      setStatus('Writing session recap…');
       recapTranscript();
     }
   }
@@ -945,7 +945,7 @@ document.getElementById('copilot').addEventListener('click', toggleCopilot);
 (function initEye() {
   const btn = el.eyeBtn;
   let hudTimer = 0;
-  // paint the button from the tracker's real state, not from the click intent â€”
+  // paint the button from the tracker's real state, not from the click intent —
   // startEye() is async (camera + model load) and can fail, so the text must
   // follow what actually happened.
   const syncEyeBtn = () => {
@@ -966,7 +966,7 @@ document.getElementById('copilot').addEventListener('click', toggleCopilot);
       el.eyeDot.className = s.visible ? (s.blink ? 'blink' : 'on') : 'off';
       el.eyeLabel.textContent = s.visible
         ? 'Eye ' + Math.round(s.attention * 100) + '%'
-        : 'Eye â€”';
+        : 'Eye —';
       // mirror the live camera + face-mesh canvas into the HUD
       const src = window.glanceEye.canvas;
       if (src) {
@@ -981,7 +981,7 @@ document.getElementById('copilot').addEventListener('click', toggleCopilot);
   });
   btn.addEventListener('click', async () => {
     btn.disabled = true;
-    setStatus(window.glanceEye.on ? 'Eye tracking stoppingâ€¦' : 'Eye tracking startingâ€¦');
+    setStatus(window.glanceEye.on ? 'Eye tracking stopping…' : 'Eye tracking starting…');
     try {
       await window.glanceEye.toggle();
     } finally {
@@ -1000,7 +1000,7 @@ document.getElementById('copilot').addEventListener('click', toggleCopilot);
 // (stealth-safe, no egress); it captures the screen where other apps already
 // show your camera, so it never competes for the camera device.
   if (window.glanceEye.defaultOn) {
-    setStatus('Eye morph startingâ€¦');
+    setStatus('Eye morph starting…');
     window.glanceEye.autoStart();
     setTimeout(syncEyeBtn, 2000);
     setTimeout(syncEyeBtn, 6000);
@@ -1009,7 +1009,7 @@ document.getElementById('copilot').addEventListener('click', toggleCopilot);
 
 // ---------- practice mode: debrief after the session ends ----------
 const DEBRIEF_PROMPT =
-  'This is a recorded practice session (interview rehearsal). Transcript only â€” the user could not see answers while it ran.\n' +
+  'This is a recorded practice session (interview rehearsal). Transcript only — the user could not see answers while it ran.\n' +
   'Produce a coaching debrief as Markdown:\n' +
   '1. A table of every question you can detect in the transcript, scored 1-5 on structure, specificity, and length, with the answerer\'s answer summarized in one line.\n' +
   '2. The single weakest answer and why, in two sentences.\n' +
@@ -1023,9 +1023,9 @@ async function runPracticeDebrief() {
     setStatus('Practice session too short to debrief', true);
     return;
   }
-  setStatus('Writing practice debriefâ€¦');
+  setStatus('Writing practice debrief…');
   pendingDebrief = true;
-  history = []; // a debrief is standalone â€” no stale interview turns in context
+  history = []; // a debrief is standalone — no stale interview turns in context
   send(DEBRIEF_PROMPT + transcriptText.slice(-12000), false, undefined, true); // transcript-only, no screen grab
   debriefReqId = activeReq; // send() bumped it; only this request may save the session
 }
@@ -1034,13 +1034,13 @@ async function savePracticeSession() {
   lastDebrief = answerRaw; // capture now: the answer pane is reused by the next question
   const r = await api.practiceSave({ transcript: transcriptText, debrief: lastDebrief });
   if (r.error) return setStatus('Practice save failed: ' + r.error.slice(0, 80), true);
-  el.exportMd.hidden = false; // one debrief exists â€” offer the review sheet
-  setStatus('Debrief ready â€” session saved. Export it from the Answer header.');
+  el.exportMd.hidden = false; // one debrief exists — offer the review sheet
+  setStatus('Debrief ready — session saved. Export it from the Answer header.');
 }
 
 el.exportMd.addEventListener('click', async () => {
   const md =
-    '# Practice review â€” ' + new Date().toLocaleString() + '\n\n' +
+    '# Practice review — ' + new Date().toLocaleString() + '\n\n' +
     '## Debrief\n\n' + lastDebrief + '\n\n' +
     '## Transcript\n\n' + transcriptText + '\n';
   const r = await api.practiceExport({ markdown: md });
@@ -1070,7 +1070,7 @@ const TEMPLATES = {
   summarize: { prompt: 'Summarize the key points of whatever is on my screen or in our conversation. Bullet list, max 5 bullets.', screen: true },
   explain: { prompt: 'Explain what is on my screen right now: what is this, and what should I do with it?', screen: true },
   fix: { prompt: 'There is code or an error on my screen. Identify the problem and give me the corrected code. Code block, then one-line reason.', screen: true },
-  longtask: { prompt: 'This is a long question or task spread across my screen â€” I captured multiple frames (possibly while scrolling). Read them in order and solve it fully. Code block + complexity if it is code.', screen: true, shots: 3 },
+  longtask: { prompt: 'This is a long question or task spread across my screen — I captured multiple frames (possibly while scrolling). Read them in order and solve it fully. Code block + complexity if it is code.', screen: true, shots: 3 },
   translate: { prompt: 'Detect the language of text on my screen and translate it to English. Output only the translation.', screen: true },
   draft: { prompt: 'Based on the conversation transcript so far, draft the message or reply I should send next. Output only the draft text.', screen: false },
 };
@@ -1078,7 +1078,7 @@ document.querySelectorAll('#templates button').forEach((btn) => {
   btn.addEventListener('click', () => {
     const t = TEMPLATES[btn.dataset.tpl];
     if (!t) return;
-    if (t.prompt.includes('transcript') && !transcriptText.trim()) return setStatus('No transcript yet â€” start Listen first', true);
+    if (t.prompt.includes('transcript') && !transcriptText.trim()) return setStatus('No transcript yet — start Listen first', true);
     send(t.prompt + (t.prompt.includes('transcript') ? '\n\nTranscript:\n' + transcriptText.slice(-6000) : ''), t.screen, t.shots);
   });
 });
@@ -1088,7 +1088,7 @@ $('speak').addEventListener('click', async () => {
   if (!answerRaw.trim()) return setStatus('Nothing to read yet', true);
   const btn = $('speak');
   btn.disabled = true;
-  setStatus('Synthesizing voiceâ€¦');
+  setStatus('Synthesizing voice…');
   const r = await api.speak(answerRaw);
   btn.disabled = false;
   if (r.error) return setStatus(r.error.split('\n')[0].slice(0, 90), true);
@@ -1119,7 +1119,7 @@ async function refreshDisplays() {
   // Blend mode runs an opaque window (a reparented Chromium surface is never
   // composed when it is layered) and the window colour does not reach a frameless
   // opaque window reliably, so the page paints the backdrop and the panel's alpha
-  // blends over it â€” otherwise the overlay reads as a black box.
+  // blends over it — otherwise the overlay reads as a black box.
   document.body.style.background = c.blendWindow ? '#aeb8ca' : 'transparent';
   const brandEl = document.querySelector('.brand');
   if (brandEl) brandEl.textContent = 'Glance AI';
@@ -1194,7 +1194,7 @@ document.getElementById('copyAnswer').addEventListener('click', () => {
     try { ok = document.execCommand('copy'); } catch {}
     document.body.removeChild(ta);
     if (ok) flash();
-    else setStatus('Copy failed â€” clipboard unavailable', true);
+    else setStatus('Copy failed — clipboard unavailable', true);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(answerRaw).then(flash).catch(fallback);
@@ -1206,7 +1206,7 @@ document.getElementById('copyAnswer').addEventListener('click', () => {
 // first-run hint
 api.getConfig().then((c) => {
   if (!c.hasKey) {
-    el.answer.innerHTML = '<span class="muted">No API key yet. Click âš™ and add any OpenAI-compatible key + base URL.</span>';
+    el.answer.innerHTML = '<span class="muted">No API key yet. Click ⚙ and add any OpenAI-compatible key + base URL.</span>';
   }
 });
 
