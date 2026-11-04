@@ -1115,6 +1115,11 @@ async function refreshDisplays() {
   }
   const c = await api.getConfig();
   appCfg = c; // snapshot of practiceMode and friends
+  // Blend mode runs an opaque window (a reparented Chromium surface is never
+  // composed when it is layered) and the window colour does not reach a frameless
+  // opaque window reliably, so the page paints the backdrop and the panel's alpha
+  // blends over it — otherwise the overlay reads as a black box.
+  document.body.style.background = c.blendWindow ? '#aeb8ca' : 'transparent';
   applyOpacity(c.panelOpacity);
   setScramble(c.scramble);
   // Apply deep stealth with a small delay to let the window fully initialize,
