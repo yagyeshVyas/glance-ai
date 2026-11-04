@@ -18,10 +18,10 @@ const DEFAULTS = {
   ocr: true, // extract text locally from every captured frame and attach it
   updates: true, // check GitHub Releases for a new version in the background
   blendWindow: true, // reparent under an innocuous host: the only window other apps
-  // can enumerate is the fake one Ã¢â‚¬â€ the Chromium windows become children of it
+  // can enumerate is the fake one — the Chromium windows become children of it
   scramble: false, // leave the window capturable (affinity 0) and scramble the text instead
-  panelOpacity: 0.78, // 0.3 (ghost) to 0.98 (solid) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Cluely-style see-through glass
-  // second provider for audio endpoints (transcription + TTS) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â for gateways without /audio/*
+  panelOpacity: 0.78, // 0.3 (ghost) to 0.98 (solid) — Cluely-style see-through glass
+  // second provider for audio endpoints (transcription + TTS) — for gateways without /audio/*
   // falls back to the main provider when left blank
   transcribeBaseUrl: '',
   transcribeApiKey: '',
@@ -36,11 +36,11 @@ const DEFAULTS = {
   fallbackApiKey: '',
   fallbackChatModel: '',
   contextTokens: 32000, // model context window; the guard trims history to fit
-  answerLang: 'English', // 'auto' or any language name ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â answers always in that language
-  answerStyle: 'smart', // smart | brief | star | bullets | code | detail ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â shape of the answer
-  targetRole: '', // e.g. "Senior React engineer at a fintech" ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â grounds every answer
-  resume: '', // pasted CV ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â answers grounded in real experience, never invented
-  knowledge: '', // pasted notes / cheat sheet ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â local retrieval, injected only when relevant
+  answerLang: 'English', // 'auto' or any language name — answers always in that language
+  answerStyle: 'smart', // smart | brief | star | bullets | code | detail — shape of the answer
+  targetRole: '', // e.g. "Senior React engineer at a fintech" — grounds every answer
+  resume: '', // pasted CV — answers grounded in real experience, never invented
+  knowledge: '', // pasted notes / cheat sheet — local retrieval, injected only when relevant
   smartMode: true, // short, spoken-only answers tuned for a live call
   practiceMode: false, // rehearse + debrief: transcript recorded, answers hidden until the session ends
   systemPrompt:
@@ -55,11 +55,11 @@ let currentAbort = null;
 let wipeOnQuit = false;
 let wipeScheduled = false;
 let pendingWipe = false; // marker found at startup: an interrupted wipe completes on exit
-let preservedEnc = {}; // blobs DPAPI could not decrypt ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â kept verbatim, never replaced by nothing
+let preservedEnc = {}; // blobs DPAPI could not decrypt — kept verbatim, never replaced by nothing
 let legacyPlaintextKey = false; // a key found in config.json as plaintext (pre-0.2.0 file)
 let legacyPlaintextPersonal = false; // plaintext resume/targetRole from before they were encrypted
 let legacyConfigFormat = false; // whole config.json still readable (pre-encryption-format)
-let envValues = {}; // fields supplied by .env / the environment ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â re-read every launch, never persisted
+let envValues = {}; // fields supplied by .env / the environment — re-read every launch, never persisted
 // The fields that are credentials (never a plaintext fallback, and reported when
 // they cannot be encrypted). resume/targetRole are encrypted too, but they are
 // personal content, not keys, so they are not counted as "dropped keys".
@@ -68,7 +68,7 @@ let keysNotPersisted = []; // keys held in memory only: encryption was unavailab
 
 // Detached cleanup for `wipe all data`: spawned the moment a wipe is requested,
 // not at quit time, so a crash or a PID-targeted taskkill can't skip it. The
-// helper is a detached PowerShell process ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â it used to re-run this binary as
+// helper is a detached PowerShell process — it used to re-run this binary as
 // plain Node (`ELECTRON_RUN_AS_NODE=1`), which the RunAsNode fuse turns off. It
 // watches our PID and removes the whole userData dir once the process tree is
 // gone: Chromium's children hold profile locks past will-quit, which is why
@@ -76,7 +76,7 @@ let keysNotPersisted = []; // keys held in memory only: encryption was unavailab
 // A marker file OUTSIDE userData records the pending wipe, so if the helper is
 // killed too (taskkill /IM and /T take parent and helper together: same image,
 // child of the browser process) the NEXT launch finishes the job.
-// %APPDATA%\assistant ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â one neutral folder, no product name left on disk
+// %APPDATA%\assistant — one neutral folder, no product name left on disk
 // profile folder follows the product name (now 'svchost'); 'assistant' stays in the
 // legacy list below so an existing profile is migrated once
 const PROFILE_DIR = path.join(app.getPath('appData'), app.getName());
@@ -108,7 +108,7 @@ function pwshPath() {
 // The detached cleanup command. Kept in one place so the harness runs the real
 // thing (scripts/test-main.js) instead of a copy that drifts.
 //   1. wait for the app process to exit, capped at 10 min (at the cap: leave the
-//      profile alone ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the quit-time spawn and the next-launch marker cover it)
+//      profile alone — the quit-time spawn and the next-launch marker cover it)
 //   2. the marker is the authority: a Settings save after a wipe deletes it, which
 //      cancels the removal; then retry while Chromium children release their locks
 function wipeHelperCommand(dir, marker, pid) {
@@ -156,7 +156,7 @@ function scheduleWipe(force) {
       windowsHide: true,
       env: { ...process.env, NODE_OPTIONS: '' },
     });
-    // real spawn failures (ENOENT/AV block) arrive async as an 'error' event ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â
+    // real spawn failures (ENOENT/AV block) arrive async as an 'error' event —
     // without a listener they'd crash the main process
     child.on('error', () => { wipeScheduled = false; });
     child.unref();
@@ -217,9 +217,9 @@ function loadConfig() {
     if (raw && raw.cfg) {
       const txt = decryptBlob(raw.cfg);
       if (txt) saved = JSON.parse(txt);
-      else saved = {}; // undecryptable on this machine ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â start clean
+      else saved = {}; // undecryptable on this machine — start clean
     } else {
-      saved = raw; // legacy readable settings ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â migrated on settle below
+      saved = raw; // legacy readable settings — migrated on settle below
       legacyConfigFormat = true;
     }
   } catch {}
@@ -273,7 +273,7 @@ function writeFileAtomic(file, data) {
 function saveConfig(next, dropBlobs = []) {
   cfg = { ...cfg, ...next };
   fs.mkdirSync(path.dirname(configPath()), { recursive: true });
-  // never write any key as plaintext ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â DPAPI-encrypted blob or nothing (fail closed)
+  // never write any key as plaintext — DPAPI-encrypted blob or nothing (fail closed)
   const onDisk = { ...cfg };
   const dropped = [];
   for (const [plainField, encField] of [
@@ -284,7 +284,7 @@ function saveConfig(next, dropBlobs = []) {
     ['resume', 'resumeEnc'],
     ['targetRole', 'targetRoleEnc'],
   ]) {
-    // An explicit delete must remove the unreadable blob too ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â otherwise the
+    // An explicit delete must remove the unreadable blob too — otherwise the
     // ciphertext we cannot decrypt is silently re-written by the preservedEnc path.
     if (dropBlobs.includes(plainField)) {
       delete preservedEnc[encField];
@@ -343,7 +343,7 @@ function publicConfig() {
 
 // ---------- IPC trust ----------
 // Every handler below is reachable from the renderer. Only the app's own file://
-// window may call them ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â there is no remote content today, and this keeps it that
+// window may call them — there is no remote content today, and this keeps it that
 // way if one is ever loaded.
 function isTrustedSender(event) {
   try {
@@ -360,7 +360,7 @@ const handle = (channel, fn) =>
 // ---------- native stealth helper ----------
 // Compiled from scripts/hide-helper.cs with the in-box csc; cached at
 // %TEMP%\wshx-audit\hide-helper.exe so the on-disk path never advertises
-// the app name. Missing on non-Windows ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  the deep-stealth path no-ops.
+// the app name. Missing on non-Windows —  the deep-stealth path no-ops.
 const HIDE_HELPER = path.join(require('os').tmpdir(), 'dxva_143.exe'); // name kept: reads as a DXVA helper
 function ensureHideHelper() {
   if (process.platform !== 'win32') return false;
@@ -506,7 +506,7 @@ function runHideHelper(args, cb) {
 // DWM cloak must run inside the process that OWNS the window: a foreign caller
 // gets E_ACCESSDENIED (0x80070005), measured from a helper, PowerShell and a
 // node addon. So this is a tiny in-process napi addon, not a spawned helper.
-// It is optional ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â a missing binary just means no cloak, never a crash.
+// It is optional — a missing binary just means no cloak, never a crash.
 let cloakNative = null;
 function loadCloak() {
   if (cloakNative !== null || process.platform !== 'win32') return cloakNative;
@@ -553,7 +553,7 @@ function applyDeepStealth(on, cb, soft) {
   const h32 = win.getNativeWindowHandle().readUInt32LE(0);
   // soft = the panel is on screen: capture protection only, never DWM-cloak.
   // DWMWA_CLOAK stops DWM composing the window, so "cloaked but visible" does
-  // not exist ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the cloak has to stay off whenever the user is meant to see the
+  // not exist — the cloak has to stay off whenever the user is meant to see the
   // panel. The soft path used to fall through to the hard cloak because the
   // helper has no cloak-soft command, which made deep stealth hide the overlay
   // from its own user; this branch is what keeps it on screen.
@@ -566,7 +566,7 @@ function applyDeepStealth(on, cb, soft) {
       cloaked = setDwmCloak(h32, on);
     }
     // The helper's `uncloak` calls SetWindowDisplayAffinity(h, WDA_NONE) on the
-    // root ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â so every hide/show cycle silently dropped capture protection and the
+    // root — so every hide/show cycle silently dropped capture protection and the
     // panel came back capturable until the next config save. Re-assert it here,
     // after the style/cloak writes, for both directions.
     applyStealth();
@@ -621,7 +621,7 @@ function createWindow() {
     // Chromium window is a child of the blend host, its DirectComposition
     // surface is never composed and the overlay is an empty hole. Measured both
     // ways (opaque renders, transparent does not), so blend mode trades the
-    // see-through background for being absent from window enumeration ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the
+    // see-through background for being absent from window enumeration — the
     // host is the only window other apps can find, and the panel paints opaque
     // over the window colour instead of over the desktop.
     transparent: !cfg.blendWindow,
@@ -665,7 +665,7 @@ function createWindow() {
     } catch {}
   }
   applyStealth();
-  // Apply deep stealth after the window is fully shown ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â delayed to ensure
+  // Apply deep stealth after the window is fully shown — delayed to ensure
   // ensureHideHelper() has time to compile the C# helper on first run.
   // soft=true: cloak-soft (no minimize) so the window stays visible on startup.
   if (cfg.stealthDeep) {
@@ -691,7 +691,7 @@ function createWindow() {
   });
   isShown = true;
 
-  // save bounds on move/resize ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â debounced off the main-thread hot path
+  // save bounds on move/resize — debounced off the main-thread hot path
   let boundsTimer = null;
   const saveBounds = () => {
     clearTimeout(boundsTimer);
@@ -787,10 +787,10 @@ function registerShortcuts() {
   reg('CommandOrControl+Alt+Up', () => nudge(0, -40));
   reg('CommandOrControl+Alt+Down', () => nudge(0, 40));
   reg('CommandOrControl+Alt+Q', () => app.quit());
-  reg('CommandOrControl+Shift+Q', () => app.quit()); // matches the ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂS" close button
+  reg('CommandOrControl+Shift+Q', () => app.quit()); // matches the —S" close button
   if (failed.length) {
     console.warn('shortcuts unavailable:', failed.join(', '));
-    const message = `Hotkey conflict ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â these are taken by another app: ${failed.join(', ')}`;
+    const message = `Hotkey conflict — these are taken by another app: ${failed.join(', ')}`;
     // registerShortcuts() runs before loadFile() finishes, so sending immediately
     // loses the notice on the one launch where it matters.
     if (win) {
@@ -858,7 +858,7 @@ async function captureScreen() {
 }
 
 // Run the in-box Windows OCR engine over a captured JPEG. Returns the text, or
-// '' when OCR is unavailable ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â never throws, because a vision model alone is
+// '' when OCR is unavailable — never throws, because a vision model alone is
 // still a valid answer path.
 function ocrBuffer(jpegBuf) {
   try {
@@ -892,7 +892,7 @@ function ocrBuffer(jpegBuf) {
 const GHOST_SAMPLE = { w: 180, h: 110 };
 
 function grabRaw(display) {
-  // desktopCapturer only ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â deliberately does not touch selfCapturing, because
+  // desktopCapturer only — deliberately does not touch selfCapturing, because
   // the panel has to stay protected while the check runs.
   const s = display.scaleFactor || 1;
   return desktopCapturer.getSources({
@@ -909,10 +909,10 @@ function grabRaw(display) {
 // Absolute luminance fails here because the panel is translucent glass: what a
 // capture shows depends on the desktop behind it, which changes between samples.
 // Comparing the panel's interior with the desktop just beside it is self-
-// referencing ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â same frame, same background ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â so it stays stable whether the
+// referencing — same frame, same background — so it stays stable whether the
 // page behind is white, dark or moving.
-//   excluded  ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  inside looks like the desktop  ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  small contrast
-//   captured  ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  inside is tinted glass         ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  large contrast
+//   excluded  —  inside looks like the desktop  —  small contrast
+//   captured  —  inside is tinted glass         —  large contrast
 // The panel's real screen rectangle, read from the OS.
 //
 // win.getBounds() after a reparent is Electron's own idea of the position and can
@@ -1055,7 +1055,7 @@ async function stealthReport() {
   const nat = loadCloak();
   if (!nat || !nat.hostHandle) return { ok: false, reason: 'native addon unavailable (host shim off)' };
   const host = nat.hostHandle();
-  if (!host) return { ok: false, reason: 'host window missing ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â class and flag are unprotected' };
+  if (!host) return { ok: false, reason: 'host window missing — class and flag are unprotected' };
 
   // Deliberately not short-circuited when stealth is off: the report is most
   // useful as a diagnosis of the bad case, so it runs and fails the capture row.
@@ -1068,7 +1068,7 @@ async function stealthReport() {
   const affinity = nat.getAffinity(host);
   const bounds = win.getBounds();
 
-  // Reference: panel on screen with protection deliberately off ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â how much
+  // Reference: panel on screen with protection deliberately off — how much
   // contrast the panel itself creates against its surroundings.
   // Both measurements happen over the same grey backdrop, so the numbers are
   // comparable regardless of what is on the desktop.
@@ -1092,38 +1092,38 @@ async function stealthReport() {
 
   const mechanism = affinity === 17 ? 'excluded' : affinity === 1 ? 'monitor' : 'none';
 
-  // Everything a detector can read, measured ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â not restated from settings. Each
+  // Everything a detector can read, measured — not restated from settings. Each
   // row says what the machine actually reports right now, so a weak machine shows
   // the weak row instead of a blanket "hidden".
   const cls = nat.className(host);
   const ex = Number(nat.exStyle(host)) || 0;
   const title = nat.title(host);
   const chromiumChildren = nat.childChromiumClasses(host);
-  const hasTool = (ex & 0x80) !== 0; // WS_EX_TOOLWINDOW ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  no taskbar, no Alt+Tab
+  const hasTool = (ex & 0x80) !== 0; // WS_EX_TOOLWINDOW —  no taskbar, no Alt+Tab
   const hasTop = (ex & 0x8) !== 0; // WS_EX_TOPMOST
 
   const tell = (id, label, status, detail) => ({ id, label, status, detail });
   const tells = [
     tell('capture', 'Pixels absent from a screen capture', 'info',
-      'Chromium hides the app\'s own windows from its own window list, so this cannot be measured in-process. Definitive test: npm run capture-probe ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â protected returns a 0x0 empty frame, unprotected returns real pixels (measured 0x0 vs 769x600 / 461400 px).'),
+      'Chromium hides the app\'s own windows from its own window list, so this cannot be measured in-process. Definitive test: npm run capture-probe — protected returns a 0x0 empty frame, unprotected returns real pixels (measured 0x0 vs 769x600 / 461400 px).'),
     tell('affinity', 'Capture-exclusion flag', affinity === 17 ? 'pass' : affinity === 1 ? 'warn' : 'fail',
       affinity === 17 ? 'GetWindowDisplayAffinity reads 0x11 (WDA_EXCLUDEFROMCAPTURE).'
         : affinity === 1 ? 'Reads 0x1 (WDA_MONITOR): a black block, not a hidden window. Windows 10 2004+ is needed for 0x11.'
-          : 'No flag set ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the window is capturable.'),
+          : 'No flag set — the window is capturable.'),
     tell('class', 'Window class', /chrome/i.test(cls) ? 'fail' : 'pass',
       /chrome/i.test(cls) ? `Enumerated window is ${cls}, which says Electron.`
         : `Enumerated window is "${cls}", an innocuous shell-style class.`),
     tell('estyle', 'Not in the taskbar or Alt-Tab', hasTool ? 'pass' : 'warn',
       hasTool ? 'WS_EX_TOOLWINDOW set: no taskbar button and no Alt+Tab entry.'
-        : 'WS_EX_TOOLWINDOW missing ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the window shows up in Alt+Tab.'),
+        : 'WS_EX_TOOLWINDOW missing — the window shows up in Alt+Tab.'),
     tell('topmost', 'Stays above other windows', hasTop ? 'pass' : 'warn',
       hasTop ? 'WS_EX_TOPMOST set.' : 'Not topmost; the window can be covered.'),
     tell('title', 'Window title', title ? 'warn' : 'pass',
-      title ? `Title reads "${title}" ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â a word, not a random hex string, but it does name the tool.`
+      title ? `Title reads "${title}" — a word, not a random hex string, but it does name the tool.`
         : 'No title at all, so the enumeration shows nothing to read.'),
     tell('children', 'Chromium child windows', chromiumChildren === 0 ? 'pass' : 'warn',
       chromiumChildren === 0 ? 'No Chromium-classed children under the host.'
-        : `${chromiumChildren} child window(s) still use a Chrome_WidgetWin class ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â only visible if a detector walks children.`),
+        : `${chromiumChildren} child window(s) still use a Chrome_WidgetWin class — only visible if a detector walks children.`),
     tell('uia', 'Accessibility tree', app.accessibilitySupportEnabled ? 'warn' : 'pass',
       app.accessibilitySupportEnabled ? 'UIA is enabled; the panel text can be walked by an accessibility tool.'
         : 'Chromium accessibility is off, so the UIA tree is minimal.'),
@@ -1131,7 +1131,7 @@ async function stealthReport() {
       fs.existsSync(path.join(app.getPath('userData'), 'DevToolsActivePort')) ? 'DevToolsActivePort exists next to the profile.'
         : 'No DevToolsActivePort file left in the profile.'),
     tell('process', 'Process identity', 'info',
-      `${path.basename(process.execPath)} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â visible in any process list; the mirror path and version resource are what a scraper reads.`),
+      `${path.basename(process.execPath)} — visible in any process list; the mirror path and version resource are what a scraper reads.`),
   ];
 
   const fails = tells.filter((t) => t.status === 'fail').length;
@@ -1150,8 +1150,8 @@ async function stealthReport() {
     probe: { control, probe },
     affinityAfter: probe.empty === null ? null : nat.getAffinity(host),
     verdict: ok
-      ? `PASS ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} caveat(s)` : ''}. A screen capture returns your screen without this panel.`
-      : `FAIL ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ${fails} tell(s) let a detector notice the panel.`,
+      ? `PASS — ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} caveat(s)` : ''}. A screen capture returns your screen without this panel.`
+      : `FAIL — ${fails} tell(s) let a detector notice the panel.`,
   };
 }
 
@@ -1159,7 +1159,7 @@ async function stealthReport() {
 // The overlay is most useful at the moment a call starts, and that is exactly the
 // moment the user is joining rather than looking at the panel. Watch the process
 // list for the usual clients (and browser tabs titled like a meeting) and say so
-// once per app per run. Detection only ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â it never starts the mic behind your back.
+// once per app per run. Detection only — it never starts the mic behind your back.
 const MEETING_PROCS = ['zoom', 'teams', 'ms-teams', 'webex', 'webexmta', 'skype', 'discord'];
 const MEETING_TITLE = /meet|zoom|teams|webex/i;
 const meetingsSeen = new Set();
@@ -1181,7 +1181,7 @@ function detectMeeting() {
     if (win && !win.isDestroyed()) {
       win.webContents.send('notice', {
         level: 'info',
-        message: `${name} is running ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Ctrl+Shift+L starts listening (pick "Both" to hear the interviewer too).`,
+        message: `${name} is running — Ctrl+Shift+L starts listening (pick "Both" to hear the interviewer too).`,
       });
     }
   } catch {}
@@ -1196,7 +1196,7 @@ function watchForMeetings() {
 
 // ---------- auto-update (GitHub Releases via electron-updater) ----------
 // Checks quietly in the background, then downloads and stages a new version so
-// the next quit installs it. Never restarts on its own ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â a restart mid-meeting
+// the next quit installs it. Never restarts on its own — a restart mid-meeting
 // would be worse than running one version behind, so updating is user-driven.
 let updater = null;
 
@@ -1214,10 +1214,10 @@ function setupUpdater() {
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
 
-    autoUpdater.on('update-available', (i) => updaterStatus(`Downloading update ${i.version}ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦`));
+    autoUpdater.on('update-available', (i) => updaterStatus(`Downloading update ${i.version}—€—`));
     autoUpdater.on('update-not-available', () => updaterStatus('Glance AI is up to date'));
     autoUpdater.on('update-downloaded', (i) =>
-      updaterStatus(`Update ${i.version} ready ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â restart to apply`, 'info'));
+      updaterStatus(`Update ${i.version} ready — restart to apply`, 'info'));
     autoUpdater.on('error', (e) => updaterStatus('Update check failed: ' + String(e.message).slice(0, 90), 'warn'));
 
     // wait a little after boot so an update check never delays the first paint
@@ -1227,7 +1227,7 @@ function setupUpdater() {
 
 // ---------- host blend: hide the class name and the affinity flag ----------
 // A detector that enumerates top-level windows finds the overlay, reads its class
-// (Chrome_WidgetWin_1 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  "Electron") and GetWindowDisplayAffinity (0x11 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â 
+// (Chrome_WidgetWin_1 —  "Electron") and GetWindowDisplayAffinity (0x11 — 
 // "deliberately hidden"). Reparenting the window under an innocuous host means
 // only the host is enumerated: our class, and no affinity flag at all.
 // The child keeps the exclusion, so capture is unaffected.
@@ -1274,13 +1274,13 @@ function providerKey(kind = 'chat') {
     // A separate base URL means a separate provider: never send the chat provider's
     // key to it. This fallback leaked the primary credential across providers.
     if (cfg.transcribeBaseUrl && !cfg.transcribeApiKey) {
-      throw new Error('Transcription base URL is set but its key is empty ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â add the transcription key or clear that base URL.');
+      throw new Error('Transcription base URL is set but its key is empty — add the transcription key or clear that base URL.');
     }
     return cfg.transcribeApiKey || cfg.apiKey;
   }
   if (kind === 'tts') {
     if (cfg.ttsBaseUrl && !cfg.ttsApiKey) {
-      throw new Error('TTS base URL is set but its key is empty ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â add the TTS key or clear that base URL.');
+      throw new Error('TTS base URL is set but its key is empty — add the TTS key or clear that base URL.');
     }
     return cfg.ttsApiKey || cfg.apiKey;
   }
@@ -1314,7 +1314,7 @@ const STYLE_PROMPTS = {
     'This is a live call, not a chatbot. Pick the shortest format that answers the moment. No greeting, no "let me", no offer to help further. Speech-friendly sentences; code only when code was asked for.',
   brief: 'Answer in one or two sentences at most. Just the answer, no preamble and no supporting detail.',
   star:
-    'For behavioural questions, answer as STAR in four labelled lines ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Situation, Task, Action, Result ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â kept to one line each. Preference for concrete numbers and outcomes.',
+    'For behavioural questions, answer as STAR in four labelled lines — Situation, Task, Action, Result — kept to one line each. Preference for concrete numbers and outcomes.',
   bullets: 'Answer as at most four short bullet points. No introductory sentence.',
   code: 'Lead with the working code in one block, then at most two lines noting the key choice or the gotcha. Assume the user will paste it.',
   detail:
@@ -1359,14 +1359,14 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     const relevant = rankNotes(cfg.knowledge, lastUser ? String(lastUser.content || '') : '');
     if (relevant) {
-      sys += `\n\nNotes from the user's own knowledge base ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â authoritative, prefer them over general knowledge:\n${relevant}`;
+      sys += `\n\nNotes from the user's own knowledge base — authoritative, prefer them over general knowledge:\n${relevant}`;
     }
   }
 
   let msgs = [{ role: 'system', content: sys }, ...messages];
 
   // context guard: budget from settings, minus the vision cost of the frames we are about to attach.
-  // supports 1M-class windows; there is no true "unlimited" ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â set it to your model's real limit.
+  // supports 1M-class windows; there is no true "unlimited" — set it to your model's real limit.
   const budget = Math.min(2000000, Math.max(4000, Number(cfg.contextTokens) || 32000));
   // reserve the output the request is about to ask for: input + frames + maxOut must
   // fit inside the window, or the guard trims 1 024 while the request claims 8 192
@@ -1392,7 +1392,7 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
         if (i < n - 1) await delay(1200);
       }
     }
-    // Decide what actually fits before trimming: on a 4kÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â8k window the frames plus
+    // Decide what actually fits before trimming: on a 4k—8k window the frames plus
     // the output reserve exceed the whole budget, and a 2 000-token text floor then
     // overshoots it. fitFrames drops the last frames first, then the only one.
     const fit = fitFrames(frames, budget, maxOut);
@@ -1414,7 +1414,7 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
         msgs[msgs.length - 1].content.push({
           type: 'text',
           text:
-            'Text extracted locally by OCR from the screenshot(s) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â authoritative for code, ' +
+            'Text extracted locally by OCR from the screenshot(s) — authoritative for code, ' +
             'numbers, labels and error messages; ignore OCR noise if it contradicts the image:\n\n' + combined,
         });
       }
@@ -1493,7 +1493,7 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
 
           const ctype = res.headers.get('content-type') || '';
           if (!ctype.includes('event-stream')) {
-            // provider ignored stream:true ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â read the whole JSON body instead
+            // provider ignored stream:true — read the whole JSON body instead
             const json = await res.json();
             const text = json.choices?.[0]?.message?.content || '';
             if (text) send('chunk', { text });
@@ -1559,13 +1559,13 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
             lastChunkAt = Date.now(); // the watchdog clock restarts with the new origin
             send('notice', {
               level: 'warn',
-              message: `Provider failed (${String(err.message || err).slice(0, 120)}) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â retrying on the backup endpoint.`,
+              message: `Provider failed (${String(err.message || err).slice(0, 120)}) — retrying on the backup endpoint.`,
             });
             break;
           }
           if (exhausted) throw err;
           // A retry re-sends the completion from its first token. If part of the failed
-          // attempt is already painted, tell the renderer to drop it ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â otherwise the
+          // attempt is already painted, tell the renderer to drop it — otherwise the
           // answer reads as the partial reply followed by the full one.
           if (emitted) {
             send('reset', {});
@@ -1583,7 +1583,7 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
     // error, so the Stop button stayed up and Copilot refused every later question.
     if (timedOut) {
       throw new Error(
-        'Provider stopped responding ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â no output for 30 s (120 s allowed for the first token). Request cancelled.',
+        'Provider stopped responding — no output for 30 s (120 s allowed for the first token). Request cancelled.',
       );
     }
     throw err;
@@ -1639,7 +1639,7 @@ async function speak(_e, { text }) {
     body: JSON.stringify({ model: cfg.ttsModel || 'tts-1', voice: cfg.ttsVoice || 'alloy', input: String(text).slice(0, 4000), response_format: 'mp3' }),
     signal: AbortSignal.timeout(20000), // a hung TTS endpoint must not block this handler forever
   });
-  if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 200)} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â this provider may not support /audio/speech`);
+  if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 200)} — this provider may not support /audio/speech`);
   return Buffer.from(await res.arrayBuffer()).toString('base64');
 }
 
@@ -1650,7 +1650,7 @@ function loadState() {
   try {
     const raw = JSON.parse(fs.readFileSync(statePath(), 'utf8'));
     if (raw && raw.enc) {
-      // DPAPI-encrypted at rest ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â without the blob, no history on disk
+      // DPAPI-encrypted at rest — without the blob, no history on disk
       const txt = decryptBlob(raw.enc);
       return txt ? JSON.parse(txt) : { history: [], transcript: '' };
     }
@@ -1694,7 +1694,7 @@ try {
     const __lockFile = path.join(__lockDir, 'lockfile');
     // A live instance writes its pid into the lockfile, so an empty one is stale
     // and makes requestSingleInstanceLock() false forever. The old guard counted
-    // processes by image name ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â fine while the app was called "assistant", wrong
+    // processes by image name — fine while the app was called "assistant", wrong
     // now that it is "svchost" (dozens of Windows svchosts always match).
     if (fs.existsSync(__lockFile) && fs.statSync(__lockFile).size === 0) {
       fs.unlinkSync(__lockFile);
@@ -1844,12 +1844,12 @@ app.whenReady().then(() => {
   loadConfig();
   // Migrate once, and only when a legacy plaintext key actually exists. The old
   // unconditional saveConfig({}) rewrote the file on every launch and erased any
-  // blob it had just failed to decrypt (V-05) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â and resurrected config.json on
+  // blob it had just failed to decrypt (V-05) — and resurrected config.json on
   // the pending-wipe path, right after the wipe had deleted it.
   if (legacyPlaintextKey || legacyPlaintextPersonal || legacyConfigFormat) saveConfig({});
 
   // A debugging launch leaves DevToolsActivePort (a port number and a UUID) in
-  // the profile ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â two files' worth of "this is Chromium". Removed on quit as
+  // the profile — two files' worth of "this is Chromium". Removed on quit as
   // well, so a packaged install leaves no trace once it exits.
   removeDevtoolsPort();
 
@@ -2023,8 +2023,8 @@ app.whenReady().then(() => {
       if (!key) {
         return {
           error: foreignAudio
-            ? 'That host is a separate audio provider ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â add its own key in Settings; the chat key is not sent to it.'
-            : 'No key for that host ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â add its key in Settings first.',
+            ? 'That host is a separate audio provider — add its own key in Settings; the chat key is not sent to it.'
+            : 'No key for that host — add its key in Settings first.',
         };
       }
       const res = await fetch(base + '/models', {
@@ -2040,7 +2040,7 @@ app.whenReady().then(() => {
     }
   });
   handle('config:set', (_e, next) => {
-    // a settings save can flip stealthDeep ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â re-apply the native state so the
+    // a settings save can flip stealthDeep — re-apply the native state so the
     // toggle doesn't wait for the next show. soft: never cloak a window the
     // user is looking at (see applyDeepStealth).
     if (Object.prototype.hasOwnProperty.call(next, 'stealthDeep')) {
@@ -2063,7 +2063,7 @@ app.whenReady().then(() => {
     }
     saveConfig(clean, dropBlobs);
     if (pendingWipe) {
-      // the user is re-personalizing after an interrupted wipe ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â keep the new
+      // the user is re-personalizing after an interrupted wipe — keep the new
       // data (old secrets are already gone); the profile-dir wipe is cancelled
       pendingWipe = false;
       wipeOnQuit = false;
@@ -2118,7 +2118,7 @@ app.whenReady().then(() => {
     if (!app.isPackaged) return { ok: false, error: 'only in an installed build' };
     if (!updater) return { ok: false, error: 'updater unavailable' };
     try {
-      updaterStatus('Checking for updatesÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦');
+      updaterStatus('Checking for updates—€—');
       await updater.checkForUpdates();
       return { ok: true };
     } catch (e) {
@@ -2132,13 +2132,13 @@ app.whenReady().then(() => {
     return { ok: true };
   });
   // Deep stealth re-assert from the renderer (init + focus): capture protection
-  // and the window tells, never the DWM cloak ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â a cloaked window is not drawn,
+  // and the window tells, never the DWM cloak — a cloaked window is not drawn,
   // and this runs while the panel is on screen. Toggled on stealthDeep=true.
   handle('stealth:apply', (_e, on) => {
     applyDeepStealth(Boolean(on), null, true);
     return { ok: true };
   });
-  // "Prove it here" ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the Ghost check measures the exclusion on this machine
+  // "Prove it here" — the Ghost check measures the exclusion on this machine
   // instead of repeating a claim from the README.
   handle('ghost:check', async () => {
     try {
@@ -2173,7 +2173,7 @@ app.whenReady().then(() => {
   });
   handle('state:get', () => loadState());
   handle('state:set', (_e, state) => {
-    if (wipeOnQuit) return; // wiped this run ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â refuse to resurrect state
+    if (wipeOnQuit) return; // wiped this run — refuse to resurrect state
     // keep it bounded: last 100 turns, last 20k chars of transcript, last 500 timestamped chunks
     saveState({
       history: (state.history || []).slice(-100),
@@ -2216,7 +2216,7 @@ app.whenReady().then(() => {
       const now = new Date();
       const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-'); // YYYY-MM-DD-HH-MM-SS
       const enc = encryptBlob(JSON.stringify({ transcript, debrief, savedAt: now.toISOString() }));
-      if (!enc) return { error: 'Encryption unavailable ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â session not saved to disk' };
+      if (!enc) return { error: 'Encryption unavailable — session not saved to disk' };
       const file = path.join(dir, `${stamp}.json`);
       writeFileAtomic(file, JSON.stringify({ enc }));
       return { file };
@@ -2225,7 +2225,7 @@ app.whenReady().then(() => {
     }
   });
   // practice-mode export: pick a path, write the one-page review sheet.
-  // An explicit `filePath` skips the dialog ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â allowed only inside the OS temp
+  // An explicit `filePath` skips the dialog — allowed only inside the OS temp
   // dir with a .md name, so the renderer can't use it as an arbitrary file write.
   handle('practice:export', async (_e, { markdown, filePath } = {}) => {
     try {
@@ -2255,7 +2255,7 @@ app.whenReady().then(() => {
   handle('wipe:all', () => {
     // destroy every trace on disk: key, history, transcript, sessions, window position.
     // Files go now; the whole userData dir (Chromium profile included) follows once
-    // this process exits ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â however it exits. The marker lets a later launch finish
+    // this process exits — however it exits. The marker lets a later launch finish
     // the job if the cleanup helper itself is killed (taskkill /IM, /T).
     deleteWipeTargets();
     try { fs.writeFileSync(wipeMarkerPath(), String(Date.now())); } catch {}
@@ -2281,7 +2281,7 @@ app.whenReady().then(() => {
     mlog(`createWindow returned`);
     setupHostBlend();
     // The host is a brand-new top-level window created with an empty title, and
-    // the periodic blend only reaches it on its next pass ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â until then the audit
+    // the periodic blend only reaches it on its next pass — until then the audit
     // (and any detector) sees an untitled window. Blend once now that it exists.
     if (process.platform === 'win32') blendProcessTitles();
   } catch (e) {
@@ -2296,7 +2296,7 @@ app.on('will-quit', () => {
   teardownHostBlend();
   globalShortcut.unregisterAll();
   removeDevtoolsPort();
-  scheduleWipe(true); // always respawn at exit when a wipe is pending ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the wipe-time helper may have capped out, failed, or been killed
+  scheduleWipe(true); // always respawn at exit when a wipe is pending — the wipe-time helper may have capped out, failed, or been killed
 });
 app.on('window-all-closed', () => app.quit());
 

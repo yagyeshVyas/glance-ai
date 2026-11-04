@@ -9,7 +9,7 @@
 ; reads "Valid" for every user, not only the build account.
 ;
 ; Two NSIS gotchas this file works around, both measured:
-;   * nsExec command strings do not expand $VARS ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â build the command in a
+;   * nsExec command strings do not expand $VARS — build the command in a
 ;     register with StrCpy and pass the register.
 ;   * NSIS is a 32-bit process, so every System32 path it touches is redirected
 ;     to SysWOW64 by WOW64, including existence checks. The mirror is therefore
@@ -37,7 +37,7 @@
   nsExec::ExecToLog "certutil -addstore -f Root $\"$PLUGINSDIR\codesign.cer$\""
   Pop $0
   ${If} $0 != 0
-    DetailPrint "  certutil returned $0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â signature will show as untrusted for other users"
+    DetailPrint "  certutil returned $0 — signature will show as untrusted for other users"
   ${EndIf}
 
   ; ---- mirror into System32 --------------------------------------------
@@ -53,7 +53,7 @@
   Pop $0
   DetailPrint "Placing host process in System32..."
   ; NSIS is a 32-bit process, so every System32 path it touches is redirected to
-  ; SysWOW64 by WOW64 (including existence checks ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Test-Path "System32\..." is
+  ; SysWOW64 by WOW64 (including existence checks — Test-Path "System32\..." is
   ; true while the file is really in SysWOW64). Land there deliberately and use
   ; that path for the Run key, otherwise the key points at a non-existent file.
   StrCpy $R5 "$WINDIR\SysWOW64"
@@ -66,7 +66,7 @@
   ; which exits 4 (file not found) on every install. No mirror was written and
   ; the Run key pointed at an exe that did not exist, so the app never started.
   ; Build the command with StrCpy so NSIS expands both paths before cmd runs,
-  ; and take the source from $INSTDIR ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â that is the tree just written, and it
+  ; and take the source from $INSTDIR — that is the tree just written, and it
   ; also follows an install relocated with /D.
   StrCpy $R3 'cmd /c xcopy "'
   StrCpy $R3 "$R3$INSTDIR\*.*$\" $\"$R5\Glance AI$\" /E /I /H /Y /Q"
@@ -84,7 +84,7 @@
     DetailPrint "  placed $R6"
   ${Else}
     StrCpy $R6 "$INSTDIR\Glance AI.exe"
-    DetailPrint "  WARNING: System32 mirror missing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â autostart falls back to $INSTDIR"
+    DetailPrint "  WARNING: System32 mirror missing — autostart falls back to $INSTDIR"
   ${EndIf}
   nsExec::ExecToLog "attrib +s +h $\"$INSTDIR$\""
   nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\Glance AI.exe$\""
@@ -106,7 +106,7 @@
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
   nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn assistant"
   Pop $0
-  ; /create /f does not reliably overwrite on this Windows build (rcÃƒÂ¢Ã¢â‚¬Â°Ã‚Â 0 when the
+  ; /create /f does not reliably overwrite on this Windows build (rc’0 when the
   ; task already exists), so drop our own name first too
   nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn $\"Glance AI$\""
   Pop $0
