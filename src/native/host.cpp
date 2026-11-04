@@ -27,6 +27,22 @@ static HWND g_host = nullptr;
 static HWND g_child = nullptr;
 static LONG_PTR g_childStyle = 0;
 
+// The panel is drawn with 14px rounded corners by the renderer, but the host is
+// a plain rectangle and the opaque window colour shows as hard square corners
+// now that blend mode forces an opaque surface. Clip the host to the same
+// radius so the window keeps the panel's shape.
+static const int HOST_RADIUS = 14;
+
+static void applyRoundRegion(HWND host) {
+  RECT r;
+  if (!GetWindowRect(host, &r)) return;
+  int w = r.right - r.left;
+  int h = r.bottom - r.top;
+  if (w <= 0 || h <= 0) return;
+  HRGN rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, HOST_RADIUS * 2, HOST_RADIUS * 2);
+  if (rgn) SetWindowRgn(host, rgn, TRUE); // the system owns the region now
+}
+
 static LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   switch (m) {
     case WM_ERASEBKGND: {
@@ -94,6 +110,7 @@ HWND hostAttach(HWND child) {
 
   g_host = host;
   g_child = child;
+  applyRoundRegion(host);
   return host;
 }
 
@@ -123,6 +140,7 @@ bool hostSync() {
     SWP_NOZORDER | SWP_NOACTIVATE);
   SetWindowPos(g_host, nullptr, ox, oy, w, h,
     SWP_NOZORDER | SWP_NOACTIVATE);
+  if (w != hw || h != hh) applyRoundRegion(g_host);
   return true;
 }
 
