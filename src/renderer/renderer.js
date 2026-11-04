@@ -1136,10 +1136,12 @@ async function refreshDisplays() {
   sel.innerHTML =
     '<option value="auto">Auto screen</option>' +
     displays
-      .map(
-        (d, i) =>
-          `<option value="${d.id}">${escapeHtml(d.label || 'Display ' + (i + 1))} Â· ${d.size.width}Ã—${d.size.height}</option>`,
-      )
+      .map((d, i) => {
+        // screens carry a size, single-window targets do not; dereferencing it
+        // unconditionally threw here on every launch and left the picker empty
+        const dims = d.size ? ' \u00b7 ' + d.size.width + '\u00d7' + d.size.height : ' \u00b7 window';
+        return '<option value="' + d.id + '">' + escapeHtml(d.label || 'Display ' + (i + 1)) + dims + '</option>';
+      })
       .join('');
   sel.value = displays.some((d) => String(d.id) === String(keep)) ? keep : 'auto';
 }
