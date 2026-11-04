@@ -548,21 +548,31 @@ function cloakHost(on) {
 function applyDeepStealth(on, cb, soft) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) { if (cb) cb(); return; }
   const h32 = win.getNativeWindowHandle().readUInt32LE(0);
+  // soft = the panel is on screen: capture protection only, never DWM-cloak.
+  // DWMWA_CLOAK stops DWM composing the window, so "cloaked but visible" does
+  // not exist — the cloak has to stay off whenever the user is meant to see the
+  // panel. The soft path used to fall through to the hard cloak because the
+  // helper has no cloak-soft command, which made deep stealth hide the overlay
+  // from its own user; this branch is what keeps it on screen.
   const finish = () => {
-    // cloak LAST: the helper rewrites ex-styles, and a style write drops the
-    // cloak, so it has to be the final call
-    cloakHost(on);
-    const cloaked = setDwmCloak(h32, on);
+    let cloaked = false;
+    if (!soft) {
+      // cloak LAST: the helper rewrites ex-styles, and a style write drops the
+      // cloak, so it has to be the final call
+      cloakHost(on);
+      cloaked = setDwmCloak(h32, on);
+    }
     // The helper's `uncloak` calls SetWindowDisplayAffinity(h, WDA_NONE) on the
     // root — so every hide/show cycle silently dropped capture protection and the
     // panel came back capturable until the next config save. Re-assert it here,
     // after the style/cloak writes, for both directions.
     applyStealth();
-    if (process.env.WSHX_CLOAK_DEBUG) console.log('[cloak]', h32, on, cloaked);
+    if (process.env.WSHX_CLOAK_DEBUG) console.log('[cloak]', h32, on, cloaked, soft ? 'soft' : 'hard');
     if (cb) cb(null, cloaked);
   };
+  if (soft) { finish(); return; }
   if (!ensureHideHelper()) { finish(); return; }
-  const cmd = on ? (soft ? 'cloak-soft' : 'cloak') : 'uncloak';
+  const cmd = on ? 'cloak' : 'uncloak';
   runHideHelper([cmd, String(h32)], finish);
 }
 
@@ -604,13 +614,20 @@ function createWindow() {
     ...bounds,
     title: crypto.randomBytes(8).toString('hex'),
     icon: iconPath || undefined,
-    transparent: true,
+    // A reparented window cannot also be a layered (transparent) one: once the
+    // Chromium window is a child of the blend host, its DirectComposition
+    // surface is never composed and the overlay is an empty hole. Measured both
+    // ways (opaque renders, transparent does not), so blend mode trades the
+    // see-through background for being absent from window enumeration — the
+    // host is the only window other apps can find, and the panel paints opaque
+    // over the window colour instead of over the desktop.
+    transparent: !cfg.blendWindow,
     frame: false,
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    backgroundColor: '#00000000',
+    backgroundColor: cfg.blendWindow ? '#14161a' : '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1814,10 +1831,39 @@ app.whenReady().then(() => {
   // Autostart: a real svchost is always running, so an install that only appears
   // when you launch it is itself a tell. Opt-in (packaged builds only) because
   // a dev checkout autostarting from node_modules is noisier than it is stealthy.
-  if (app.isPackaged && !app.getLoginItemSettings().openAtLogin) {
-    try {
-      app.setLoginItemSettings({ openAtLogin: true, args: ['--autostart'], name: 'Glance AI' });
-    } catch {}
+  //
+  // The installer already writes the machine-wide Run value. Adding the per-user
+  // one on top puts a second row in Task Manager's Startup tab and starts a
+  // duplicate at every logon (it loses the singleton and exits), so: machine-wide
+  // wins, and a per-user value left over from an older build is removed.
+  const RUN_KEY = 'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+  const HKCU_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+  if (app.isPackaged) {
+    const { execFileSync } = require('child_process');
+    const hasRun = (key, name) => {
+      try {
+        execFileSync('reg', ['query', key, '/v', name], { stdio: 'ignore', timeout: 4000 });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    // getLoginItemSettings() looks the value up by app name, but the entry this
+    // build writes is named "Glance AI", so ask the registry instead.
+    const userEntry = hasRun(HKCU_RUN_KEY, 'Glance AI');
+    if (hasRun(RUN_KEY, 'assistant')) {
+      // installer's machine-wide entry is authoritative: drop the per-user duplicate
+      if (userEntry) {
+        try {
+          app.setLoginItemSettings({ openAtLogin: false, name: 'Glance AI' });
+        } catch {}
+      }
+    } else if (!userEntry) {
+      // no machine-wide entry (uninstalled mirror, portable copy): keep a user one
+      try {
+        app.setLoginItemSettings({ openAtLogin: true, args: ['--autostart'], name: 'Glance AI' });
+      } catch {}
+    }
   }
 
   // stealth: shrink the accessibility tree surface (UIA/MSAA see far less of the overlay)
@@ -1851,6 +1897,16 @@ app.whenReady().then(() => {
         if (app.isReady()) blendProcessTitles();
       } catch {}
     }, 5000).unref();
+    // The capture exclusion can be dropped without anyone noticing: a hide/show
+    // cycle, a DWM reset, a renderer restart, or another process calling
+    // SetWindowDisplayAffinity on the window. Re-assert it on a slow timer while
+    // the panel is on screen, so a running screen share never silently starts
+    // showing it. applyStealth() is the same call the show path already uses.
+    setInterval(() => {
+      try {
+        if (app.isReady() && isShown && cfg.stealth && win && !win.isDestroyed()) applyStealth();
+      } catch {}
+    }, 15000).unref();
   }
 
   // The renderer is sandboxed and has no permission prompt UI of its own, so
@@ -1954,9 +2010,10 @@ app.whenReady().then(() => {
   });
   handle('config:set', (_e, next) => {
     // a settings save can flip stealthDeep — re-apply the native state so the
-    // toggle doesn't wait for the next show
+    // toggle doesn't wait for the next show. soft: never cloak a window the
+    // user is looking at (see applyDeepStealth).
     if (Object.prototype.hasOwnProperty.call(next, 'stealthDeep')) {
-      applyDeepStealth(Boolean(next.stealthDeep));
+      applyDeepStealth(Boolean(next.stealthDeep), null, true);
     }
     if (Object.prototype.hasOwnProperty.call(next, 'stealth')) {
       applyStealth();
@@ -2029,11 +2086,11 @@ app.whenReady().then(() => {
     setImmediate(() => updater.quitAndInstall(false, true));
     return { ok: true };
   });
-  // Deep stealth: DWM-cloak the BrowserWindow frame + every child surface, and
-  // pull the WS_EX_LAYERED/TRANSPARENT bits so EnumWindows + UIA walkers treat
-  // it like an ordinary app. Toggled from the renderer on stealthDeep=true.
+  // Deep stealth re-assert from the renderer (init + focus): capture protection
+  // and the window tells, never the DWM cloak — a cloaked window is not drawn,
+  // and this runs while the panel is on screen. Toggled on stealthDeep=true.
   handle('stealth:apply', (_e, on) => {
-    applyDeepStealth(Boolean(on));
+    applyDeepStealth(Boolean(on), null, true);
     return { ok: true };
   });
   // "Prove it here" — the Ghost check measures the exclusion on this machine
