@@ -1,4 +1,4 @@
-﻿const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 const api = window.glance;
 
 const el = {
@@ -869,6 +869,7 @@ $('s_deleteKeys').addEventListener('click', async () => {
   paintKeyPlaceholders(c);
   setMsg('Keys deleted.');
 });
+$('min').addEventListener('click', () => api.minimize());
 $('hide').addEventListener('click', () => api.hide());
 $('close').addEventListener('click', () => api.quit());
 
@@ -1208,4 +1209,5 @@ api.getConfig().then((c) => {
     el.answer.innerHTML = '<span class="muted">No API key yet. Click âš™ and add any OpenAI-compatible key + base URL.</span>';
   }
 });
+
 

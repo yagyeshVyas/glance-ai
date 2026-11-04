@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, globalShortcut, ipcMain, desktopCapturer, screen, session, safeStorage, nativeImage, protocol } = require('electron');
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, desktopCapturer, screen, session, safeStorage, nativeImage, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -727,6 +727,10 @@ async function toggleVisible() {
       win.setPosition(Math.round(workArea.x + (workArea.width - b.width) / 2), workArea.y + 24);
     }
     win.showInactive();
+    // coming back from minimize: drop the taskbar button again
+    try {
+      win.setSkipTaskbar(true);
+    } catch {}
     win.focus();
     isShown = true;
     // Showing is what drops the flag: Chromium builds a fresh surface for the
@@ -2096,6 +2100,20 @@ app.whenReady().then(() => {
     }
   });
   handle('window:quit', () => app.quit());
+  // The window is a tool window with skipTaskbar, so a plain minimize has no
+  // taskbar button to return from. The show path (showInactive) un-minimizes,
+  // so mark it hidden and let Ctrl+Shift+H / the hide button bring it back.
+  handle('window:minimize', () => {
+    if (!win || win.isDestroyed()) return;
+    isShown = false;
+    // A skipTaskbar window cannot actually minimize on Windows - minimize() is
+    // accepted and nothing happens. Give it a taskbar button while minimized (so
+    // it can also be restored from there) and take that back on show.
+    try {
+      win.setSkipTaskbar(false);
+    } catch {}
+    win.minimize();
+  });
   handle('update:check', async () => {
     if (!app.isPackaged) return { ok: false, error: 'only in an installed build' };
     if (!updater) return { ok: false, error: 'updater unavailable' };

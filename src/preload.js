@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('glance', {
   cancel: () => ipcRenderer.invoke('cancel'),
   transcribe: (data, mime) => ipcRenderer.invoke('transcribe', { data, mime }),
   hide: () => ipcRenderer.invoke('window:hide'),
+  minimize: () => ipcRenderer.invoke('window:minimize'),
   quit: () => ipcRenderer.invoke('window:quit'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
@@ -40,3 +41,4 @@ contextBridge.exposeInMainWorld('glance', {
   onTrigger: on('trigger'),
   onClickThrough: on('click-through'),
 });
+
