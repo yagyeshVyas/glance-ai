@@ -8,13 +8,14 @@
 
 Hear the room, read the screen, get the answer — in a small panel that Zoom, Meet, Teams, Webex, OBS and Discord never capture.
 
+[![Website](https://img.shields.io/badge/website-live-6c8cff?logo=vercel&logoColor=white)](https://glance-ai-hazel.vercel.app)
 [![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](#requirements)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/yagyeshVyas/glance-ai/total?color=success)](#install)
 [![Release](https://img.shields.io/github/v/release/yagyeshVyas/glance-ai?color=blue)](#install)
 
-[Install](#install) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
+[**Live website**](https://glance-ai-hazel.vercel.app) · [Install](#install) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
 
 </div>
 
