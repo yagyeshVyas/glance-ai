@@ -15,7 +15,7 @@ Hear the room, read the screen, get the answer — in a small panel that Zoom, M
 [![Downloads](https://img.shields.io/github/downloads/runtimebroker/glance-ai/total?color=success)](#install)
 [![Release](https://img.shields.io/github/v/release/runtimebroker/glance-ai?color=blue)](#install)
 
-[**Live website**](https://glance-ai-hazel.vercel.app) · [Install](#install) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
+[**Live website**](https://glance-ai-hazel.vercel.app) · [Install](#install) · [Usage guide](USAGE.md) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
 
 </div>
 
@@ -100,7 +100,12 @@ Chosen to avoid browser shortcuts. Conflicts are reported by name, and `npm run 
 
 ## Eye morph
 
-The webcam is never opened, so it cannot fight Teams or Zoom for the device. Instead the panel reads the screen, finds the largest face and draws a landmark mesh and gaze vector. MediaPipe runs from a vendored model — fully offline.
+Two separate features, easy to confuse:
+
+- **Eye HUD (this app)** — the webcam is never opened, so it cannot fight Teams or Zoom for the device. The panel reads the screen, finds the largest face and draws a landmark mesh and gaze vector. MediaPipe runs from a vendored model — fully offline. It tracks; it does not change your outgoing video.
+- **Eye contact in calls (NVIDIA Broadcast)** — NVIDIA owns the model, so Glance drives Broadcast's own loopback effects API: the Settings row turns `eye_contact` on, starts Broadcast when it is missing, and reports the source camera. Any app that selects **`Camera (NVIDIA Broadcast)`** gets the corrected feed. Maxine/NvAR is licensed and is not redistributed here.
+
+The step-by-step camera selection for every browser and meeting app is in [USAGE.md](USAGE.md#camera-selection-per-app).
 
 ## Hidden from screen share
 

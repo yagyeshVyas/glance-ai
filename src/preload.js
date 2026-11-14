@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const on = (channel) => (cb) => {
   const handler = (_e, payload) => cb(payload);
@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('glance', {
   stealthApply: (on) => ipcRenderer.invoke('stealth:apply', on),
   ghostCheck: () => ipcRenderer.invoke('ghost:check'),
   stealthReport: () => ipcRenderer.invoke('stealth:report'),
+  broadcastStatus: () => ipcRenderer.invoke('broadcast:status'),
+  setBroadcastEyeContact: (on) => ipcRenderer.invoke('broadcast:eye-contact', Boolean(on)),
   windowShown: () => ipcRenderer.invoke('window:shown'),
   moveWindow: (dx, dy) => ipcRenderer.invoke('window:move', { dx, dy }),
   getState: () => ipcRenderer.invoke('state:get'),
@@ -40,5 +42,6 @@ contextBridge.exposeInMainWorld('glance', {
   onShot: on('shot'),
   onTrigger: on('trigger'),
   onClickThrough: on('click-through'),
+  onFlagless: on('stealth:flagless'),
 });
 

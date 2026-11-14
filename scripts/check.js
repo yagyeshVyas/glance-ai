@@ -1,11 +1,15 @@
 // Syntax-check all JS sources. Run: npm run check
 const { execFileSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const files = [
   'src/main.js',
   'src/preload.js',
   'src/renderer/renderer.js',
   'src/shared.js',
+  'src/identity.js',
+  'src/stealth-watch.js',
+  'src/broadcast.js',
   'src/renderer/drag.js',
   'scripts/detect-audit.js',
   'scripts/build-probe.js',
@@ -15,6 +19,12 @@ const files = [
   'scripts/test-main.js',
   'scripts/ui-probe.js',
   'scripts/capture-probe.js',
+  'scripts/affinity-reparent-probe.js',
+  'scripts/eye-probe.js',
+  'scripts/broadcast-gateway-probe.js',
+  'scripts/resedit.js',
+  'scripts/sign-build.js',
+  'scripts/after-sign.js',
   'scripts/pe-imports.js',
   'scripts/check.js',
 ];
@@ -36,5 +46,32 @@ if (probe.ok) {
   bad++;
   console.error('FAIL', 'scripts/detect-audit-probe.cs', '\n' + probe.reason);
 }
+
+// One identity, four copies: package.json, build/installer.nsh, the identity
+// module, and the version resource values electron-builder writes. Drift is how
+// this app ended up named "Glance AI" on disk while its PE metadata said
+// "assistant" and its Run key said a third thing.
+const IDENTITY = require('../src/identity');
+const pkg = require('../package.json');
+const nsh = fs.readFileSync(path.join(__dirname, '..', 'build', 'installer.nsh'), 'utf8');
+const identityChecks = [
+  ['package.json name', pkg.name, 'runtime-broker'],
+  ['package.json productName', pkg.productName, IDENTITY.PRODUCT],
+  ['package.json appId', pkg.build.appId, IDENTITY.APP_ID],
+  ['package.json executableName', pkg.build.win.executableName, IDENTITY.PRODUCT],
+  ['package.json description', pkg.description, IDENTITY.DESCRIPTION],
+  ['package.json author', pkg.author, IDENTITY.COMPANY],
+];
+for (const [label, got, want] of identityChecks) {
+  if (got !== want) { bad++; console.error('FAIL identity ' + label + ': ' + JSON.stringify(got) + ' !== ' + JSON.stringify(want)); }
+}
+// installer.nsh cannot require the module, so pin the two paths it must build.
+if (!nsh.includes('$R5\\' + IDENTITY.PRODUCT + '$\\"')) {
+  bad++; console.error('FAIL identity build/installer.nsh: mirror path is not $R5\\' + IDENTITY.PRODUCT);
+}
+if (!nsh.includes('"Software\\Microsoft\\Windows\\CurrentVersion\\Run" "' + IDENTITY.AUTOSTART_NAME + '"')) {
+  bad++; console.error('FAIL identity build/installer.nsh: Run value is not ' + IDENTITY.AUTOSTART_NAME);
+}
+if (!bad) console.log('ok   identity (package.json <-> src/identity.js <-> build/installer.nsh)');
 
 process.exit(bad ? 1 : 0);

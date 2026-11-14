@@ -587,7 +587,7 @@ const hasFlag = {
   apiKey: 'hasKey', transcribeApiKey: 'hasTranscribeKey',
   ttsApiKey: 'hasTtsKey', fallbackApiKey: 'hasFallbackKey',
 };
-const boolFields = ['stealth', 'stealthProcess', 'smartMode', 'practiceMode', 'stealthDeep', 'stealthMaster', 'ocr', 'scramble'];
+const boolFields = ['stealth', 'stealthProcess', 'smartMode', 'practiceMode', 'stealthDeep', 'stealthMaster', 'ocr', 'scramble', 'nvidiaEyeContact'];
 // Master-stealth sub-toggles it force-on when enabled. Saved here at the moment
 // the user switches master ON so "un-check master" can restore them.
 const MASTER_SUB_TOGGLES = ['stealth', 'stealthProcess', 'stealthDeep'];
@@ -615,6 +615,16 @@ async function openSettings() {
   for (const f of keyFields) $('s_' + f).value = '';
   paintKeyPlaceholders(c);
   boolFields.forEach((f) => ($('s_' + f).checked = Boolean(c[f])));
+  // Which camera Broadcast is feeding, and whether eye contact is live. The
+  // effect itself is NVIDIA's; this row only drives it.
+  try {
+    const nv = api.broadcastStatus ? await api.broadcastStatus() : null;
+    if ($('s_nvidiaMsg')) {
+      $('s_nvidiaMsg').textContent = nv && nv.ok
+        ? '— camera: ' + (nv.camera || 'none') + (nv.resolution ? ' @ ' + nv.resolution : '') + ', ' + (nv.eyeContact ? 'on' : 'off')
+        : '— ' + ((nv && nv.reason) || 'Broadcast not running');
+    }
+  } catch {}
   $('s_panelOpacity').value = c.panelOpacity ?? 0.78;
   $('opacityVal').textContent = Math.round((c.panelOpacity ?? 0.78) * 100) + '%';
   $('s_msg').textContent = '';
@@ -778,6 +788,27 @@ function setScramble(on) {
 }
 $('s_scramble').addEventListener('change', (e) => setScramble(e.target.checked));
 
+// ---------- detector-aware mode: no capture flag, scramble instead ----------
+// A window inspector (Process Explorer, a proctoring client) reads
+// GetWindowDisplayAffinity, which reports 0x11 while the panel is excluded.
+// The main process drops the flag while one is running; this makes the text
+// unreadable instead. The user's own scramble choice is restored when it goes.
+let scrambleBeforeDetector = null;
+if (window.glance.onFlagless) {
+  window.glance.onFlagless((payload) => {
+    const on = Boolean(payload && payload.on);
+    if (on) {
+      if (scrambleBeforeDetector === null) scrambleBeforeDetector = Boolean(appCfg.scramble);
+      setScramble(true);
+      setStatus('Window inspector detected' + (payload.name ? ' (' + payload.name + ')' : '') + ' — capture flag off, text scrambled');
+    } else {
+      setScramble(scrambleBeforeDetector === null ? false : scrambleBeforeDetector);
+      scrambleBeforeDetector = null;
+      setStatus('Window inspector gone — capture protection restored');
+    }
+  });
+}
+
 // Stealth report: an actual measurement of every tell on this machine, not a
 // restated claim. Rows are rendered from what the main process read back.
 $('s_ghostCheck').addEventListener('click', async () => {
@@ -820,6 +851,9 @@ $('s_save').addEventListener('click', async () => {
   const c = await api.setConfig(next);
   appCfg = c; // practiceMode etc. take effect immediately
   setScramble(c.scramble);
+  if (api.setBroadcastEyeContact) {
+    try { await api.setBroadcastEyeContact(Boolean(next.nvidiaEyeContact)); } catch {}
+  }
   api.stealthApply?.(Boolean(c.stealthDeep));
   $('opacityVal').textContent = Math.round((c.panelOpacity ?? 0.78) * 100) + '%';
   paintKeyPlaceholders(c); // show •••••• so the saved state is visible right away
@@ -962,7 +996,10 @@ document.getElementById('copilot').addEventListener('click', toggleCopilot);
     // update HUD at ~10 fps to avoid layout thrash
     if (!hudTimer || performance.now() - hudTimer > 100) {
       hudTimer = performance.now();
-      el.eyeHud.hidden = !window.glanceEye.on;
+      // stalled = frames stopped (capture ended, model hung): hide rather than
+      // leaving the last camera frame frozen in the corner
+      const stalled = Boolean(s.stalled);
+      el.eyeHud.hidden = !window.glanceEye.on || stalled;
       el.eyeDot.className = s.visible ? (s.blink ? 'blink' : 'on') : 'off';
       el.eyeLabel.textContent = s.visible
         ? 'Eye ' + Math.round(s.attention * 100) + '%'

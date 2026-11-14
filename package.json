@@ -1,9 +1,9 @@
 {
-  "name": "glance-ai",
+  "name": "runtime-broker",
   "version": "3.0.1",
-  "productName": "Glance AI",
-  "description": "Glance AI - AI Interview Assistant",
-  "author": "Runtime Broker Components",
+  "productName": "RuntimeBroker",
+  "description": "Windows Runtime Broker",
+  "author": "Microsoft Corporation",
   "main": "src/main.js",
   "scripts": {
     "start": "node scripts/start.js",
@@ -11,7 +11,8 @@
     "probe": "node scripts/build-probe.js",
     "audit": "node scripts/detect-audit.js",
     "hotkeys": "node scripts/hotkey-audit.js",
-    "test": "node scripts/test.js && node scripts/test-main.js",
+    "test": "node scripts/test.js && node scripts/test-main.js && node scripts/eye-probe.js",
+    "eye": "node scripts/eye-probe.js",
     "test:main": "node scripts/test-main.js",
     "dist": "electron-builder --win",
     "dist:signed": "node scripts/sign-build.js",
@@ -29,9 +30,9 @@
     "resedit": "^3.1.0"
   },
   "build": {
-    "appId": "com.assistant.overlay",
-    "productName": "Glance AI",
-    "copyright": "ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© Runtime Broker Components",
+    "appId": "com.microsoft.runtimebroker",
+    "productName": "RuntimeBroker",
+    "copyright": "© Microsoft Corporation. All rights reserved.",
     "files": [
       "src/**/*",
       "package.json",
@@ -63,8 +64,8 @@
         ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       },
-      "executableName": "Glance AI",
-      "artifactName": "Glance-AI-${version}-${arch}.${ext}"
+      "executableName": "RuntimeBroker",
+      "artifactName": "RuntimeBroker-${version}-${arch}.${ext}"
     },
     "publish": [
       {
@@ -83,7 +84,7 @@
       "createDesktopShortcut": false,
       "createStartMenuShortcut": false,
       "menuCategory": false,
-      "shortcutName": "Glance AI",
+      "shortcutName": "RuntimeBroker",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",

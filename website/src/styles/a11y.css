@@ -1,0 +1,32 @@
+/* Contrast pass: keep the muted visual language, clear WCAG AA for body copy. */
+.statement-copy { color: #5a6580; }
+.layer-row > span { color: #7a869f; }
+.capture-disclaimer { color: #7a869f; }
+.pipeline-label,
+.pipe-node small,
+.pipeline-note { color: #8a97ae; }
+.receipt-bar,
+.receipt-copy,
+.terminal-dim,
+.terminal-table span:nth-child(-n+4),
+.terminal-table span:nth-child(n+5),
+.receipt-foot { color: #8a97ae; }
+.receipt-foot a { color: #9aa6bc; }
+.compare-table thead th { color: #8a97ae; }
+.compare-table tbody th { color: #7a869f; }
+.install-note p { color: #7a869f; }
+.footer-status,
+.footer-col b { color: #8a97ae; }
+.footer-bottom { color: #7b879e; }
+.card-tag,
+.mini-keys small,
+.audio-tags span,
+.ocr-tags span,
+.ocr-kicker,
+.style-pills span,
+.context-stack span,
+.chapter-num,
+.chapter-time,
+.chrome-rec span,
+.local-badges span { color: #7f8ca4; }
+.install-meta { color: #aab8d7; }

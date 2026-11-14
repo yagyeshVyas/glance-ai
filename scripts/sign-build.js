@@ -12,7 +12,8 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const EXE = path.join(ROOT, 'dist', 'win-unpacked', 'assistant.exe');
+const IDENTITY = require('../src/identity');
+const EXE = path.join(ROOT, 'dist', 'win-unpacked', IDENTITY.EXE);
 const CERT_THUMB = process.env.WSHX_CERT_THUMB || 'E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C';
 
 function signtool() {
@@ -56,7 +57,7 @@ function thumbExists(thumb) {
       '-NoProfile', '-Command',
       `$v=(Get-Item -Force '${EXE.replace(/'/g, "''")}').VersionInfo; "$($v.CompanyName)|$($v.FileDescription)|$($v.OriginalFilename)|$($v.InternalName)"`,
     ], { encoding: 'utf8' }).trim();
-    if (!/Runtime Broker Components\|assistant\|assistant\.exe\|assistant\.exe/.test(v)) {
+    if (!v.startsWith(`${IDENTITY.COMPANY}|${IDENTITY.FILE_DESCRIPTION}|${IDENTITY.EXE}|${IDENTITY.EXE}`)) {
       throw new Error('metadata mismatch: ' + v);
     }
     return v;
@@ -94,15 +95,15 @@ function thumbExists(thumb) {
       const exes = [];
       for (const d of fs.readdirSync(path.join(ROOT, 'dist'))) {
         if (!d.includes('unpacked')) continue;
-        const p = path.join(ROOT, 'dist', d, 'assistant.exe');
+        const p = path.join(ROOT, 'dist', d, IDENTITY.EXE);
         if (fs.existsSync(p)) exes.push(p);
       }
       for (const e of exes) execFileSync(st, ['verify', '/pa', '/v', e], { stdio: 'pipe' });
       return exes.map((e) => path.basename(path.dirname(e))).join(', ');
     });
     run('verify installer', () => {
-      // installers are named assistant-<version>-<arch>.exe, so 'Setup' is not in
-      // the name; they are the loose .exe files that are not the unpacked payload
+      // installers are named <artifactName>, so 'Setup' is not in the name; they
+      // are the loose .exe files that are not the unpacked payload
       const setups = fs.readdirSync(path.join(ROOT, 'dist'))
         .filter((f) => f.endsWith('.exe'));
       for (const s of setups) execFileSync(st, ['verify', '/pa', '/v', path.join(ROOT, 'dist', s)], { stdio: 'pipe' });

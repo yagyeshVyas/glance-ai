@@ -32,6 +32,8 @@ const EYE = {
   },
   // smoothed history for the attention score
   _attnHist: [],
+  watchdog: 0, // 1 Hz stall timer: the HUD must not freeze on the last frame
+  _lastFrameAt: 0,
   // callbacks
   onStatus: null,
   onFrame: null,
@@ -53,10 +55,20 @@ const L = {
   rightEyeOuter: 334,
   leftLidTop: 159,
   leftLidBottom: 145,
-  rightLidTop: 362,
+  // 386, not 362: 362 is the inner corner and made the right eye's "height"
+  // measure a diagonal, so the blink test could never be true on that eye
+  rightLidTop: 386,
   rightLidBottom: 374,
   forehead: 10,
   chin: 152,
+  // eye corners for the aspect ratio, iris ring for gaze (present as 478 points
+  // on the vendored model; the 468-point mesh falls back to eye-centre-vs-nose)
+  leftCornerOuter: 33,
+  leftCornerInner: 133,
+  rightCornerInner: 362,
+  rightCornerOuter: 263,
+  leftIris: [468, 469, 470, 471, 472],
+  rightIris: [473, 474, 475, 476, 477],
 };
 
 function mpStatus(msg, err) {
@@ -133,38 +145,83 @@ async function ensureLandmarker() {
   return EYE.landmarker;
 }
 
+// MediaPipe Tasks returns NORMALIZED landmarks: x and y are already 0..1
+// fractions of the frame. The old norm() divided them by videoWidth/videoHeight
+// a second time, shrinking every coordinate by the frame size — the face crop
+// collapsed to a few pixels in the top-left corner (the black HUD), the eye
+// boxes were degenerate and gaze stayed pinned at zero. Same name, no division.
 function norm(p) {
-  return p ? { x: p.x / EYE.video.videoWidth, y: p.y / EYE.video.videoHeight } : null;
+  return p ? { x: p.x, y: p.y } : null;
 }
 
+function meanPoint(lm, ids) {
+  let x = 0, y = 0, n = 0;
+  for (const id of ids) {
+    const p = lm[id];
+    if (p) { x += p.x; y += p.y; n++; }
+  }
+  return n ? { x: x / n, y: y / n } : null;
+}
+
+function clamp(v) {
+  return Math.max(-1, Math.min(1, v));
+}
+
+// Iris-based gaze: where the pupil sits between the two eye corners
+// (horizontal) and between the lids (vertical) — the same ratio a human reads.
+// Falls back to eye-centre-vs-nose on a model that returns only 468 points.
 function estimateGaze(lm) {
+  const xs = [];
+  const ys = [];
+  if (lm.length > 477) {
+    const eyes = [
+      { iris: meanPoint(lm, L.leftIris), a: norm(lm[L.leftCornerOuter]), b: norm(lm[L.leftCornerInner]), top: norm(lm[L.leftLidTop]), bottom: norm(lm[L.leftLidBottom]) },
+      { iris: meanPoint(lm, L.rightIris), a: norm(lm[L.rightCornerOuter]), b: norm(lm[L.rightCornerInner]), top: norm(lm[L.rightLidTop]), bottom: norm(lm[L.rightLidBottom]) },
+    ];
+    for (const e of eyes) {
+      if (!e.iris || !e.a || !e.b || !e.top || !e.bottom) continue;
+      const left = Math.min(e.a.x, e.b.x);
+      const width = Math.abs(e.b.x - e.a.x);
+      if (width > 1e-4) xs.push((e.iris.x - left) / width);
+      const top = Math.min(e.top.y, e.bottom.y);
+      const height = Math.abs(e.bottom.y - e.top.y);
+      if (height > 1e-4) ys.push((e.iris.y - top) / height);
+    }
+  }
+  if (xs.length) {
+    const x = (xs.reduce((s, v) => s + v, 0) / xs.length - 0.5) * 2;
+    const y = ys.length ? (ys.reduce((s, v) => s + v, 0) / ys.length - 0.5) * 2 : 0;
+    return { x: clamp(x), y: clamp(y), iris: true };
+  }
+  // fallback: eye centre relative to the nose (head pose, not pure gaze)
   const leI = norm(lm[L.leftEyeInner]);
   const leO = norm(lm[L.leftEyeOuter]);
   const reI = norm(lm[L.rightEyeInner]);
   const reO = norm(lm[L.rightEyeOuter]);
   const nose = norm(lm[L.noseTip]);
   if (!leI || !leO || !reI || !reO || !nose) return null;
-  // gaze direction: where the eyes point relative to nose
-  const gx = ((leI.x + reI.x) / 2 - nose.x) * 4; // scale to ~-1..1
-  const eyeTopY = (leI.y + reI.y) / 2;
-  const gy = (eyeTopY - nose.y) * 6;
-  return { x: Math.max(-1, Math.min(1, gx)), y: Math.max(-1, Math.min(1, gy)) };
+  const eyeX = (leI.x + leO.x + reI.x + reO.x) / 4;
+  const eyeY = (leI.y + leO.y + reI.y + reO.y) / 4;
+  return { x: clamp((eyeX - nose.x) * 4), y: clamp((nose.y - eyeY) * 6), iris: false };
 }
 
+// Blink by eye-aspect ratio — lid gap over corner-to-corner width. The old
+// measure divided lid gap by face height, which on this model never dropped
+// below 0.25, so the HUD sat permanently on "blinking" (red) and the attention
+// score was permanently penalised.
 function estimateBlink(lm) {
-  const leT = norm(lm[L.leftLidTop]);
-  const leB = norm(lm[L.leftLidBottom]);
-  const reT = norm(lm[L.rightLidTop]);
-  const reB = norm(lm[L.rightLidBottom]);
-  if (!leT || !leB || !reT || !reB) return false;
-  const leH = Math.abs(leB.y - leT.y);
-  const reH = Math.abs(reB.y - reT.y);
-  const avgH = (leH + reH) / 2;
-  // relative to face height
-  const chin = norm(lm[L.chin]);
-  const fore = norm(lm[L.forehead]);
-  const faceH = Math.abs(chin.y - fore.y) || 1;
-  return avgH / faceH < 0.25;
+  const ratio = (top, bottom, a, b) => {
+    const t = norm(lm[top]), bo = norm(lm[bottom]), p = norm(lm[a]), q = norm(lm[b]);
+    if (!t || !bo || !p || !q) return null;
+    const h = Math.abs(bo.y - t.y);
+    const w = Math.abs(q.x - p.x);
+    return w > 1e-4 ? h / w : null;
+  };
+  const l = ratio(L.leftLidTop, L.leftLidBottom, L.leftCornerOuter, L.leftCornerInner);
+  const r = ratio(L.rightLidTop, L.rightLidBottom, L.rightCornerOuter, L.rightCornerInner);
+  const vals = [l, r].filter((v) => v != null);
+  if (!vals.length) return false;
+  return vals.reduce((s, v) => s + v, 0) / vals.length < 0.16;
 }
 
 // normalized bounding box of a face's landmarks
@@ -179,15 +236,23 @@ function faceBBox(lm) {
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY, area: (maxX - minX) * (maxY - minY) };
 }
 
-// Pick the most prominent (largest) face on screen — for a self-view or a
-// single-person camera page that is the user's own face.
+// Pick the face that is most likely the user's own. A call window shows the
+// other party large and your self-view small, so "largest face" tracks the
+// interviewer, not you — the gaze readout then reports the wrong person. Prefer
+// a face whose centre sits in the right/bottom half (where call apps park the
+// self-view) with at least ~1/8 of the largest face's area; fall back to the
+// largest when nothing sits there (a single full-screen face, a selfie).
 function pickLargestFace(faces) {
-  let best = null, area = -1;
-  for (const f of faces) {
-    const a = faceBBox(f).area;
-    if (a > area) { area = a; best = f; }
-  }
-  return best;
+  if (!faces || !faces.length) return null;
+  const boxes = faces.map((f) => ({ f, bb: faceBBox(f) }));
+  const maxArea = Math.max(...boxes.map((b) => b.bb.area));
+  const corner = boxes.filter((b) => {
+    const cx = b.bb.x + b.bb.w / 2;
+    const cy = b.bb.y + b.bb.h / 2;
+    return cx > 0.55 && cy > 0.45 && b.bb.area >= maxArea * 0.04;
+  });
+  const pool = corner.length ? corner : boxes;
+  return pool.reduce((best, b) => (b.bb.area > best.bb.area ? b : best), pool[0]).f;
 }
 
 function frameTick(now) {
@@ -205,7 +270,9 @@ function frameTick(now) {
     return;
   }
   const lm = res && res.faceLandmarks ? pickLargestFace(res.faceLandmarks) : null;
+  EYE._lastFrameAt = now;
   const s = EYE.state;
+  s.stalled = false;
   if (!lm) {
     s.visible = false;
     s.faceCount = 0;
@@ -216,8 +283,12 @@ function frameTick(now) {
     s.faceCount = res.faceLandmarks.length;
     const g = estimateGaze(lm);
     if (g) {
-      s.gazeX = g.x;
-      s.gazeY = g.y;
+      // exponential smoothing: live enough to feel immediate, slow enough that
+      // landmark jitter does not make the gaze dot and the attention % flicker
+      const k = 0.45;
+      s.gazeX += (g.x - s.gazeX) * k;
+      s.gazeY += (g.y - s.gazeY) * k;
+      s.iris = g.iris;
     }
     s.blink = estimateBlink(lm);
     // attention: face visible, eyes roughly centered, not blinking
@@ -247,15 +318,14 @@ function drawDebug(lm) {
   const vh = EYE.video ? EYE.video.videoHeight : 0;
 
   if (!lm) {
-    // no face on screen — clear to a dim panel
-    if (EYE.video && EYE.video.readyState >= 2) {
-      ctx.drawImage(EYE.video, 0, 0, vw, vh, 0, 0, w, h);
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(0, 0, w, h);
-    } else {
-      ctx.fillStyle = '#111';
-      ctx.fillRect(0, 0, w, h);
-    }
+    // No face on screen: a quiet standby tile, not a dimmed desktop. A dark
+    // smudge under the HUD reads as a broken/black preview and was reported as
+    // exactly that — the crop bug above made it permanent.
+    ctx.fillStyle = '#0b0d10';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(120,130,150,0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(1.5, 1.5, w - 3, h - 3);
     return;
   }
 
@@ -306,8 +376,8 @@ function drawDebug(lm) {
   const jaw = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 13, 82, 21, 54, 63, 10];
   const leye = [33, 7, 163, 144, 145, 159, 212, 223];
   const reye = [362, 382, 381, 467, 466, 389, 374, 390];
-  const lbrow = [105, 66, 10, 336, 296];
-  const rbrow = [334, 293, 334, 293, 300, 453, 354];
+  const lbrow = [105, 66, 107, 55, 65];
+  const rbrow = [334, 293, 300, 296, 285];
   const noseBr = [6, 195, 4, 129, 10, 50];
   const noseTi = [28, 168, 134, 352, 37, 8, 17, 86];
   const lipOut = [61, 185, 40, 39, 37, 0, 267, 269, 290];
@@ -384,8 +454,16 @@ async function startEye() {
         if (!EYE.wantOn || EYE.stream !== stream) return;
         EYE.on = false;
         cancelAnimationFrame(EYE.raf);
+        if (EYE.watchdog) { clearInterval(EYE.watchdog); EYE.watchdog = 0; }
         EYE.stream = null;
-        EYE.state = { ...EYE.state, visible: false, faceCount: 0, attention: 0 };
+        EYE.state = { ...EYE.state, visible: false, faceCount: 0, attention: 0, stalled: true };
+        // clear the last frame and tell the UI: leaving the frozen thumbnail in
+        // the HUD was the "stuck on screen" case when the OS screen share ended
+        if (EYE.ctx) {
+          EYE.ctx.fillStyle = '#0b0d10';
+          EYE.ctx.fillRect(0, 0, EYE.canvas.width, EYE.canvas.height);
+        }
+        if (EYE.onStatus) EYE.onStatus('Eye morph off — capture ended', false);
         scheduleCaptureRetry('screen share ended');
       });
     }
@@ -403,6 +481,18 @@ async function startEye() {
     await ensureLandmarker();
     EYE.on = true;
     EYE._attnHist = [];
+    EYE._lastFrameAt = performance.now();
+    if (EYE.watchdog) clearInterval(EYE.watchdog);
+    EYE.watchdog = setInterval(() => {
+      if (!EYE.on) return;
+      if (performance.now() - (EYE._lastFrameAt || 0) < 2500) return;
+      // Frames stopped without an 'ended' event (capture froze, model hung, the
+      // page stopped compositing): drop the HUD to standby instead of leaving
+      // the last camera frame frozen on screen indefinitely.
+      EYE.state = { ...EYE.state, visible: false, attention: 0, faceCount: 0, blink: false, stalled: true };
+      if (EYE.ctx) drawDebug(null);
+      if (EYE.onFrame) EYE.onFrame(EYE.state);
+    }, 1000);
     mpStatus('Eye morph active (screen)');
     EYE.raf = requestAnimationFrame(frameTick);
   } catch (e) {
@@ -420,6 +510,10 @@ function stopEye() {
     clearTimeout(EYE.retryTimer);
     EYE.retryTimer = 0;
   }
+  if (EYE.watchdog) {
+    clearInterval(EYE.watchdog);
+    EYE.watchdog = 0;
+  }
   cancelAnimationFrame(EYE.raf);
   if (EYE.stream) {
     EYE.stream.getTracks().forEach((t) => t.stop());
@@ -427,6 +521,11 @@ function stopEye() {
   }
   EYE.state = { visible: false, gazeX: 0, gazeY: 0, blink: false, attention: 0, faceCount: 0 };
   EYE._attnHist = [];
+  // blank the preview so the HUD cannot linger on a stale frame while hidden
+  if (EYE.ctx) {
+    EYE.ctx.fillStyle = '#0b0d10';
+    EYE.ctx.fillRect(0, 0, EYE.canvas.width, EYE.canvas.height);
+  }
   mpStatus('Eye morph off');
 }
 

@@ -40,25 +40,27 @@ the moment it matters you are mid-answer and looking at a camera.
 ## 4. Detection vectors NOT yet mitigated
 | Vector | Risk | Mitigation status |
 |--------|------|-------------------|
-| EnumWindows / FindWindow API | Medium | The overlay is reparented under a host window with an innocuous class (`WinUIDesktopWin32WindowClass`), so the Electron window is a child and never enumerates at top level; `Chrome_WidgetWin_1` is absent from that list. Title blending rewrites every helper window title to `assistant`. The *child* windows still carry Chromium classes, so a detector walking `EnumChildWindows` finds them |
+| EnumWindows / FindWindow API | Medium | The overlay is reparented under a host window with an innocuous class (`WinUIDesktopWin32WindowClass`), so the Electron window is a child and never enumerates at top level; `Chrome_WidgetWin_1` is absent from that list. Title blending rewrites every helper window title to `Settings`. The *child* windows still carry Chromium classes, so a detector walking `EnumChildWindows` finds them |
 | `GetWindowDisplayAffinity` | **HIGH** | Returns `0x11` (`WDA_EXCLUDEFROMCAPTURE`) on the host when stealth is on — a direct "this window is hidden from capture" signal. To pass a capture-protected-state detector, turn **scramble** on and **stealth** off: the window is captured normally (affinity `0x0`) and its text is unreadable to any capturer (see §7) |
 | Accessibility APIs (UIA, MSAA) | Medium | Chromium a11y disabled in main (`app.accessibilitySupportEnabled = false`); coverage not measured |
 | GPU overlay inspection | Low | Not hidden (appears in DWM composition chain) |
 | Proctoring tools (Proctorio, Respondus) | **HIGH** | Most detect protected windows or overlays via heuristics — **not safe for exams** |
 | Anti-cheat (game) | High | Similar detection as proctoring tools |
-| Process list scraping | Low-Medium | Visible as `assistant.exe`; the packaged build carries `FileDescription=assistant` and `CompanyName=Runtime Broker Components` in the version resource and mirrors to `C:\Windows\SysWOW64\assistant`. Window titles blend to `assistant`; the on-disk exe name and version resource are what a scraper still sees |
+| Process list scraping | Low-Medium | Visible as `RuntimeBroker.exe` running from `C:\Windows\SysWOW64\RuntimeBroker\` with a Microsoft version resource (§10). That is camouflage, not hiding: a kernel-level enumerator still sees it |
 
-Measured on this machine (dev build, Windows 11 26300) — the numbers a detector gets:
+Measured on this machine (packaged build, Windows 11 26300) — the numbers a detector gets:
 
 ```
-window class      WinUIDesktopWin32WindowClass (the host; the Chromium window is a child)
-window title      assistant (blended, frozen via page-title-updated)
-ex-style          0x80008|0x80|0x2000000 = TOPMOST | TOOLWINDOW | LAYERED  (no taskbar, no Alt+Tab)
+window class      Windows.UI.Core.CoreWindow (host; the Chromium window is a child
+                  and never enumerates at top level)
+window title      host is untitled; every helper window blends to "Settings"
+ex-style          TOPMOST | TOOLWINDOW | LAYERED  (no taskbar, no Alt+Tab)
 display affinity  17 = WDA_EXCLUDEFROMCAPTURE
-process           electron.exe (dev) / assistant.exe (packaged) — several processes;
-                  full path + parent PID visible via Toolhelp snapshot
-version resource  dev:      FileDescription=Electron        CompanyName=GitHub, Inc.
-                  packaged: FileDescription=assistant       CompanyName=Runtime Broker Components
+process           RuntimeBroker.exe — four processes (browser + renderer/GPU helpers),
+                  all the same name and resource; full path + parent PID via Toolhelp
+version resource  FileDescription=Runtime Broker   CompanyName=Microsoft Corporation
+                  OriginalFilename=RuntimeBroker.exe
+signature         Valid, signer CN=Runtime Broker Components  ← the remaining identity tell
 ```
 
 The `0x11` cannot be removed. `DWMWA_EXCLUDED_FROM_CAPTURE` looks like the way out —
@@ -72,7 +74,7 @@ suggest otherwise were written against a different one.
 - **Run the ghost check** (Settings → *Run ghost check*) on the machine you will actually use. It captures the panel, hides it, captures again and compares — a claim about your environment, not this file's.
 - Test in your own Zoom/Meet screen-share before relying on it. Share, then record yourself — if you see the overlay, so does the other side.
 - For a detector that reads the affinity flag, switch to `scramble: on` + `stealth: off` (§7): no flag, and no legible text either.
-- Rename the `.exe` after building (`electron-builder` productName changes app name, but the binary is still recognizable without code signing + obfuscation).
+- The build ships one identity end to end (§10); on an older payload `node scripts/resedit.js <exe>` repairs the version resource.
 - Run it only when you control the environment. Using it in proctored exams or interviews is detectable and will get you flagged.
 - If a service explicitly bans overlays or "protected content," this app triggers that rule.
 
@@ -144,3 +146,144 @@ Build pipeline (`scripts/build-probe.js`):
 Process enumeration uses a Toolhelp snapshot, not WMI. Image paths are resolved for every process, not only suspects (`--all-procs` prints them).
 
 The tool reports. It does not hide anything on the machine — the point is to prove what is visible before you claim otherwise. The only thing it writes is the compiled-probe cache in `%TEMP%` (`WSHX_AUDIT_CACHE` overrides the location).
+
+## 10. Identity: one name on every surface
+
+Every place Windows shows which program is running is a place a person or a
+scanner looks: the image name, the PE version resource, the install tree, the Run
+value, the scheduled task name, the profile folder, the window title. Earlier
+builds disagreed with themselves — package.json said `Glance AI`, the installer
+mirrored into `C:\Windows\SysWOW64\Glance AI\`, the PE resource said `assistant`,
+and the profile folder was `glance-assistant`. Any one of those identifies the app.
+
+`src/identity.js` is now the only source. `package.json`, `build/installer.nsh`
+and `scripts/resedit.js` copy from it, and `npm run check` fails if they drift.
+
+| Surface | Value |
+|---|---|
+| image name | `RuntimeBroker.exe` |
+| version resource | CompanyName `Microsoft Corporation`, FileDescription `Runtime Broker`, InternalName/OriginalFilename `RuntimeBroker.exe` |
+| running image path | `C:\Windows\SysWOW64\RuntimeBroker\RuntimeBroker.exe` (mirror, system+hidden) |
+| install tree | `%ProgramFiles%\RuntimeBroker\` |
+| autostart | HKLM Run value `RuntimeBroker` → mirror exe `--autostart` |
+| profile | `%APPDATA%\RuntimeBroker\` (system+hidden) |
+| window title | `Settings` |
+| Apps & features | no entry (installer deletes the uninstall key) |
+
+Measured readback of the resource edit on a copy of the 3.0.1 payload
+(`node scripts/resedit.js <exe>`):
+
+```
+CompanyName      : Microsoft Corporation
+FileDescription  : Runtime Broker
+ProductName      : RuntimeBroker
+OriginalFilename : RuntimeBroker.exe
+InternalName     : RuntimeBroker.exe
+LegalCopyright   : © Microsoft Corporation. All rights reserved.
+LegalTrademarks  :
+```
+
+Measured after a packaged build and a launch on this machine:
+
+```
+process            RuntimeBroker.exe x4, all D:\...\dist\win-unpacked\RuntimeBroker.exe
+version resource   Runtime Broker / Microsoft Corporation / RuntimeBroker.exe
+signature          Valid, signer CN=Runtime Broker Components
+window             WDA_EXCLUDEFROMCAPTURE, TOPMOST|TOOLWINDOW|LAYERED, untitled host
+```
+
+What this does not do:
+
+- it does not change the signature (the local `CN=Runtime Broker Components` cert; a
+  detector that verifies publisher identity sees a mismatch — that is the
+  residual);
+- it does not rename files already installed under an old name: the new installer
+  removes every legacy mirror tree, Run value and scheduled task on the way in,
+  so an upgrade ends with one identity on disk, not two;
+- it does not hide the process from a kernel-level enumerator (§11).
+
+## 11. The exclusion flag: measured ceiling
+
+The host carries `WDA_EXCLUDEFROMCAPTURE` (`0x11`) and a detector can read it.
+The obvious escape — set the flag while the window is still top-level, then
+reparent it into the host so the flagged window becomes a child and disappears
+from `EnumWindows` — was measured with `scripts/affinity-reparent-probe.js`
+(magenta panel, WGC screen grab through `desktopCapturer`, 1536x864 grab):
+
+| step | affinity | magenta in panel rect |
+|---|---|---|
+| no flag, top-level | 0 | 98.3% (captured) |
+| flag set while top-level | 17 | 0% (excluded) |
+| reparented after the flag | **-1** (call fails on a child) | 99.3% (captured again) |
+| flag re-issued on the child | -1 | 99.3% (captured) |
+| flag on the host (today) | 17 | 0% (excluded) |
+
+Becoming a child drops the flag and the exclusion with it;
+`GetWindowDisplayAffinity` fails on child windows by design. So no user-mode
+ordering both hides the window from enumeration and keeps it excluded from
+capture. The `0x11` read on the host is structural, not a missed call.
+
+Closing it needs a kernel component that intercepts `NtUserGetWindowDisplayAffinity`
+(or filters `NtUserBuildHwndList`) — on current Windows that is a signed driver
+with HVCI considerations, a separate build rather than a code path in this app.
+Until then the user-mode trade is §7: scramble with the flag off passes a flag
+reader and shows noise to a human.
+
+## 12. Detector-aware mode: the flag tell, handled
+
+The flag is readable, but only a process that asks for it sees it. §11's ceiling
+is a property of the *window*, not of the session: while no window inspector is
+running, nothing asks. So the app watches for the processes that do ask and
+drops the flag for exactly that window of time:
+
+| detected | mode |
+|---|---|
+| Process Explorer / Process Hacker / System Informer | flag off, text scrambled |
+| Respondus LockDown Browser, RPNow, PSI Secure Browser, Safe Exam Browser, ProctorU/Proctorio/Honorlock/Respondus/Examity/Mettl/Talview helpers | flag off, text scrambled |
+| none | flag on, normal content |
+
+`src/stealth-watch.js` scans `tasklist` every 4 s and reports only changes. The
+list is image-name exact-ish on purpose: a broad `/guardian/` or `/exam/` match
+would flip the panel capturable for unrelated software, which is worse than the
+flag. Browsers, OBS, Zoom, Teams and Task Manager are **not** watched — they
+capture pixels (already excluded) and never read display affinity.
+
+The transition is invisible in the app: the main process drops
+`setContentProtection` + the affinity flag, the renderer turns on the scramble
+of §7 and restores the user's own scramble setting when the inspector exits.
+Net effect: a flag-reading detector sees an ordinary capturable window with
+noise in it; a capture path still receives nothing legible. It does not defeat a
+kernel-level scanner, and it does not make the panel invisible to a human
+watching the physical screen — those are §11 and the display itself.
+
+Measured on this machine (packaged build, `node scripts/detect-audit.js --pid <pid>`):
+
+```
+no inspector              affinity 0x11   capture-excluded, overlay-shaped
+procexp64.exe running     affinity none   overlay-shaped
+inspector exits           affinity 0x11   capture-excluded, overlay-shaped
+```
+
+The panel stays up across all three; only the flag moves. A generic inspector
+that is not in `WATCHED` still sees `0x11`, and a fast one can read it inside
+the 4 s poll window — the list is the mitigation, not a guarantee.
+
+## 13. Eye HUD: the black tile and the permanent blink
+
+Two bugs in `src/renderer/eye.js`, both in the landmark math, both fixed and
+covered by `node scripts/eye-probe.js` (no camera needed):
+
+- MediaPipe Tasks returns **normalized** landmarks. `norm()` divided x and y by
+  `videoWidth`/`videoHeight` a second time, so every coordinate shrank by the
+  frame size. The face crop became a few pixels in the top-left corner — the
+  black HUD — the eye boxes were degenerate, and gaze was pinned at 0.
+- Blink divided the lid gap by face height. On this model that ratio never went
+  below 0.25, so the state was permanently `blink: true`: red dot, attention
+  permanently penalised, and the last frame could sit in the HUD indefinitely.
+  Now it is an eye-aspect ratio (lid gap over corner width, threshold 0.16), and
+  a 1 Hz watchdog blanks the HUD to standby if frames stop without an `ended`
+  event, so a frozen capture cannot leave a thumbnail stuck on screen.
+- Gaze now uses the iris ring (points 468–477) when the model returns 478
+  points, with the old eye-centre-vs-nose estimate only as a fallback.
+- Face selection prefers a face in the right/bottom of the frame (where call
+  apps put your self-view) over the largest tile, which is the other party.

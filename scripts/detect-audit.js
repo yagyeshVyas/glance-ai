@@ -32,6 +32,16 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { ensureProbe } = require('./build-probe');
+const IDENTITY = require('../src/identity');
+
+// Our process identity, as a detector scrapes it. A name match alone is not
+// enough for RuntimeBroker: real Windows processes carry that name, so ours is
+// the one whose image path is inside a RuntimeBroker subfolder (the mirror).
+// electron.exe stays for a dev checkout; the legacy exe names catch an upgrade.
+const isOurImage = (p) =>
+  /wshx-host|electron/i.test(p.name || '') ||
+  /\\RuntimeBroker\\RuntimeBroker\.exe$/i.test(p.path || '') ||
+  IDENTITY.LEGACY_EXES.some((e) => String(p.name || '').toLowerCase() === e.toLowerCase());
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
@@ -273,7 +283,7 @@ if ($snap -ne [IntPtr]::Zero -and $snap.ToInt64() -ne -1) {
         [void][W]::CloseHandle($h)
       }
       # UNC paths would make FileVersionInfo do outbound SMB; never read their version resource
-      if ($path -and -not $path.StartsWith('\\\\') -and ($winPids.Contains($procId) -or $name -match 'wshx-host|electron|node')) {
+      if ($path -and -not $path.StartsWith('\\\\') -and ($winPids.Contains($procId) -or $name -match 'wshx-host|electron|node' -or $path -like '*\RuntimeBroker\RuntimeBroker.exe')) {
         try {
           $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path)
           $desc = $vi.FileDescription
@@ -515,12 +525,12 @@ const shown = (showAll ? scoped : flagged)
 // path is readable is listed, not only name matches and window owners.
 const suspects = has('--all-procs')
   ? processes.filter((p) => p.path)
-   : processes.filter((p) => /wshx-host|electron/i.test(p.name) || flagged.some((w) => w.pid === p.pid));
+   : processes.filter((p) => isOurImage(p) || flagged.some((w) => w.pid === p.pid));
 
 // The CI gate covers both signals: a window verdict and the process identity a
 // detector would scrape. Previously a process-only match (no flagged window)
 // exited 0 while printing wshx-host.exe.
-const processHits = processes.filter((p) => /wshx-host|electron/i.test(p.name) && (!onlyPid || p.pid === onlyPid));
+const processHits = processes.filter((p) => isOurImage(p) && (!onlyPid || p.pid === onlyPid));
 const degraded = !(Number(screen.w) > 0) || processes.length === 0;
 
 if (degraded && !asJson) {

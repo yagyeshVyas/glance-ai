@@ -1,0 +1,30 @@
+/* Lightweight compositing on small screens and touch devices. */
+@media (max-width: 760px) {
+  body::after { display: none; }
+  .nav.is-scrolled {
+    background: rgba(5, 7, 11, 0.94);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .mobile-menu {
+    background: #05070b;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .video-caption,
+  .stage-motion,
+  .capture-status,
+  .video-bigplay,
+  .video-bigplay span {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .video-caption { background: rgba(5, 8, 14, 0.92); }
+  .stage-badge { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(7, 10, 17, 0.82); }
+  .aurora { animation: none; }
+  .stage-fallback { filter: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-scan { display: none; }
+}

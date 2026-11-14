@@ -4,6 +4,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { estimateTokens, fitContext, visionTokens, fitFrames, rankNotes } = require('./shared');
 const HIDE_HELPER_CS = require('./embed-helpers');
+const IDENTITY = require('./identity');
+const { startDetectorWatch } = require('./stealth-watch');
+const broadcast = require('./broadcast');
 
 const DEFAULTS = {
   baseUrl: 'https://api.openai.com/v1',
@@ -20,6 +23,11 @@ const DEFAULTS = {
   blendWindow: true, // reparent under an innocuous host: the only window other apps
   // can enumerate is the fake one — the Chromium windows become children of it
   scramble: false, // leave the window capturable (affinity 0) and scramble the text instead
+  // NVIDIA Broadcast ships an eye-contact effect and a loopback MCP gateway.
+  // Glance drives that gateway (set_effects -> eye_contact) instead of copying
+  // NVIDIA's Maxine model, which is licensed and not redistributable. When the
+  // effect is on, any app that selects "Camera (NVIDIA Broadcast)" gets it.
+  nvidiaEyeContact: true,
   panelOpacity: 0.78, // 0.3 (ghost) to 0.98 (solid) — Cluely-style see-through glass
   // second provider for audio endpoints (transcription + TTS) — for gateways without /audio/*
   // falls back to the main provider when left blank
@@ -76,11 +84,12 @@ let keysNotPersisted = []; // keys held in memory only: encryption was unavailab
 // A marker file OUTSIDE userData records the pending wipe, so if the helper is
 // killed too (taskkill /IM and /T take parent and helper together: same image,
 // child of the browser process) the NEXT launch finishes the job.
-// %APPDATA%\assistant — one neutral folder, no product name left on disk
-// profile folder follows the product name (now 'svchost'); 'assistant' stays in the
-// legacy list below so an existing profile is migrated once
-const PROFILE_DIR = path.join(app.getPath('appData'), app.getName());
-const WIPE_MARKER = path.join(app.getPath('appData'), '.assistant-pending');
+// %APPDATA%\RuntimeBroker — the product name, and nothing else, is the only
+// string this folder leaks. Earlier builds wrote wshx-host / assistant /
+// svchost / glance-assistant / "Glance AI" profiles; the migration below
+// copies from all of them and the folder is flagged system+hidden.
+const PROFILE_DIR = path.join(app.getPath('appData'), IDENTITY.PRODUCT);
+const WIPE_MARKER = path.join(app.getPath('appData'), '.runtimebroker-pending');
 
 function wipeMarkerPath() {
   return WIPE_MARKER; // sibling of userData, survives its removal
@@ -414,7 +423,7 @@ function ensureHideHelper() {
 // one surface we can change at runtime. Covers main + the live helper procs.
 // neutral title: the product name is a giveaway in Task Manager's window
 // column, so the window advertises what it does, not what it is called.
-const BLEND_TITLE = 'Glance AI';
+const BLEND_TITLE = IDENTITY.WINDOW_TITLE;
 function blendProcessTitles() {
   if (process.platform !== 'win32') return;
   try {
@@ -449,15 +458,82 @@ function removeDevtoolsPort() {
 // frame / missing panel). Cluely does exactly this with isCapturingScreenshot.
 let selfCapturing = false;
 
+// A known window inspector (Process Explorer, a proctoring client) is running.
+// While true the exclusion flag is dropped — the panel becomes capturable, so
+// its content is scrambled instead (§7). The flag is the one signal user mode
+// cannot hide (STEALTH.md §11), and these are the only processes that read it.
+let flaglessMode = false;
+function setFlaglessMode(on, name) {
+  const next = Boolean(on);
+  if (next === flaglessMode) return;
+  flaglessMode = next;
+  applyStealth();
+  if (win && !win.isDestroyed()) {
+    try { win.webContents.send('stealth:flagless', { on: next, name: name || '' }); } catch {}
+  }
+}
+
 // The exclusion flag is top-level-only, so when the blend host exists it goes
 // on the host; the child would accept the call but silently keep affinity 0.
+// NVIDIA Broadcast integration. Eye contact is Broadcast's own feature and its
+// model (Maxine AR / NvAR inside NvBroadcastCore.dll) is licensed, not
+// redistributable — so Glance drives Broadcast's loopback MCP gateway instead of
+// copying it: set_effects with effectId "eye_contact", plus list_devices to know
+// which camera is live. Silent when Broadcast is not running.
+let nvEyeContactAt = 0;
+async function syncNvidiaEyeContact() {
+  try {
+    if (!cfg.nvidiaEyeContact) {
+      const off = await broadcast.setEyeContact(false);
+      return off && off.ok ? off : null;
+    }
+    // The effect only exists while Broadcast runs. Start it hidden if it is not
+    // running, then turn eye contact on. No window is opened either way.
+    const run = await broadcast.ensureRunning();
+    if (!run || !run.ok) {
+      mlog('nvidia: ' + ((run && run.reason) || 'unavailable'));
+      return run || null;
+    }
+    const r = await broadcast.ensureEyeContact(true);
+    if (r && r.ok) {
+      nvEyeContactAt = Date.now();
+      mlog('nvidia: eye contact ' + (r.already ? 'already on' : 'enabled') + (run.started ? (run.visible ? ' (Broadcast launched)' : ' (Broadcast started hidden)') : ''));
+    }
+    return r;
+  } catch (e) {
+    mlog('nvidia: eye contact failed ' + (e && e.message));
+    return null;
+  }
+}
+
+// One status object for the Settings row: gateway alive, which camera Broadcast
+// is feeding (the "which one is open" answer), and the live effect flag.
+async function nvidiaStatus() {
+  try {
+    const [cam, dev] = await Promise.all([broadcast.getCameraState(), broadcast.listDevices()]);
+    const devices = (dev && dev.ok && (dev.structured || dev.result)) || {};
+    const cameras = Array.isArray(devices.cameras) ? devices.cameras : [];
+    const active = cameras.find((c) => c && c.active) || null;
+    const eye = cam && cam.ok && cam.state && cam.state.eye_contact;
+    return {
+      ok: Boolean(cam && cam.ok),
+      eyeContact: eye ? Boolean(eye.enabled) : null,
+      camera: active ? active.name : null,
+      resolution: active && active.currentResolution ? active.currentResolution.label : null,
+      reason: cam && cam.ok ? null : (cam && cam.reason) || 'Broadcast is not running',
+    };
+  } catch (e) {
+    return { ok: false, reason: String(e && e.message).slice(0, 120) };
+  }
+}
+
 function applyAffinity() {
   const nat = loadCloak();
   if (!nat || !nat.hostHandle || !win || win.isDestroyed()) return;
   const host = nat.hostHandle();
   if (!host) return;
 
-  const wantOn = Boolean(cfg.stealth) && !selfCapturing;
+  const wantOn = Boolean(cfg.stealth) && !selfCapturing && !flaglessMode;
 
   // The exclusion flag only works on TOP-LEVEL windows, so it has to live on the
   // host; a call on the reparented child is accepted but has no effect, which
@@ -480,7 +556,7 @@ function applyAffinity() {
 
 function applyStealth() {
   if (win && !win.isDestroyed()) {
-    win.setContentProtection(Boolean(cfg.stealth) && !selfCapturing);
+    win.setContentProtection(Boolean(cfg.stealth) && !selfCapturing && !flaglessMode);
   }
   // the exclusion flag is top-level only; with the blend host present the flag
   // belongs on the host, and a call on the child is accepted but ignored
@@ -640,9 +716,14 @@ function createWindow() {
   });
   // Freeze the window title so EnumWindows sees BLEND_TITLE, not the page title
   win.on('page-title-updated', (e) => e.preventDefault());
-  // TEMP: dump renderer console + JS errors to a file for diagnosis
+  // TEMP: dump renderer console + JS errors to a file for diagnosis. Packaged
+  // builds stay silent unless WSHX_DEBUG_LOG=1: this file records page text and
+  // error strings, and an always-present trace in the profile is a lead.
+  const debugTraces = !app.isPackaged || process.env.WSHX_DEBUG_LOG === '1';
   const diagFile = path.join(app.getPath('userData'), 'renderer.log');
-  const diag = (line) => { try { fs.appendFileSync(diagFile, line + '\n'); } catch {} };
+  const diag = debugTraces
+    ? (line) => { try { fs.appendFileSync(diagFile, line + '\n'); } catch {} }
+    : () => {};
   win.webContents.on('console-message', (e, level, message, line, sourceId) => diag(`[console] [${level}] ${message} @ ${sourceId}:${line}`));
   win.webContents.on('preload-error', (e, p, err) => diag(`[preload-error] ${p}: ${err}`));
   win.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => diag(`[did-fail-load] ${code} ${desc} ${url} main=${isMainFrame}`));
@@ -737,6 +818,8 @@ async function toggleVisible() {
     // child, and the helper's uncloak already cleared affinity on the root. The
     // re-assert in applyDeepStealth runs *before* this show, so it is not enough.
     setTimeout(() => { if (win && !win.isDestroyed()) applyStealth(); }, 150);
+    // Broadcast can be restarted between shows; re-assert the effect then.
+    setTimeout(() => syncNvidiaEyeContact(), 400);
   }
 }
 
@@ -919,6 +1002,12 @@ function grabRaw(display) {
 // disagree with where the composed window actually is (measured 179px off here),
 // so the sample area is derived from EnumWindows + GetWindowRect instead.
 function hostRectExternal() {
+  // Our own PIDs, passed explicitly. Name matching (`Get-Process assistant`)
+  // broke the moment the product was renamed, and a name like RuntimeBroker
+  // matches dozens of real Windows processes — measuring the wrong window.
+  let pids = [process.pid];
+  try { pids = [...new Set([process.pid, ...app.getAppMetrics().map((m) => m.pid).filter(Boolean)])]; } catch {}
+  const idsLiteral = `New-Object 'uint32[]' @(${pids.join(',')})`;
   const script = [
     'Add-Type -TypeDefinition \'using System;using System.Collections.Generic;using System.Runtime.InteropServices;',
     'public class E { public delegate bool P(IntPtr h, IntPtr l);',
@@ -932,10 +1021,8 @@ function hostRectExternal() {
     '   if (Array.IndexOf(t, p) >= 0 && IsWindowVisible(h)) { RC r; GetWindowRect(h, out r);',
     '     var a = (r.r-r.l)*(r.b-r.t); if (a > 10000) o.Add(new int[]{ r.l, r.t, r.r-r.l, r.b-r.t, a }); }',
     '   return true; }, IntPtr.Zero); return o; } }\'',
-    '$ps = @(Get-Process assistant,electron -EA SilentlyContinue)',
-    "if ($ps.Count -eq 0) { 'none'; exit }",
-    "$ids = New-Object 'uint32[]' $ps.Count",
-    'for ($i=0; $i -lt $ps.Count; $i++) { $ids[$i] = [uint32]$ps[$i].Id }',
+    `$ids = ${idsLiteral}`,
+    "if ($ids.Count -eq 0) { 'none'; exit }",
     '$best = $null; $area = 0',
     'foreach ($r in [E]::V($ids)) { if ($r[4] -gt $area) { $area = $r[4]; $best = $r } }',
     "if (-not $best) { 'none'; exit }",
@@ -1043,7 +1130,7 @@ async function stableStep(rect, borderX) {
 async function selfCaptureEmpty() {
   const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 800, height: 600 } });
   const me = sources.find((s) => s.name === BLEND_TITLE) ||
-    sources.find((s) => /assistant/i.test(s.name || ''));
+    sources.find((s) => /assistant|wshx-host|electron/i.test(s.name || ''));
   if (!me) return { listed: false, empty: null, size: null, names: sources.map((x) => x.name).slice(0, 12) };
   const size = me.thumbnail.getSize();
   return { listed: true, empty: size.width < 8 || size.height < 8, size };
@@ -1215,7 +1302,7 @@ function setupUpdater() {
     autoUpdater.allowPrerelease = false;
 
     autoUpdater.on('update-available', (i) => updaterStatus(`Downloading update ${i.version}—€—`));
-    autoUpdater.on('update-not-available', () => updaterStatus('Glance AI is up to date'));
+    autoUpdater.on('update-not-available', () => updaterStatus('Up to date'));
     autoUpdater.on('update-downloaded', (i) =>
       updaterStatus(`Update ${i.version} ready — restart to apply`, 'info'));
     autoUpdater.on('error', (e) => updaterStatus('Update check failed: ' + String(e.message).slice(0, 90), 'warn'));
@@ -1774,13 +1861,23 @@ const mpRequestHandler = (req) => {
 };
 
 // TEMP: main-side trace log (renderer-diag.log is only reachable after
-// createWindow; this one catches failures before that point)
-const MAIN_LOG = path.join(app.getPath('appData'), '.assistant-trace.log');
+// createWindow; this one catches failures before that point).
+// Packaged builds write nothing unless WSHX_DEBUG_LOG=1: a timestamped record of
+// every launch and API failure sitting in %APPDATA% is a lead, and earlier
+// builds left it there under a product name.
+const MAIN_LOG = path.join(app.getPath('appData'), '.runtimebroker-trace.log');
+const MAIN_LOG_ON = !app.isPackaged || process.env.WSHX_DEBUG_LOG === '1';
 const mlog = (line) => {
+  if (!MAIN_LOG_ON) return;
   try {
     fs.appendFileSync(MAIN_LOG, `[${new Date().toISOString()}] ${line}\n`);
   } catch {}
 };
+if (MAIN_LOG_ON) {
+  for (const legacy of ['.assistant-trace.log', '.wshx-trace.log']) {
+    try { fs.unlinkSync(path.join(app.getPath('appData'), legacy)); } catch {}
+  }
+}
 process.on('uncaughtException', (e) => mlog(`uncaughtException: ${e.stack || e}`));
 process.on('unhandledRejection', (r) => mlog(`unhandledRejection: ${r && (r.stack || r.message || r)}`));
 mlog(`main module top-level reached, logPath=${MAIN_LOG} appData=${app.getPath('appData')}`);
@@ -1801,7 +1898,7 @@ app.whenReady().then(() => {
       // one-time migration across every previous name, oldest first so the most
       // recent profile wins. Chromium pre-creates the new folder, so copy missing
       // FILES rather than gating on the folder not existing.
-      const LEGACY_PROFILES = ['wshx-host', 'assistant', 'svchost', 'glance-assistant'];
+      const LEGACY_PROFILES = IDENTITY.LEGACY_PROFILE_NAMES;
       for (const legacy of LEGACY_PROFILES) {
         const legacyProfile = path.join(app.getPath('appData'), legacy);
         for (const f of ['config.json', 'state.json', 'bounds.json']) {
@@ -1829,11 +1926,12 @@ app.whenReady().then(() => {
   // alongside the app): delete the data files now and finish on this session's exit
   // carry a pending wipe across the profile rename
   try {
-      const legacyMarker = path.join(app.getPath('appData'), 'wshx-host-pending');
-      const legacyMarker2 = path.join(app.getPath('appData'), 'svchost-pending');
+      const legacyMarkers = ['wshx-host-pending', 'svchost-pending', 'assistant-pending', 'glance-assistant-pending'];
       if (!fs.existsSync(WIPE_MARKER)) {
-        if (fs.existsSync(legacyMarker2)) fs.renameSync(legacyMarker2, WIPE_MARKER);
-        else if (fs.existsSync(legacyMarker)) fs.renameSync(legacyMarker, WIPE_MARKER);
+        for (const name of legacyMarkers) {
+          const legacyMarker = path.join(app.getPath('appData'), name);
+          if (fs.existsSync(legacyMarker)) { fs.renameSync(legacyMarker, WIPE_MARKER); break; }
+        }
       }
   } catch {}
   if (fs.existsSync(wipeMarkerPath())) {
@@ -1853,9 +1951,9 @@ app.whenReady().then(() => {
   // well, so a packaged install leaves no trace once it exits.
   removeDevtoolsPort();
 
-  // Autostart: a real svchost is always running, so an install that only appears
-  // when you launch it is itself a tell. Opt-in (packaged builds only) because
-  // a dev checkout autostarting from node_modules is noisier than it is stealthy.
+  // Autostart: a component that only appears when you launch it is itself a
+  // tell. Opt-in (packaged builds only) because a dev checkout autostarting from
+  // node_modules is noisier than it is stealthy.
   //
   // The installer already writes the machine-wide Run value. Adding the per-user
   // one on top puts a second row in Task Manager's Startup tab and starts a
@@ -1876,23 +1974,31 @@ app.whenReady().then(() => {
     // The installer registers a logon task now; a Run value only exists as its
     // fallback. Anything left over (older builds wrote both) is removed so the
     // app cannot appear twice in Task Manager's Startup tab.
-    const userEntry = hasRun(HKCU_RUN_KEY, 'Glance AI');
+    const userEntry = hasRun(HKCU_RUN_KEY, IDENTITY.AUTOSTART_NAME);
     let taskEntry = false;
     try {
-      execFileSync('schtasks', ['/query', '/tn', 'Glance AI'], { stdio: 'ignore', timeout: 4000 });
+      execFileSync('schtasks', ['/query', '/tn', IDENTITY.AUTOSTART_NAME], { stdio: 'ignore', timeout: 4000 });
       taskEntry = true;
     } catch {}
-    const machineRun = hasRun(RUN_KEY, 'Glance AI');
+    const machineRun = hasRun(RUN_KEY, IDENTITY.AUTOSTART_NAME);
+    // every earlier name wrote its own Startup row: remove them on sight, whether
+    // or not the current entry exists
+    for (const legacy of IDENTITY.LEGACY_RUN_NAMES) {
+      for (const key of [HKCU_RUN_KEY, RUN_KEY]) {
+        if (!hasRun(key, legacy)) continue;
+        try { execFileSync('reg', ['delete', key, '/v', legacy, '/f'], { stdio: 'ignore', timeout: 4000 }); } catch {}
+      }
+    }
     if (taskEntry || machineRun) {
       if (userEntry) {
         try {
-          app.setLoginItemSettings({ openAtLogin: false, name: 'Glance AI' });
+          app.setLoginItemSettings({ openAtLogin: false, name: IDENTITY.AUTOSTART_NAME });
         } catch {}
       }
     } else if (!userEntry) {
       // nothing at all (portable copy, uninstalled mirror): keep a user value
       try {
-        app.setLoginItemSettings({ openAtLogin: true, args: ['--autostart'], name: 'Glance AI' });
+        app.setLoginItemSettings({ openAtLogin: true, args: ['--autostart'], name: IDENTITY.AUTOSTART_NAME });
       } catch {}
     }
   }
@@ -1902,6 +2008,12 @@ app.whenReady().then(() => {
 
   setupUpdater();
   watchForMeetings();
+  // Detector-aware mode: a known window inspector is running, so drop the one
+  // flag it would read and let the renderer scramble the text instead.
+  startDetectorWatch({ onChange: (name) => setFlaglessMode(Boolean(name), name) });
+  // Broadcast may still be starting; retry once after the app is up. If it is
+  // not installed or not running this resolves quietly.
+  setTimeout(() => syncNvidiaEyeContact(), 3000);
 
   // stealth: AUMID grouping hint so the shell/taskbar associates the window
   // with a familiar Windows component. This does NOT rename the process or
@@ -2049,6 +2161,9 @@ app.whenReady().then(() => {
     if (Object.prototype.hasOwnProperty.call(next, 'stealth')) {
       applyStealth();
     }
+    if (Object.prototype.hasOwnProperty.call(next, 'nvidiaEyeContact')) {
+      syncNvidiaEyeContact();
+    }
     const clean = { ...next };
     // blank = keep existing secret (renderer only sees masked values);
     // null = delete the stored key on purpose
@@ -2154,6 +2269,14 @@ app.whenReady().then(() => {
     } catch (err) {
       return { ok: false, reason: err.message };
     }
+  });
+  // NVIDIA Broadcast: which camera it is feeding, and the live eye-contact
+  // flag. Broadcast owns the effect; this drives its loopback gateway.
+  handle('broadcast:status', () => nvidiaStatus());
+  handle('broadcast:eye-contact', async (_e, on) => {
+    const r = await broadcast.setEyeContact(Boolean(on));
+    if (r && r.ok) nvEyeContactAt = Date.now();
+    return r;
   });
   handle('window:shown', () => isShown);
   handle('window:move', (_e, { dx, dy }) => {

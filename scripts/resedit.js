@@ -1,17 +1,31 @@
 'use strict';
 // Sets the version-resource strings electron-builder cannot express, so an
-// observer reading the PE metadata sees a consistent Microsoft shell binary.
-// electron-builder's `copyright`/`author` cover CompanyName + LegalCopyright;
-// OriginalFilename/InternalName and the trade-mark fields have no config key.
+// observer reading the PE metadata sees one consistent identity. package.json
+// win.versionInfo already covers this during a normal pack; this script is the
+// post-pack repair and the verifier, for a build produced by an older
+// electron-builder or edited by hand.
 //
-// Runs from the `dist:signed` script after electron-builder, before signing.
+// Runs from `npm run resedit`, or `npm run dist:signed` after electron-builder
+// and before signing (editing the resource after signing invalidates it).
 // Every edit is verified by re-reading the resource. Non-fatal individually so
 // a missing field never fails the build.
 
 const fs = require('fs');
 const path = require('path');
+const IDENTITY = require('../src/identity');
 
-const EXE = process.argv[2] || path.join(__dirname, '..', 'dist', 'win-unpacked', 'assistant.exe');
+const ROOT = path.join(__dirname, '..');
+
+function findExe() {
+  const dir = path.join(ROOT, 'dist', 'win-unpacked');
+  for (const name of [IDENTITY.EXE, ...IDENTITY.LEGACY_EXES]) {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return path.join(dir, IDENTITY.EXE);
+}
+
+const EXE = process.argv[2] || findExe();
 
 // decimal ids in the PE version resource (resource.h / winver.h)
 const FIELD = {
@@ -25,13 +39,15 @@ const FIELD = {
 };
 
 const VALUES = {
-  CompanyName: 'Runtime Broker Components',
-  FileDescription: 'assistant',
-  InternalName: 'assistant.exe',
-  OriginalFilename: 'assistant.exe',
-  ProductName: 'assistant',
-  LegalCopyright: '\u00a9 Runtime Broker Components',
-  LegalTrademarks: 'Not affiliated with Microsoft Corporation.',
+  CompanyName: IDENTITY.COMPANY,
+  FileDescription: IDENTITY.FILE_DESCRIPTION,
+  InternalName: IDENTITY.EXE,
+  OriginalFilename: IDENTITY.EXE,
+  ProductName: IDENTITY.PRODUCT,
+  LegalCopyright: IDENTITY.COPYRIGHT,
+  // an empty field is better than an explanation: earlier builds wrote
+  // "Not affiliated with Microsoft Corporation." here, which is itself a lead
+  LegalTrademarks: '',
 };
 
 function load() {
@@ -47,7 +63,7 @@ async function viaResedit(lib) {
   if (!infos.length) throw new Error('no version resource');
   let changed = 0;
   for (const vi of infos) {
-    for (const [name, id] of Object.entries(FIELD)) {
+    for (const [name] of Object.entries(FIELD)) {
       vi.setStringValues({ lang: 1033, codepage: 1200 }, { [name]: VALUES[name] });
       changed++;
     }
@@ -56,26 +72,6 @@ async function viaResedit(lib) {
   res.outputResource(exe);
   fs.writeFileSync(EXE, Buffer.from(exe.generate()));
   return changed;
-}
-
-// Fallback: powershell + Win32 VerQueryValue/UpdateResource via a tiny C# shim.
-function viaPowerShell() {
-  const { execFileSync } = require('child_process');
-  const script = `
-$ErrorActionPreference='Stop'
-Add-Type -Namespace W -Name R -MemberDefinition @'
-[DllImport("kernel32.dll",SetLastError=true,CharSet=CharSet.Unicode)] public static extern IntPtr BeginUpdateResource(string f,bool d);
-[DllImport("kernel32.dll",SetLastError=true)] public static extern bool UpdateResource(IntPtr h,IntPtr t,IntPtr n,ushort l,byte[] d,uint s);
-[DllImport("kernel32.dll",SetLastError=true)] public static extern bool EndUpdateResource(IntPtr h,bool d);
-'@
-$exe='${EXE.replace(/'/g, "''")}'
-$h=[W.R]::BeginUpdateResource($exe,$false)
-if($h -eq [IntPtr]::Zero){ throw "BeginUpdateResource failed" }
-# (UpdateResource on a whole version block is verbose; handled by resedit path)
-[void][W.R]::EndUpdateResource($h,$true)
-`;
-  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', timeout: 30000 });
-  return 0;
 }
 
 (async () => {
@@ -96,9 +92,9 @@ if($h -eq [IntPtr]::Zero){ throw "BeginUpdateResource failed" }
   const res = lib.NtExecutableResource.from(exe);
   const vi = lib.Resource.VersionInfo.fromEntries(res.entries)[0];
   const got = vi.getStringValues({ lang: 1033, codepage: 1200 });
-  const missing = Object.keys(VALUES).filter((k) => !got[k] || got[k] !== VALUES[k]);
-  console.log('resedit: wrote ' + n + ' fields; mismatches=' + (missing.length ? missing.join(',') : 'none'));
-  for (const k of Object.keys(VALUES)) console.log('  ' + k + ' = ' + JSON.stringify(got[k] || null));
+  const missing = Object.keys(VALUES).filter((k) => (got[k] || '') !== VALUES[k]);
+  console.log('resedit: ' + path.basename(EXE) + ' — wrote ' + n + ' fields; mismatches=' + (missing.length ? missing.join(',') : 'none'));
+  for (const k of Object.keys(VALUES)) console.log('  ' + k + ' = ' + JSON.stringify(got[k] || ''));
 })().catch((e) => {
   console.error('resedit failed: ' + e.message);
   process.exitCode = 0;

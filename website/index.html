@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Glance AI | Answers on your screen. Absent from the share.</title>
+  <meta name="description" content="Glance AI hears the room, reads the question on screen, and streams an answer in a floating panel that Zoom, Meet, Teams, Webex, OBS and Discord never capture. Free, open source, Windows." />
+  <meta name="theme-color" content="#05070b" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="canonical" href="https://glance-ai-hazel.vercel.app/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Glance AI" />
+  <meta property="og:url" content="https://glance-ai-hazel.vercel.app/" />
+  <meta property="og:title" content="Glance AI: absent from the share." />
+  <meta property="og:description" content="An open-source AI interview assistant that hears the room, reads the screen, and stays out of every capture. Windows 10/11. MIT." />
+  <meta property="og:image" content="https://glance-ai-hazel.vercel.app/media/og-image.jpg" />
+  <meta property="og:image:alt" content="Glance AI, answers on your screen, absent from the share." />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Glance AI: absent from the share." />
+  <meta name="twitter:description" content="Answers on your screen. Absent from their capture. Free, open source, BYO API key." />
+  <meta name="twitter:image" content="https://glance-ai-hazel.vercel.app/media/og-image.jpg" />
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Glance AI",
+      "description": "Open-source AI interview assistant for Windows. Hears the room, reads the screen, and answers in an overlay that screen shares do not capture.",
+      "operatingSystem": "Windows 10 2004+, Windows 11",
+      "applicationCategory": "BusinessApplication",
+      "softwareVersion": "3.0.1",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "license": "https://github.com/runtimebroker/glance-ai/blob/master/LICENSE",
+      "downloadUrl": "https://github.com/runtimebroker/glance-ai/releases/latest",
+      "codeRepository": "https://github.com/runtimebroker/glance-ai"
+    }
+  </script>
+  <link rel="icon" href="./logo.png" type="image/png" />
+  <link rel="apple-touch-icon" href="./logo.png" />
+  <link rel="preload" href="./media/demo-poster.jpg" as="image" />
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <svg class="svg-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 4v16M6 14l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4.5-4.5M12 15l-4.5-4.5M4 17v2.2c0 1 .8 1.8 1.8 1.8h12.4c1 0 1.8-.8 1.8-1.8V17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5-11-6.5Z" fill="currentColor"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5h3v14H8zM13 5h3v14h-3z" fill="currentColor"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 2.7a9.3 9.3 0 0 0-2.94 18.12c.46.08.63-.2.63-.45v-1.74c-2.56.55-3.1-1.08-3.1-1.08-.42-1.06-1.03-1.35-1.03-1.35-.84-.57.06-.56.06-.56.93.07 1.42.96 1.42.96.83 1.42 2.17 1.01 2.7.77.08-.6.32-1.01.59-1.24-2.05-.23-4.2-1.02-4.2-4.55 0-1 .36-1.83.95-2.47-.1-.23-.41-1.17.09-2.44 0 0 .77-.25 2.53.95a8.8 8.8 0 0 1 4.6 0c1.76-1.2 2.53-.95 2.53-.95.5 1.27.19 2.21.09 2.44.59.64.95 1.46.95 2.47 0 3.54-2.16 4.31-4.21 4.54.33.28.62.84.62 1.7v2.52c0 .25.17.54.64.45A9.3 9.3 0 0 0 12 2.7Z" fill="currentColor"/></symbol>
+    <symbol id="i-windows" viewBox="0 0 24 24"><path d="M3 5.4 10.4 4v7.2H3V5.4Zm8.7-1.6L21 2.4v8.8h-9.3V3.8ZM3 12.4h7.4v7.2L3 18.2v-5.8Zm8.7 0H21v8.8l-9.3-1.4v-7.4Z" fill="currentColor"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8 20 6v5.6c0 4.7-3.2 8.1-8 9.6-4.8-1.5-8-4.9-8-9.6V6l8-3.2Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m8.6 11.8 2.2 2.2 4.6-4.7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.2c.46-.1.93-.15 1.4-.15 5.5 0 9.4 6.2 9.4 6.2a17.7 17.7 0 0 1-3.3 3.9M6.2 6.7C4.1 8.3 2.6 10.4 2.6 10.4s3.9 6.2 9.4 6.2c1.2 0 2.3-.3 3.4-.8M9.9 9.9a3 3 0 0 0 4.2 4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M9 21h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M9 21h6M12 17v4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m11 11 8.5 8.5M15 15l2-2M18 18l2-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="11" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 14.3v2.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2.5c.6 5.4 3.1 7.9 8.5 8.5-5.4.6-7.9 3.1-8.5 8.5-.6-5.4-3.1-7.9-8.5-8.5 5.4-.6 7.9-3.1 8.5-8.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13.2 2.5 4.8 13.2h5.5L9.9 21.5l8.5-10.7h-5.5l.3-8.3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 8h16M4 16h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12.5 5 5L20 6.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5M18 13.5V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V7.5A1.5 1.5 0 0 1 5 6h5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9.5" y="9.5" width="5" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 12h17M12 3c2.7 2.5 4 5.5 4 9s-1.3 6.5-4 9c-2.7-2.5-4-5.5-4-9s1.3-6.5 4-9Z" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  </svg>
+
+  <div class="page-progress" aria-hidden="true"><span></span></div>
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <header class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="brand" href="#top">
+        <span class="brand-mark"><img src="./logo.png" alt="" width="64" height="64" /></span>
+        <span class="brand-word">Glance<span>AI</span></span>
+      </a>
+
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#demo">Demo</a>
+        <a href="#stealth">Stealth</a>
+        <a href="#features">Features</a>
+        <a href="#compare">Why open</a>
+        <a href="#install">Install</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a class="nav-github" href="https://github.com/runtimebroker/glance-ai" target="_blank" rel="noopener">
+          <svg aria-hidden="true"><use href="#i-github"></use></svg>
+          <span>GitHub</span>
+        </a>
+        <a class="btn btn-sm btn-primary" href="https://github.com/runtimebroker/glance-ai/releases/latest" target="_blank" rel="noopener">
+          <svg aria-hidden="true"><use href="#i-windows"></use></svg>
+          <span>Download</span>
+        </a>
+        <button class="menu-toggle" id="menuToggle" type="button" aria-expanded="false" aria-controls="mobileMenu" aria-label="Open menu">
+          <svg class="icon-menu" aria-hidden="true"><use href="#i-menu"></use></svg>
+          <svg class="icon-close" aria-hidden="true"><use href="#i-close"></use></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="mobile-menu" id="mobileMenu" hidden>
+    <nav aria-label="Mobile">
+      <a href="#demo" style="--i:0"><span>01</span>Demo</a>
+      <a href="#stealth" style="--i:1"><span>02</span>Stealth</a>
+      <a href="#features" style="--i:2"><span>03</span>Features</a>
+      <a href="#compare" style="--i:3"><span>04</span>Why open</a>
+      <a href="#install" style="--i:4"><span>05</span>Install</a>
+    </nav>
+    <div class="mobile-menu-foot">
+      <a class="btn btn-primary btn-block" href="https://github.com/runtimebroker/glance-ai/releases/latest" target="_blank" rel="noopener">Download for Windows <svg aria-hidden="true"><use href="#i-download"></use></svg></a>
+      <a class="mobile-source" href="https://github.com/runtimebroker/glance-ai" target="_blank" rel="noopener">Source on GitHub <svg aria-hidden="true"><use href="#i-external"></use></svg></a>
+    </div>
+  </div>
+
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="hero-aurora" aria-hidden="true">
+        <span class="aurora aurora-a"></span>
+        <span class="aurora aurora-b"></span>
+        <span class="aurora aurora-c"></span>
+        <span class="hero-grid"></span>
+      </div>
+
+      <div class="wrap hero-inner">
+        <div class="hero-copy">
+          <div class="hero-eyebrow" data-anim>
+            <span class="live-dot" aria-hidden="true"></span>
+            <span>Open source</span><span class="eyebrow-sep">/</span>
+            <span>Windows 10 &amp; 11</span><span class="eyebrow-sep">/</span>
+            <span>v3.0.1</span>
+          </div>
+
+          <h1 class="hero-title" id="hero-title">
+            <span class="line" data-anim>Answers on</span>
+            <span class="line" data-anim>your screen.</span>
+            <span class="line line-serif" data-anim><em>Absent from the share.</em></span>
+          </h1>
+
+          <p class="hero-sub" data-anim>
+            Glance listens to the room, reads the question on screen, and streams an answer into a floating panel. Zoom, Meet, Teams, Webex, OBS and Discord capture everything&nbsp;else.
+          </p>
+
+          <div class="hero-actions" data-anim>
+            <a class="btn btn-primary btn-lg" href="https://github.com/runtimebroker/glance-ai/releases/latest" target="_blank" rel="noopener">
+              <svg aria-hidden="true"><use href="#i-windows"></use></svg>
+              <span>Download for Windows</span>
+              <svg class="btn-arrow" aria-hidden="true"><use href="#i-arrow"></use></svg>
+            </a>
+            <a class="btn btn-ghost btn-lg" href="#demo">
+              <span class="btn-play"><svg aria-hidden="true"><use href="#i-play"></use></svg></span>
+              <span>Watch it work</span>
+              <span class="btn-meta">20 sec</span>
+            </a>
+          </div>
+
+          <ul class="hero-trust" data-anim>
+            <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Free, MIT licensed</li>
+            <li><svg aria-hidden="true"><use href="#i-check"></use></svg>No account</li>
+            <li><svg aria-hidden="true"><use href="#i-check"></use></svg>Your own API key</li>
+          </ul>
+        </div>
+
+        <div class="hero-stage" data-anim aria-label="3D product preview with the real demo playing">
+          <div class="stage-glow" aria-hidden="true"></div>
+          <div class="stage-stars" aria-hidden="true"></div>
+          <div class="stage-floor" aria-hidden="true"></div>
+          <div class="stage-orbit stage-orbit--a" aria-hidden="true"></div>
+          <div class="stage-orbit stage-orbit--b" aria-hidden="true"></div>
+          <div class="stage-orbit stage-orbit--c" aria-hidden="true"></div>
+
+          <div class="stage-float">
+            <div class="stage-panel" id="stagePanel">
+              <div class="panel-screen">
+                <video id="heroVideo" class="hero-video" src="./media/demo-3d.mp4" poster="./media/demo-poster.jpg" muted loop playsinline preload="auto" aria-hidden="true" tabindex="-1"></video>
+                <span class="panel-scan" aria-hidden="true"></span>
+                <span class="panel-glare" aria-hidden="true"></span>
+              </div>
+              <span class="panel-notch" aria-hidden="true"></span>
+              <span class="panel-excluded" aria-hidden="true"><svg><use href="#i-eye-off"></use></svg>Excluded from capture</span>
+            </div>
+
+            <div class="stage-shards" aria-hidden="true">
+              <i style="--x:8%;--y:26%;--s:8px;--r:24deg;--d:7s"></i>
+              <i style="--x:88%;--y:19%;--s:6px;--r:-18deg;--d:9s"></i>
+              <i style="--x:94%;--y:58%;--s:10px;--r:42deg;--d:8s"></i>
+              <i style="--x:5%;--y:66%;--s:7px;--r:-34deg;--d:6.5s"></i>
+              <i style="--x:16%;--y:84%;--s:5px;--r:14deg;--d:10s"></i>
+              <i style="--x:82%;--y:80%;--s:6px;--r:-8deg;--d:7.5s"></i>
+            </div>
+          </div>
+
+          <div class="stage-topline" aria-hidden="true">
+            <span class="stage-title"><i></i>GLANCE / LIVE SURFACE</span>
+            <span class="stage-fps">COMPOSITED</span>
+          </div>
+          <div class="stage-badge stage-badge--live" aria-hidden="true">
+            <span class="live-dot"></span>LIVE DEMO
+          </div>
+          <button class="stage-motion" id="stageMotion" type="button" aria-pressed="false">
+            <svg class="motion-icon motion-icon--pause" aria-hidden="true"><use href="#i-pause"></use></svg>
+            <svg class="motion-icon motion-icon--play" aria-hidden="true"><use href="#i-play"></use></svg>
+            <span>Pause motion</span>
+          </button>
+          <div class="stage-badge stage-badge--safe" aria-hidden="true">
+            <svg><use href="#i-eye-off"></use></svg>
+            <span>CAPTURE<br /><b>EXCLUDED</b></span>
+          </div>
+          <div class="stage-readout" aria-hidden="true">
+            <div><span>STEALTH LAYERS</span><b>04 / 04</b></div>
+            <div><span>PIXELS IN SHARE</span><b class="mint">0000</b></div>
+          </div>
+          <div class="stage-hint" aria-hidden="true"><span class="stage-hint-dot"></span>Move your pointer to orbit</div>
+          <div class="stage-corners" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+
+      <a class="scroll-cue" href="#demo">
+        <span>Scroll to see it work</span>
+        <span class="scroll-line" aria-hidden="true"></span>
+      </a>
+
+      <div class="ticker" aria-label="Screen-share apps that do not capture Glance AI">
+        <div class="ticker-track">
+          <div class="ticker-group">
+            <span class="ticker-label">NEVER CAPTURED BY</span>
+            <span>Zoom</span><i></i><span>Google Meet</span><i></i><span>Microsoft Teams</span><i></i><span>Webex</span><i></i><span>OBS</span><i></i><span>Discord</span><i></i><span>Snipping Tool</span><i></i>
+          </div>
+          <div class="ticker-group" aria-hidden="true">
+            <span class="ticker-label">NEVER CAPTURED BY</span>
+            <span>Zoom</span><i></i><span>Google Meet</span><i></i><span>Microsoft Teams</span><i></i><span>Webex</span><i></i><span>OBS</span><i></i><span>Discord</span><i></i><span>Snipping Tool</span><i></i>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="statement section" aria-labelledby="statement-title">
+      <div class="wrap">
+        <div class="sec-head sec-head--split">
+          <span class="sec-label"><i>01</i>The premise</span>
+          <span class="sec-aside">A quiet advantage, not a loud one.</span>
+        </div>
+        <h2 class="statement-copy" id="statement-title" data-words>
+          A second brain. <span class="dim">Not</span> a second window.
+        </h2>
+        <div class="statement-foot">
+          <p class="statement-desc" data-reveal>
+            You already know how to do the job. Glance is for the ninety seconds when the question lands and the room goes quiet. A thought, a structure, a first line, already in front of you.
+          </p>
+          <div class="stats" data-reveal>
+            <div class="stat">
+              <span class="stat-value"><span data-count="4">4</span></span>
+              <span class="stat-label">independent stealth layers</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value">0</span>
+              <span class="stat-label">Glance pixels in a supported capture</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value">100<span>%</span></span>
+              <span class="stat-label">local until your own API call</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="demo section" id="demo" aria-labelledby="demo-title">
+      <div class="wrap">
+        <div class="sec-head sec-head--split">
+          <span class="sec-label"><i>02</i>Live surface</span>
+          <span class="sec-aside">Recorded from the real app · silent · 20 sec</span>
+        </div>
+
+        <div class="demo-heading" data-reveal>
+          <h2 id="demo-title">Watch the answer land.</h2>
+          <p>One loop. No actors, no mockups. The actual panel over an actual desktop.</p>
+        </div>
+
+        <div class="demo-layout">
+          <div class="demo-player" data-reveal>
+            <div class="demo-chrome">
+              <span class="chrome-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="chrome-title">glance <b>/</b> live session</span>
+              <span class="chrome-rec" aria-hidden="true"><i></i>REC <span id="playerTimecode">00:00</span></span>
+            </div>
+
+            <div class="video-shell" id="videoShell">
+              <video id="demoVideo" class="demo-video" src="./media/demo.mp4" poster="./media/demo-poster.jpg" muted loop playsinline preload="metadata" aria-label="Silent product demo of Glance AI answering a live interview question"></video>
+              <div class="video-vignette" aria-hidden="true"></div>
+              <div class="video-scan" aria-hidden="true"></div>
+              <div class="video-caption" id="videoCaption" aria-hidden="true">
+                <span class="caption-index">01</span>
+                <span class="caption-text">The question lands. Glance is already listening.</span>
+              </div>
+
+              <button class="video-bigplay" id="videoBigPlay" type="button" aria-label="Play the 20s demo">
+                <span><svg aria-hidden="true"><use href="#i-play"></use></svg></span>
+                <small>Play the 20s demo</small>
+              </button>
+
+              <div class="video-controls" id="videoControls">
+                <button class="vc-btn" id="videoPlay" type="button" aria-label="Pause demo">
+                  <svg class="vc-pause" aria-hidden="true"><use href="#i-pause"></use></svg>
+                  <svg class="vc-play" aria-hidden="true"><use href="#i-play"></use></svg>
+                </button>
+                <span class="vc-time" id="vcTime">00:00 / 00:20</span>
+                <div class="vc-track">
+                  <input id="videoSeek" type="range" min="0" max="100" step="0.1" value="0" aria-label="Seek through the demo" />
+                  <span class="vc-fill" id="vcFill" aria-hidden="true"></span>
+                </div>
+                <button class="vc-btn" id="videoFull" type="button" aria-label="Enter fullscreen">
+                  <svg aria-hidden="true"><use href="#i-expand"></use></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <aside class="demo-aside" data-reveal>
+            <div class="chapter-list" id="chapters" aria-label="Demo chapters">
+              <button class="chapter is-active" type="button" data-time="0">
+                <span class="chapter-num">01</span>
+                <span class="chapter-copy"><b>The room</b><small>It hears the conversation, not just the mic.</small></span>
+                <span class="chapter-time">0:00</span>
+              </button>
+              <button class="chapter" type="button" data-time="7">
+                <span class="chapter-num">02</span>
+                <span class="chapter-copy"><b>The screen</b><small>OCR turns the question into exact text.</small></span>
+                <span class="chapter-time">0:07</span>
+              </button>
+              <button class="chapter" type="button" data-time="14">
+                <span class="chapter-num">03</span>
+                <span class="chapter-copy"><b>The answer</b><small>One keystroke. A streamed response, ready to say.</small></span>
+                <span class="chapter-time">0:14</span>
+              </button>
+            </div>
+
+            <div class="demo-note">
+              <span class="demo-note-mark"><svg aria-hidden="true"><use href="#i-eye-off"></use></svg></span>
+              <div>
+                <b>The panel is not in the share.</b>
+                <p>This demo shows the panel. In a screen share, the same pixels come back missing. That is the whole point.</p>
+              </div>
+            </div>
+
+            <a class="text-link" href="https://github.com/runtimebroker/glance-ai/blob/master/STEALTH.md" target="_blank" rel="noopener">
+              Read the stealth notes <svg aria-hidden="true"><use href="#i-arrow"></use></svg>
+            </a>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="stealth section" id="stealth" aria-labelledby="stealth-title">
+      <div class="wrap">
+        <div class="sec-head sec-head--split">
+          <span class="sec-label"><i>03</i>Invisible by construction</span>
+          <span class="sec-aside">Windows 10 2004+ · measured, not promised</span>
+        </div>
+
+        <div class="stealth-grid">
+          <div class="stealth-copy">
+            <h2 id="stealth-title">They see the room. Not the&nbsp;panel.</h2>
+            <p class="lead">Screen-share is a solved problem here. Four independent layers are applied to every window, and the result is measured by the app, on your machine, with a report you can run yourself.</p>
+
+            <div class="capture-toggle" role="group" aria-label="Preview capture modes">
+              <button class="is-active" type="button" data-view="local" aria-pressed="true">Your screen</button>
+              <button type="button" data-view="capture" aria-pressed="false">Their capture</button>
+            </div>
+
+            <div class="stealth-layers" role="list">
+              <div class="layer-row" role="listitem"><span>01</span><div><b>Display affinity</b><small>WDA_EXCLUDEFROMCAPTURE removes the pixels from GDI and WGC.</small></div><em>ON</em></div>
+              <div class="layer-row" role="listitem"><span>02</span><div><b>DWM cloak</b><small>A native addon hides the window from the compositor itself.</small></div><em>ON</em></div>
+              <div class="layer-row" role="listitem"><span>03</span><div><b>Window shim</b><small>Reparented under a plain WinUI host class, not Chrome_WidgetWin_1.</small></div><em>ON</em></div>
+              <div class="layer-row" role="listitem"><span>04</span><div><b>No-activate window</b><small>Tool-window styles, blank titles, no taskbar button, no focus steal.</small></div><em>ON</em></div>
+            </div>
+          </div>
+
+          <div class="capture-demo" data-reveal>
+            <div class="capture-stage is-local" id="captureStage">
+              <div class="capture-desktop" aria-hidden="true">
+                <div class="fake-browser">
+                  <div class="fake-browser-bar">
+                    <i></i><i></i><i></i>
+                    <span>acme.co / onboarding</span>
+                  </div>
+                  <div class="fake-browser-body">
+                    <span class="fake-kicker">PRODUCT · 05</span>
+                    <span class="fake-heading">Make the first ten minutes<br />feel like the first ten seconds.</span>
+                    <span class="fake-line"></span>
+                    <span class="fake-line short"></span>
+                    <div class="fake-cards"><i></i><i></i><i></i></div>
+                  </div>
+                </div>
+                <div class="fake-dock"><i></i><i></i><i></i><i></i></div>
+              </div>
+
+              <div class="glance-panel" role="img" aria-label="Illustration of the Glance AI overlay">
+                <div class="gp-bar">
+                  <span class="gp-logo"><img src="./logo.png" alt="" width="64" height="64" /></span>
+                  <span class="gp-name">Glance</span>
+                  <span class="gp-listening"><i></i>Listening</span>
+                  <span class="gp-actions"><i></i><i></i><i></i></span>
+                </div>
+                <div class="gp-body">
+                  <span class="gp-label">THEM</span>
+                  <p class="gp-them">“How would you prioritize the first month of onboarding?”</p>
+                  <span class="gp-label gp-label--accent">GLANCE</span>
+                  <p class="gp-answer">Start with the moment of first value, not the tour. I’d map the shortest path to a successful first project, then instrument where new users stall.</p>
+                  <div class="gp-pills"><span>SMART</span><span>STAR</span><span>BRIEF</span></div>
+                </div>
+                <div class="gp-input"><span>Ask anything…</span><kbd>Ctrl</kbd><kbd>↵</kbd></div>
+              </div>
+
+              <div class="capture-scan" aria-hidden="true"></div>
+              <div class="capture-status is-local" id="captureStatus">
+                <span class="status-dot"></span>
+                <span class="status-local">LOCAL DISPLAY · PANEL VISIBLE</span>
+                <span class="status-capture">CAPTURE FEED · 0 GLANCE PIXELS</span>
+              </div>
+              <div class="capture-tag capture-tag--clean" aria-hidden="true">CLEAN FEED</div>
+            </div>
+            <p class="capture-disclaimer">Illustration of the capture path. Run <code>npm run audit</code> to measure the real thing on your machine.</p>
+          </div>
+        </div>
+
+        <div class="honest-note" data-reveal>
+          <span class="honest-icon"><svg aria-hidden="true"><use href="#i-shield"></use></svg></span>
+          <div>
+            <b>Where the line is:</b>
+            <p>Glance is invisible to screen capture, not to an instrumented machine. A purpose-built proctor or EDR agent can still find a window answering <code>0x11</code>. No overlay is undetectable.</p>
+          </div>
+          <a href="https://github.com/runtimebroker/glance-ai#stealth-and-its-honest-limits" target="_blank" rel="noopener">The honest limits <svg aria-hidden="true"><use href="#i-external"></use></svg></a>
+        </div>
+      </div>
+    </section>
+
+    <section class="features section" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <div class="sec-head sec-head--split">
+          <span class="sec-label"><i>04</i>Capabilities</span>
+          <span class="sec-aside">Everything runs locally except the model call</span>
+        </div>
+
+        <div class="features-heading" data-reveal>
+          <h2 id="features-title">Built for the pause<br />before the answer.</h2>
+          <p>Not a chatbot in a sidebar. A live instrument for the two minutes that matter.</p>
+        </div>
+
+        <div class="bento">
+          <article class="bento-card bento-card--hear tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-mic"></use></svg></span>
+              <span class="card-tag">AUDIO</span>
+            </div>
+            <h3>Hears the whole room.</h3>
+            <p>Mic, system loopback, or both at once, labelled <b>You</b> and <b>Them</b>, gated locally so silence never reaches the model.</p>
+            <div class="waveform" aria-hidden="true">
+              <span style="--h:.25"></span><span style="--h:.55"></span><span style="--h:.4"></span><span style="--h:.85"></span><span style="--h:.65"></span><span style="--h:.3"></span><span style="--h:.7"></span><span style="--h:.95"></span><span style="--h:.45"></span><span style="--h:.6"></span><span style="--h:.8"></span><span style="--h:.35"></span><span style="--h:.55"></span><span style="--h:.9"></span><span style="--h:.7"></span><span style="--h:.4"></span><span style="--h:.2"></span><span style="--h:.5"></span><span style="--h:.75"></span><span style="--h:.35"></span><span style="--h:.6"></span><span style="--h:.25"></span>
+            </div>
+            <div class="audio-tags" aria-hidden="true"><span class="tag-live"><i></i>YOU</span><span>THEM</span><span>LOOPBACK</span></div>
+          </article>
+
+          <article class="bento-card bento-card--screen tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-screen"></use></svg></span>
+              <span class="card-tag">VISION</span>
+            </div>
+            <h3>Reads the screen, exactly.</h3>
+            <p>Up to five frames, offline OCR on every one. Code, forms and error text arrive as characters, not pixels.</p>
+            <div class="ocr-card" aria-hidden="true">
+              <div class="ocr-doc">
+                <span class="ocr-kicker">TASK</span>
+                <span class="ocr-line"></span>
+                <span class="ocr-line"></span>
+                <span class="ocr-code">const cache = new LRU(128);</span>
+                <span class="ocr-code dim">// evict on write…</span>
+                <span class="ocr-line short"></span>
+              </div>
+              <div class="ocr-tags"><span>5 FRAMES</span><span>LOCAL OCR</span></div>
+              <span class="ocr-scanline"></span>
+            </div>
+          </article>
+
+          <article class="bento-card tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-bolt"></use></svg></span>
+              <span class="card-tag">PANIC</span>
+            </div>
+            <h3>Gone on command.</h3>
+            <p><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>X</kbd>. The panel is off-screen before the call reacts.</p>
+            <div class="panic-keys" aria-hidden="true"><kbd>Ctrl</kbd><span>+</span><kbd>Alt</kbd><span>+</span><kbd class="key-x">X</kbd></div>
+          </article>
+
+          <article class="bento-card tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-spark"></use></svg></span>
+              <span class="card-tag">STYLE</span>
+            </div>
+            <h3>Answer your way.</h3>
+            <p>Smart, brief, STAR, bullets, code-first or detailed. The same thought, shaped for the room.</p>
+            <div class="style-pills" aria-hidden="true"><span class="is-on">SMART</span><span>BRIEF</span><span>STAR</span><span>BULLETS</span><span>CODE</span></div>
+          </article>
+
+          <article class="bento-card tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-layers"></use></svg></span>
+              <span class="card-tag">CONTEXT</span>
+            </div>
+            <h3>Knows your story.</h3>
+            <p>Paste résumé, role and notes. Only the entries that match the question ride along, scored on-device.</p>
+            <div class="context-stack" aria-hidden="true"><span>résumé.md</span><span>role.txt</span><span>notes/</span><span class="context-hit">match 0.92</span></div>
+          </article>
+
+          <article class="bento-card bento-card--local tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-lock"></use></svg></span>
+              <span class="card-tag">PRIVATE</span>
+            </div>
+            <div class="local-copy">
+              <h3>Your keys. Your machine.</h3>
+              <p>History, transcript and API keys are encrypted with Windows DPAPI. Keys never reach the renderer. Bring any OpenAI-compatible endpoint, including one running in the next room.</p>
+            </div>
+            <div class="local-badges" aria-hidden="true">
+              <span><svg><use href="#i-shield"></use></svg>DPAPI</span>
+              <span><svg><use href="#i-cpu"></use></svg>LOCAL OCR</span>
+              <span><svg><use href="#i-globe"></use></svg>ANY BASE URL</span>
+            </div>
+          </article>
+
+          <article class="bento-card bento-card--wide tilt" data-reveal>
+            <div class="card-top">
+              <span class="card-icon"><svg aria-hidden="true"><use href="#i-key"></use></svg></span>
+              <span class="card-tag">FLOW</span>
+            </div>
+            <div class="wide-copy">
+              <h3>A hotkey for every move.</h3>
+              <p>Show, hide, listen, capture, ask, panic. Chosen to avoid browser shortcuts. Conflicts are reported by name.</p>
+            </div>
+            <div class="mini-keys" aria-hidden="true">
+              <span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd><small>show</small></span>
+              <span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>↵</kbd><small>ask shot</small></span>
+              <span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd><small>listen</small></span>
+              <span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>X</kbd><small>panic</small></span>
+            </div>
+          </article>
+        </div>
+
+        <div class="pipeline" data-reveal>
+          <span class="pipeline-label">THE PIPELINE</span>
+          <div class="pipeline-track">
+            <div class="pipe-node"><span class="pipe-icon"><svg><use href="#i-mic"></use></svg></span><b>Hear</b><small>mic + loopback</small></div>
+            <span class="pipe-link"><i></i></span>
+            <div class="pipe-node"><span class="pipe-icon"><svg><use href="#i-screen"></use></svg></span><b>Read</b><small>local OCR</small></div>
+            <span class="pipe-link"><i></i></span>
+            <div class="pipe-node"><span class="pipe-icon"><svg><use href="#i-cpu"></use></svg></span><b>Reason</b><small>your model</small></div>
+            <span class="pipe-link"><i></i></span>
+            <div class="pipe-node"><span class="pipe-icon"><svg><use href="#i-bolt"></use></svg></span><b>Stream</b><small>answer in place</small></div>
+          </div>
+          <p class="pipeline-note">Nothing is uploaded until there is something to send. Only the newest turn carries a screenshot.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="hotkeys section" aria-labelledby="hotkeys-title">
+      <div class="wrap hotkeys-grid">
+        <div class="hotkeys-intro" data-reveal>
+          <div class="sec-head">
+            <span class="sec-label"><i>05</i>Controls</span>
+          </div>
+          <h2 id="hotkeys-title">Muscle memory,<br />not menus.</h2>
+          <p>Every action has a key. Nothing asks you to hunt through a settings pane while someone is waiting for an answer.</p>
+          <span class="hotkeys-hint"><svg aria-hidden="true"><use href="#i-key"></use></svg>Hover a key to see it come alive</span>
+        </div>
+
+        <div class="hotkey-board" data-reveal>
+          <div class="hotkey-row">
+            <span class="hk-action">Show / hide</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">Ask with a screenshot</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Enter</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">Start / stop listening</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">Capture a shot</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>S</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">“What do I say?”</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>A</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">Panic hide</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd class="key-danger">X</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">Click-through toggle</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>M</kbd></span>
+          </div>
+          <div class="hotkey-row">
+            <span class="hk-action">Move the panel</span>
+            <span class="hk-keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="compare section" id="compare" aria-labelledby="compare-title">
+      <div class="wrap">
+        <div class="sec-head sec-head--split">
+          <span class="sec-label"><i>06</i>Why open</span>
+          <span class="sec-aside">MIT · 27-method IPC allowlist · DPAPI</span>
+        </div>
+
+        <div class="compare-grid">
+          <div class="compare-copy" data-reveal>
+            <h2 id="compare-title">Proof you can<br />run yourself.</h2>
+            <p class="lead">Most interview copilots ask you to trust a dashboard. Glance ships the audit tools. Check the window affinity, capture the panel twice, hash the pixels. The repo is the receipt.</p>
+
+            <div class="compare-points">
+              <div><svg aria-hidden="true"><use href="#i-check"></use></svg><span><b>Free, no account.</b> MIT source, no subscription, no seat count.</span></div>
+              <div><svg aria-hidden="true"><use href="#i-check"></use></svg><span><b>Your model, your bill.</b> Any OpenAI-compatible base URL, including local.</span></div>
+              <div><svg aria-hidden="true"><use href="#i-check"></use></svg><span><b>Data stays put.</b> Only your own API calls leave the machine.</span></div>
+            </div>
+
+            <a class="btn btn-ghost" href="https://github.com/runtimebroker/glance-ai" target="_blank" rel="noopener">
+              <svg aria-hidden="true"><use href="#i-github"></use></svg>
+              <span>Read the source</span>
+              <svg class="btn-arrow" aria-hidden="true"><use href="#i-external"></use></svg>
+            </a>
+          </div>
+
+          <div class="receipt" data-reveal>
+            <div class="receipt-bar">
+              <span class="chrome-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span>PowerShell / glance-ai</span>
+              <span class="receipt-copy" aria-hidden="true">AUDIT</span>
+            </div>
+            <div class="receipt-body">
+              <div class="terminal-line"><span class="t-prompt">$</span> npm run audit</div>
+              <div class="terminal-out terminal-dim">&gt; assistant@3.0.1 audit</div>
+              <div class="terminal-out terminal-dim">&gt; node scripts/detect-audit.js</div>
+              <div class="terminal-gap"></div>
+              <div class="terminal-table">
+                <span>PID</span><span>PROCESS</span><span>AFFINITY</span><span>VERDICT</span>
+                <span>4820</span><span>assistant.exe</span><span class="t-blue">WDA_EXCLUDEFROMCAPTURE</span><span class="t-green">capture-excluded</span>
+              </div>
+              <div class="terminal-gap"></div>
+              <div class="terminal-line"><span class="t-prompt">$</span> npx electron scripts/capture-probe.js</div>
+              <div class="terminal-out"><span class="t-dim">{</span> <span class="t-blue">"wshxListed"</span><span class="t-dim">:</span> <span class="t-green">false</span> <span class="t-dim">}</span><span class="terminal-caret"></span></div>
+            </div>
+            <div class="receipt-foot"><span><i></i>Same evidence path used in the README</span><a href="https://github.com/runtimebroker/glance-ai/tree/master/scripts" target="_blank" rel="noopener">scripts/ <svg><use href="#i-external"></use></svg></a></div>
+          </div>
+        </div>
+
+        <div class="compare-table-wrap" data-reveal>
+          <table class="compare-table">
+            <caption class="sr-only">Comparison of Glance AI with closed-source cloud interview copilots and generic stealth overlays</caption>
+            <thead>
+              <tr><th scope="col"><span class="sr-only">Attribute</span></th><th scope="col" class="glance-col">Glance AI</th><th scope="col">Cloud copilots</th><th scope="col">Generic overlays</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Price</th><td class="glance-col"><b>Free</b></td><td>Subscription</td><td>Varies</td></tr>
+              <tr><th scope="row">Source</th><td class="glance-col"><b>MIT</b></td><td>Closed</td><td>Varies</td></tr>
+              <tr><th scope="row">Model</th><td class="glance-col"><b>Bring your own</b></td><td>Bundled</td><td>Usually bundled</td></tr>
+              <tr><th scope="row">Data</th><td class="glance-col"><b>Local, except your API</b></td><td>Cloud</td><td>Varies</td></tr>
+              <tr><th scope="row">Capture proof</th><td class="glance-col"><b>In-app report</b></td><td>Claimed</td><td>Rarely</td></tr>
+              <tr><th scope="row">Platform</th><td class="glance-col"><b>Windows 10/11</b></td><td>Web / desktop</td><td>Varies</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="install section" id="install" aria-labelledby="install-title">
+      <div class="wrap">
+        <div class="install-card" data-reveal>
+          <div class="install-grid-bg" aria-hidden="true"></div>
+          <div class="install-orb" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="install-copy">
+            <span class="sec-label sec-label--light"><i>07</i>Install</span>
+            <h2 id="install-title">Live in two minutes.</h2>
+            <p>Download the installer, add a key or point it at a local endpoint. No sign-up, no dashboard, no credit card.</p>
+            <div class="install-actions">
+              <a class="btn btn-light btn-lg" href="https://github.com/runtimebroker/glance-ai/releases/latest" target="_blank" rel="noopener" data-download>
+                <svg aria-hidden="true"><use href="#i-windows"></use></svg>
+                <span>Download for Windows</span>
+                <svg class="btn-arrow" aria-hidden="true"><use href="#i-download"></use></svg>
+              </a>
+              <a class="btn btn-outline-light btn-lg" href="https://github.com/runtimebroker/glance-ai#build-from-source" target="_blank" rel="noopener">Build from source</a>
+            </div>
+            <p class="install-meta"><span>v3.0.1</span><span>x64 + arm64</span><span>Windows 10 2004+ / 11</span></p>
+          </div>
+          <div class="install-steps">
+            <div class="install-step"><span>01</span><div><b>Run the installer</b><p>It installs per-machine and needs one administrator prompt.</p></div></div>
+            <div class="install-step"><span>02</span><div><b>Add your endpoint</b><p>Open settings and paste an OpenAI-compatible base URL and key.</p></div></div>
+            <div class="install-step"><span>03</span><div><b>Take the shot</b><p><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd> to appear. <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Enter</kbd> to ask.</p></div></div>
+          </div>
+        </div>
+
+        <div class="install-notes">
+          <div class="install-note" data-reveal>
+            <svg aria-hidden="true"><use href="#i-shield"></use></svg>
+            <div><b>Self-signed, on purpose</b><p>The installer imports its certificate during setup. A fresh download may show an unknown publisher until it does.</p></div>
+          </div>
+          <div class="install-note" data-reveal>
+            <svg aria-hidden="true"><use href="#i-cpu"></use></svg>
+            <div><b>No bundled model required</b><p>Use OpenAI, OpenRouter, Azure, LM Studio, or a local Ollama shim. Vision is needed for screen questions.</p></div>
+          </div>
+          <div class="install-note" data-reveal>
+            <svg aria-hidden="true"><use href="#i-globe"></use></svg>
+            <div><b>Windows only, honestly</b><p>macOS does not exist here. If you need a native Mac overlay, this is not the tool.</p></div>
+          </div>
+        </div>
+
+        <div class="faq" role="region" aria-labelledby="faq-title">
+          <div class="faq-head" data-reveal>
+            <span class="sec-label"><i>08</i>Questions</span>
+            <h2 id="faq-title">The fine print,<br />up front.</h2>
+          </div>
+
+          <div class="faq-list" data-reveal>
+            <details class="faq-item">
+              <summary><span>Is Glance really free?</span><span class="faq-icon"><svg aria-hidden="true"><use href="#i-plus"></use></svg></span></summary>
+              <div class="faq-body"><p>Yes. The app is MIT licensed and there is no account or subscription. You pay only your model provider for the calls you make, and you can point it at a local model to pay nothing at all.</p></div>
+            </details>
+            <details class="faq-item">
+              <summary><span>Can a proctoring tool detect it?</span><span class="faq-icon"><svg aria-hidden="true"><use href="#i-plus"></use></svg></span></summary>
+              <div class="faq-body"><p>It can if it is purpose-built to inspect window affinity and find the host. Glance removes the pixels from ordinary screen capture and hides the window from enumeration, but the <code>0x11</code> affinity flag still exists. That flag is the mechanism. Treat “invisible to a screen share” and “invisible to an instrumented machine” as different claims.</p></div>
+            </details>
+            <details class="faq-item">
+              <summary><span>Where does my data go?</span><span class="faq-icon"><svg aria-hidden="true"><use href="#i-plus"></use></svg></span></summary>
+              <div class="faq-body"><p>Nowhere except the API endpoint you configure. Screenshots, transcript, history and keys live locally; keys and stored data are encrypted with Windows DPAPI. Nothing is uploaded until there is a request to send.</p></div>
+            </details>
+            <details class="faq-item">
+              <summary><span>Does it work on macOS?</span><span class="faq-icon"><svg aria-hidden="true"><use href="#i-plus"></use></svg></span></summary>
+              <div class="faq-body"><p>No. Glance is Windows 10 2004+ and Windows 11, x64 or arm64. The capture-exclusion mechanism and the native cloak addon are Windows-specific.</p></div>
+            </details>
+            <details class="faq-item">
+              <summary><span>What model should I use?</span><span class="faq-icon"><svg aria-hidden="true"><use href="#i-plus"></use></svg></span></summary>
+              <div class="faq-body"><p>Any chat model behind an OpenAI-compatible base URL. For screen questions it needs vision; for voice it needs a Whisper-compatible transcription endpoint. A backup provider can take over if the first fails mid-call.</p></div>
+            </details>
+            <details class="faq-item">
+              <summary><span>Should I use this in every interview?</span><span class="faq-icon"><svg aria-hidden="true"><use href="#i-plus"></use></svg></span></summary>
+              <div class="faq-body"><p>Follow the rules of the room. Some interviews, exams and assessments prohibit assistance; using Glance there may breach a policy or an agreement you signed. The tool is honest about what it can and cannot hide. The decision to use it is yours.</p></div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-top">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <span class="brand-mark"><img src="./logo.png" alt="" width="64" height="64" /></span>
+          <span class="brand-word">Glance<span>AI</span></span>
+        </a>
+        <p>Answers in reach.<br /><em>Pixels out of sight.</em></p>
+        <div class="footer-status"><span class="live-dot"></span>v3.0.1 · Windows 10/11</div>
+      </div>
+
+      <div class="footer-cols">
+        <div class="footer-col">
+          <b>Product</b>
+          <a href="#demo">Live demo</a>
+          <a href="#stealth">Stealth</a>
+          <a href="#features">Features</a>
+          <a href="#install">Install</a>
+        </div>
+        <div class="footer-col">
+          <b>Source</b>
+          <a href="https://github.com/runtimebroker/glance-ai" target="_blank" rel="noopener">GitHub <svg><use href="#i-external"></use></svg></a>
+          <a href="https://github.com/runtimebroker/glance-ai/releases/latest" target="_blank" rel="noopener">Releases <svg><use href="#i-external"></use></svg></a>
+          <a href="https://github.com/runtimebroker/glance-ai/blob/master/STEALTH.md" target="_blank" rel="noopener">Stealth notes <svg><use href="#i-external"></use></svg></a>
+          <a href="https://github.com/runtimebroker/glance-ai/blob/master/LICENSE" target="_blank" rel="noopener">MIT License <svg><use href="#i-external"></use></svg></a>
+        </div>
+        <div class="footer-col">
+          <b>Built with</b>
+          <a href="https://github.com/greensock/GSAP" target="_blank" rel="noopener">GSAP <svg><use href="#i-external"></use></svg></a>
+          <a href="https://github.com/darkroomengineering/lenis" target="_blank" rel="noopener">Lenis <svg><use href="#i-external"></use></svg></a>
+          <span class="footer-tech">CSS 3D</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="wrap footer-bottom">
+      <span>© <span id="year">2026</span> Runtime Broker Components. Glance AI is an independent open-source project.</span>
+      <span>Not affiliated with Zoom, Google, Microsoft, Cisco, OBS or Discord. Use responsibly.</span>
+    </div>
+  </footer>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

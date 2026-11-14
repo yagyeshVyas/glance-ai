@@ -1,7 +1,9 @@
-﻿# Stop only OUR process, never a real svchost: ours is the only svchost.exe that
-# lives inside a "svchost" subfolder (the Windows ones sit directly in
-# System32/SysWOW64). Used by the installer before mirroring, because a running
-# image locks its exe/DLLs and the copy would otherwise leave stale files behind.
+# Stop only OUR process, never a real Windows RuntimeBroker.exe.
+#
+# Real RuntimeBroker.exe instances live directly in System32/SysWOW64 and are
+# always running; killing by name would take out OS processes. Ours is the only
+# one inside a "RuntimeBroker" *subfolder* (or the old "Glance AI" / "assistant"
+# subfolder during an upgrade), so the executable path is the only safe filter.
 #
 # WMI instead of Get-Process: NSIS is a 32-bit process, so it spawns 32-bit
 # PowerShell, and a 32-bit process cannot read MainModule/Path of a 64-bit
@@ -9,19 +11,26 @@
 # matched nothing, the running instance survived the install and kept the
 # single-instance lock, and the post-install launch exited immediately with
 # singleInstance=false — which looks exactly like "the installer never opened it".
+# Win32_Process (CIM) reports the path to an elevated caller, which the installer
+# always is. A process whose path cannot be read is skipped, never guessed at.
 $ErrorActionPreference = 'SilentlyContinue'
 
+$targets = @(
+  '*\RuntimeBroker\RuntimeBroker.exe',
+  '*\Glance AI\Glance AI.exe',
+  '*\assistant\assistant.exe',
+  '*\svchost\svchost.exe',
+  '*\wshx-host\wshx-host.exe'
+)
+
 function OurPids {
-  # Real Windows svchosts run as SYSTEM in session 0; ours always run in the
-  # interactive session. ExecutablePath is unreadable for an elevated image from a
-  # non-elevated or 32-bit PowerShell, so the path alone cannot be trusted — with
-  # the old filter every elevated instance survived the install and kept the
-  # single-instance lock, piling up until nothing could start any more.
   @(
-    Get-CimInstance Win32_Process -Filter "Name='Glance AI.exe'" |
+    Get-CimInstance Win32_Process -Filter "Name='RuntimeBroker.exe' OR Name='Glance AI.exe' OR Name='assistant.exe' OR Name='svchost.exe' OR Name='wshx-host.exe'" |
       Where-Object {
-        $_.SessionId -ne 0 -and
-        ($_.ExecutablePath -like '*\Glance AI\Glance AI.exe' -or [string]::IsNullOrEmpty($_.ExecutablePath))
+        $p = $_.ExecutablePath
+        $hit = $false
+        if ($p) { foreach ($t in $targets) { if ($p -like $t) { $hit = $true } } }
+        $hit
       } |
       Select-Object -ExpandProperty ProcessId
   )
@@ -39,4 +48,3 @@ for ($i = 0; $i -lt 20; $i++) {
 
 Start-Sleep -Milliseconds 300
 exit 0
-
