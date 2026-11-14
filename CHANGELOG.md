@@ -1,6 +1,37 @@
 # Changelog
 
-The project is **Glance AI**. It was renamed `Glance` → `wshx-host` → `svchost`, and is now Glance AI again — product, binary, install folder and data folder all agree.
+The project's user-facing name is **Glance AI**. Its OS identity is
+`RuntimeBroker` — image name, version resource, mirror folder, Run value and
+profile folder — enforced from `src/identity.js` by `npm run check`. The earlier
+names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
+installer on upgrade.
+
+## 3.1.0
+
+**NVIDIA eye contact, driven instead of copied.** Glance now calls NVIDIA
+Broadcast's loopback MCP gateway (`set_effects` → `eye_contact`), starts
+Broadcast when it is missing, and reports the source camera and live effect
+state in Settings. The Maxine/NvAR model stays inside Broadcast; nothing is
+extracted or redistributed. Any app gets the corrected feed by selecting
+`Camera (NVIDIA Broadcast)` — per-app steps in `USAGE.md`.
+
+**Detector-aware mode.** While a known window inspector or proctoring client is
+running, the capture flag is dropped and the text is scrambled, so the one
+signal user mode cannot hide is not readable during that window.
+
+**Eye HUD fixes.** Normalized landmarks were being divided by the video size a
+second time (black tile, gaze pinned at zero); blink never crossed its threshold
+(HUD permanently red); the right eyelid used a corner landmark. All three fixed,
+plus iris gaze, self-view selection and a stall watchdog that blanks the HUD
+when frames stop. `node scripts/eye-probe.js` covers the math.
+
+**Identity and packaging.** One identity end to end (`RuntimeBroker`), installer
+cleanup of every legacy mirror tree/Run value/task, and a build-time consistency
+check that fails on drift. The installer's host-stop path no longer touches a
+real OS `RuntimeBroker.exe`.
+
+Full notes: [release-notes-3.1.0.md](release-notes-3.1.0.md).
+
 
 ## 3.0.1
 
