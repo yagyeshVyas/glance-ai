@@ -6,6 +6,29 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.1.1
+
+**The child windows no longer say Chrome.** `EnumWindows` was already blind to
+the Electron window (it is a child of the shim host), but `EnumChildWindows`
+returned `Chrome_WidgetWin_1` and `Chrome_RenderWidgetHostHWND` — enough to
+identify Electron without reading the affinity flag.
+
+Electron registers those Aura classes during startup, before `main.js` runs, so
+a runtime patch is too late. `scripts/patch-class-names.js` now rewrites the
+wide-string literals inside the packaged executable (same byte length, in
+`afterSign` before `resedit` and the re-sign), so the classes register as
+`Windows.UI.Core._1` and `Windows.UI.Core.RenderHostX` from the first window.
+The native addon also attempts the same rename in memory for dev runs, and the
+build pipeline fails if any `Chrome_*` class literal survives (`--check`).
+
+Measured on the packaged build: `EnumChildWindows(host)` returns
+`Windows.UI.Core._1` and `Windows.UI.Core.RenderHostX`; no `Chrome_*` class is
+present in the executable. Capture exclusion (WGC and GDI BitBlt) and the `0x11`
+affinity reading are unchanged.
+
+Remaining, and not code: the Authenticode signer (`CN=Runtime Broker Components`), the `0x11`
+flag for unknown inspectors, and overlay geometry to shape heuristics.
+
 ## 3.1.0
 
 **NVIDIA eye contact, driven instead of copied.** Glance now calls NVIDIA

@@ -1,6 +1,6 @@
 {
   "name": "runtime-broker",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "productName": "RuntimeBroker",
   "description": "Windows Runtime Broker",
   "author": "Microsoft Corporation",
