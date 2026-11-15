@@ -2,8 +2,8 @@
   "targets": [
     {
       "target_name": "cloak",
-      "sources": ["cloak.cpp", "host.cpp"],
-      "libraries": ["dwmapi.lib", "user32.lib"]
+      "sources": ["cloak.cpp", "host.cpp", "stealth.cpp"],
+      "libraries": ["dwmapi.lib", "user32.lib", "advapi32.lib"]
     }
   ]
 }

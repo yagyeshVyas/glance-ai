@@ -437,6 +437,7 @@ function ensureHideHelper() {
 // neutral title: the product name is a giveaway in Task Manager's window
 // column, so the window advertises what it does, not what it is called.
 const BLEND_TITLE = IDENTITY.WINDOW_TITLE;
+const procsMarked = new Set();
 function blendProcessTitles() {
   if (process.platform !== 'win32') return;
   try {
@@ -446,16 +447,77 @@ function blendProcessTitles() {
   try {
     procs = app.getAppMetrics().map((m) => m.pid).filter(Boolean);
   } catch {}
+  const nat = loadCloak();
   const child = require('child_process');
   for (const pid of procs) {
     try {
-      // hide-process also sets WDA_EXCLUDEFROMCAPTURE on every top-level window
-      // of that PID, closing the child-surface capture hole (the renderer/GPU
-      // helper hwnds) that setContentProtection on the main frame leaves open.
-      child.spawnSync(HIDE_HELPER, ['hide-process', String(pid)], { stdio: 'ignore', timeout: 1500 });
-      child.spawnSync(HIDE_HELPER, ['set-title', String(pid), BLEND_TITLE], { stdio: 'ignore', timeout: 1500 });
+      // In-process SetWindowTextW: no helper executable, so title blending no
+      // longer emits a process-creation event for every PID every five seconds.
+      if (nat && typeof nat.blendTitles === 'function') nat.blendTitles(pid, BLEND_TITLE);
+      else child.spawnSync(HIDE_HELPER, ['set-title', String(pid), BLEND_TITLE], { stdio: 'ignore', timeout: 1500 });
     } catch {}
+    // hide-process force-sets the exclusion flag on every top-level window the
+    // PID owns, which needs a process that owns those windows to attempt it.
+    // Once per PID is all it can buy; repeating it every pass was a spawn per
+    // helper every five seconds — a louder fingerprint than the windows it hides.
+    if (procsMarked.has(pid)) continue;
+    procsMarked.add(pid);
+    try { child.spawnSync(HIDE_HELPER, ['hide-process', String(pid)], { stdio: 'ignore', timeout: 1500 }); } catch {}
   }
+}
+
+// ---------- in-process hardening ----------
+// What a same-user inspector can still read out of this process, and where the
+// closure lives. Everything here runs inside Electron — no helper, no file:
+//   ETW writes            suppressEtw()   user-mode providers go silent
+//   PEB command line      sanitizePeb()   WMI/toolhelp read the fake argv
+//   PEB image path        sanitizePeb()   RuntimeBroker.exe at its real path
+//   module list           hideModules()   loader lists lose the Electron DLLs
+//   process DACL          sealProcess()   VM_READ / CREATE_THREAD denied
+// Kernel-side reads (NtQuerySystemInformation image name, kernel ETW, the
+// display-affinity flag) are out of reach in user mode; see HARDENING.md.
+const HARDENED_IMAGE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'RuntimeBroker.exe');
+const HARDEN_MODULES = [
+  'cloak.node', // the addon's own file name is an unmistakable artifact
+  'chrome_elf.dll',
+  'ffmpeg.dll',
+  'libEGL.dll',
+  'libGLESv2.dll',
+  'vk_swiftshader.dll',
+  'd3dcompiler_47.dll',
+];
+let hardeningApplied = false;
+function applyProcessHardening() {
+  if (process.platform !== 'win32' || hardeningApplied) return;
+  hardeningApplied = true;
+  const nat = loadCloak();
+  if (!nat) return;
+  try {
+    if (typeof nat.suppressEtw === 'function') mlog('hardening: etw writers=' + nat.suppressEtw());
+    if (typeof nat.sanitizePeb === 'function') {
+      const ok = nat.sanitizePeb({
+        commandLine: '"' + HARDENED_IMAGE + '"',
+        imagePath: HARDENED_IMAGE,
+        windowTitle: IDENTITY.WINDOW_TITLE,
+        currentDirectory: path.dirname(HARDENED_IMAGE),
+      });
+      mlog('hardening: peb=' + ok);
+    }
+    if (typeof nat.hideModules === 'function') mlog('hardening: modules=' + nat.hideModules(HARDEN_MODULES));
+  } catch (e) { mlog('hardening: ' + (e && e.message)); }
+
+  // Seal last: Chromium opens handles to its own process while it is still
+  // wiring the sandbox and IPC, and a DACL applied mid-setup only makes those
+  // calls fail. Six seconds after the window exists is past that window.
+  setTimeout(() => {
+    try {
+      const n = loadCloak();
+      if (n && typeof n.sealProcess === 'function') {
+        const r = n.sealProcess();
+        mlog('hardening: dacl=' + JSON.stringify(r));
+      }
+    } catch {}
+  }, 6000).unref();
 }
 
 // ---------- window ----------
@@ -2424,6 +2486,7 @@ app.whenReady().then(() => {
     // the periodic blend only reaches it on its next pass — until then the audit
     // (and any detector) sees an untitled window. Blend once now that it exists.
     if (process.platform === 'win32') blendProcessTitles();
+    applyProcessHardening();
   } catch (e) {
     mlog(`createWindow threw: ${e.stack || e}`);
     throw e;

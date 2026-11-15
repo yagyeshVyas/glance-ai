@@ -1,4 +1,4 @@
-﻿// In-process DWM cloak. DWM refuses DwmSetWindowAttribute(DWMWA_CLOAK) from a
+// In-process DWM cloak. DWM refuses DwmSetWindowAttribute(DWMWA_CLOAK) from a
 // foreign process with E_HANDLE/E_ACCESSDENIED, so it has to run inside the app.
 // Electron has no FFI, so this is the smallest possible addon: cloak / uncloak.
 #include <node_api.h>
@@ -10,12 +10,16 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "user32.lib")
 
-// host.cpp â€” reparent shim so only an innocuous top-level window is visible
+// host.cpp — reparent shim so only an innocuous top-level window is visible
 extern HWND hostAttach(HWND child);
 extern bool hostSync();
 extern void hostDetach();
 extern HWND hostHandle();
 extern bool hostActive();
+
+// stealth.cpp — process/PEB/DACL/ETW hardening, registered into this addon's
+// exports so the build keeps a single .node per arch.
+extern bool stealthInit(napi_env env, napi_value exports);
 
 #ifndef DWMWA_CLOAK
 #define DWMWA_CLOAK 13
@@ -429,6 +433,7 @@ static napi_value Init(napi_env env, napi_value exports) {
   napi_set_named_property(env, exports, "detachHost", fn);
   napi_create_function(env, "hostHandle", NAPI_AUTO_LENGTH, HostHandle, nullptr, &fn);
   napi_set_named_property(env, exports, "hostHandle", fn);
+  stealthInit(env, exports);
   return exports;
 }
 

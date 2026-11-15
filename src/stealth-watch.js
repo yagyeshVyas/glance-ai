@@ -15,6 +15,12 @@
 // Deliberately not listed: browsers (they cannot enumerate native windows),
 // OBS/Zoom/Teams (they capture pixels, and capture exclusion already hides
 // those pixels), Task Manager (does not read display affinity).
+//
+// Engine: the native addon walks the Toolhelp snapshot in-process (~1 ms), so
+// the watch can poll at 300 ms without spawning anything. The old tasklist
+// engine cost ~120 ms and a child process per tick; it stays as the fallback
+// for a checkout whose addon has not been built.
+const path = require('path');
 const { execFile } = require('child_process');
 
 const WATCHED = [
@@ -34,11 +40,34 @@ const WATCHED = [
   /^talview/i,
 ];
 
+let native = null;
+let nativeChecked = false;
+function nativeProcs() {
+  if (nativeChecked) return native;
+  nativeChecked = true;
+  try {
+    const mod = require(path.join(__dirname, 'native', process.arch, 'cloak.node'));
+    if (mod && typeof mod.listProcesses === 'function') native = mod;
+  } catch {
+    native = null;
+  }
+  return native;
+}
+
 function isWatched(name) {
   return WATCHED.some((re) => re.test(name || ''));
 }
 
 function scan(cb) {
+  const nat = nativeProcs();
+  if (nat) {
+    try {
+      for (const p of nat.listProcesses()) {
+        if (p && isWatched(p.name)) return cb(p.name);
+      }
+      return cb(null);
+    } catch {}
+  }
   execFile('tasklist', ['/FO', 'CSV', '/NH'], { windowsHide: true, timeout: 5000 }, (err, stdout) => {
     if (err || !stdout) return cb(null);
     for (const line of String(stdout).split(/\r?\n/)) {
@@ -53,8 +82,13 @@ function scan(cb) {
 // onChange(name | null) fires only on a change, never on every poll. The timer
 // is unref'd so an idle watcher cannot hold the process open at quit.
 let timer = null;
-function startDetectorWatch({ onChange, everyMs = 4000 } = {}) {
+function startDetectorWatch({ onChange, everyMs = 0 } = {}) {
   if (process.platform !== 'win32' || timer) return;
+  // 300 ms on the native engine: a fast inspector gets a fraction of a second
+  // with a stale affinity instead of a full four-second poll interval. The
+  // tasklist fallback keeps its old 4 s period because each tick costs a
+  // process creation.
+  const period = everyMs || (nativeProcs() ? 300 : 4000);
   let last = '';
   const tick = () => {
     scan((hit) => {
@@ -65,7 +99,7 @@ function startDetectorWatch({ onChange, everyMs = 4000 } = {}) {
     });
   };
   tick();
-  timer = setInterval(tick, everyMs);
+  timer = setInterval(tick, period);
   if (timer.unref) timer.unref();
 }
 

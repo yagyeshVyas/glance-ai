@@ -287,3 +287,27 @@ covered by `node scripts/eye-probe.js` (no camera needed):
   points, with the old eye-centre-vs-nose estimate only as a fallback.
 - Face selection prefers a face in the right/bottom of the frame (where call
   apps put your self-view) over the largest tile, which is the other party.
+
+## 14. User-mode hardening layer
+
+`HARDENING.md` is the full read-by-read map of every surface a detector can
+inspect, including the ones that cannot be closed in user mode. The code for the
+closeable half is `src/native/stealth.cpp`, linked into the same `cloak.node`:
+
+- `suppressEtw()` — patches the five user-mode ETW writers in `ntdll`
+- `sanitizePeb()` — rewrites command line, image path, window title and current
+  directory as the OS reports them for this process
+- `hideModules()` — unlinks Electron's loaded DLLs (and `cloak.node`) from all
+  three PEB loader lists and zeroes their name buffers
+- `sealProcess()` — a protected DACL that denies `VM_READ`, `VM_WRITE`,
+  `CREATE_THREAD` and `DUP_HANDLE` to every caller except SYSTEM, while leaving
+  `PROCESS_TERMINATE` so the app can still be closed
+- `listProcesses()` — in-process Toolhelp scan; `stealth-watch.js` uses it to
+  poll at 300 ms instead of spawning `tasklist.exe` every 4 s
+- `blendTitles()` — in-process `SetWindowTextW`, replacing the helper spawn per
+  PID per five seconds
+
+Applied once from `main.js` after the first window exists; the DACL is applied
+six seconds later so Chromium finishes wiring IPC first. The two leases that
+remain — the `0x11` display-affinity read and the authenticode signer — are
+section 3 of `HARDENING.md`, not things this layer can reach.
