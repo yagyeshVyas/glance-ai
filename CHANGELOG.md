@@ -6,6 +6,32 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.2.0
+
+**The process stops answering.** A same-user window inspector had more to read
+than the affinity flag: the command line in the PEB, the loaded Electron DLLs,
+user-mode ETW, and an open process handle. `src/native/stealth.cpp` (linked into
+the existing `cloak.node`) now rewrites the PEB command line and image path,
+unlinks `chrome_elf.dll`/`ffmpeg.dll`/`libEGL`/`libGLESv2`/`vk_swiftshader`/
+`d3dcompiler_47`/`cloak.node` from all three loader lists with their names
+zeroed, silences the five user-mode ETW writers, and seals the process with a
+DACL that denies `VM_READ`, `VM_WRITE`, `CREATE_THREAD` and `DUP_HANDLE` while
+leaving `PROCESS_TERMINATE`.
+
+Detector-aware mode also got faster and quieter: the watch now reads Toolhelp
+in-process (7.6 ms per 290 processes) and polls at 300 ms instead of spawning
+`tasklist.exe` every four seconds, and title blending calls `SetWindowTextW`
+in-process instead of two helper spawns per PID every five seconds.
+
+Measured on Windows 11 26300: PEB image path reads
+`C:\Windows\System32\RuntimeBroker.exe`; WMI `CommandLine` is empty (provider
+denied); `EnumProcessModules` returns 0; `taskkill /F` still succeeds.
+
+Remaining, and not user-mode: the `0x11` affinity read (needs a signed kernel
+driver or scramble mode), the Authenticode signer, child `--type=renderer`
+command lines, the unsigned `%TEMP%` helper and the SysWOW64 mirror path. Full
+map in [HARDENING.md](HARDENING.md).
+
 ## 3.1.1
 
 **The child windows no longer say Chrome.** `EnumWindows` was already blind to
