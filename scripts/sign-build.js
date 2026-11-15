@@ -62,6 +62,12 @@ function thumbExists(thumb) {
     }
     return v;
   });
+  // The window-class rename happens in afterSign; a build that skipped signing
+  // would ship Electron's class names. Fail the pipeline instead of the field.
+  run('window-class literals', () => {
+    execFileSync(process.execPath, [path.join(__dirname, 'patch-class-names.js'), EXE, '--check'], { stdio: 'pipe' });
+    return 'no Chrome_* window class in payload';
+  });
 
   const st = signtool();
   if (!st) {

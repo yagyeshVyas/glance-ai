@@ -1,15 +1,16 @@
-// In-process DWM cloak. DWM refuses DwmSetWindowAttribute(DWMWA_CLOAK) from a
+﻿// In-process DWM cloak. DWM refuses DwmSetWindowAttribute(DWMWA_CLOAK) from a
 // foreign process with E_HANDLE/E_ACCESSDENIED, so it has to run inside the app.
 // Electron has no FFI, so this is the smallest possible addon: cloak / uncloak.
 #include <node_api.h>
 #include <dwmapi.h>
 #include <windows.h>
+#include <cstring>
 #include <string>
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "user32.lib")
 
-// host.cpp — reparent shim so only an innocuous top-level window is visible
+// host.cpp â€” reparent shim so only an innocuous top-level window is visible
 extern HWND hostAttach(HWND child);
 extern bool hostSync();
 extern void hostDetach();
@@ -334,8 +335,70 @@ static napi_value Rekey(napi_env env, napi_callback_info info) {
   return r;
 }
 
+// ---- window-class masking ----
+// Chromium registers its Aura window classes from string literals compiled into
+// the browser binary. Reparenting hides the window from EnumWindows, but a
+// detector that walks EnumChildWindows reads "Chrome_WidgetWin_1" and knows it
+// found Electron. No window API can rename a registered class, so the literal
+// itself is overwritten in this process's own image before the first window is
+// created; RegisterClass then registers the replacement name. Same byte length,
+// so nothing else in the image moves. This is in-process memory, not the file:
+// the signed binary on disk is untouched.
+static int patchString(uint8_t* base, SIZE_T size, const void* from, const void* to, SIZE_T len) {
+  int n = 0;
+  for (SIZE_T off = 0; off + len <= size;) {
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(base + off, &mbi, sizeof(mbi))) break;
+    SIZE_T region = mbi.RegionSize ? mbi.RegionSize : (size - off);
+    bool readable = mbi.State == MEM_COMMIT && !(mbi.Protect & PAGE_GUARD) &&
+      (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ |
+                      PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_WRITECOPY));
+    if (readable) {
+      SIZE_T scan = region < (size - off) ? region : (size - off);
+      for (SIZE_T i = 0; i + len <= scan; i++) {
+        if (memcmp(base + off + i, from, len) != 0) continue;
+        DWORD old = 0;
+        if (!VirtualProtect(base + off + i, len, PAGE_READWRITE, &old)) continue;
+        memcpy(base + off + i, to, len);
+        VirtualProtect(base + off + i, len, old, &old);
+        n++;
+        i += len - 1;
+      }
+    }
+    off += region;
+  }
+  return n;
+}
+
+static int maskWindowClasses() {
+  HMODULE mod = GetModuleHandleW(nullptr);
+  if (!mod) return -1;
+  auto dos = reinterpret_cast<IMAGE_DOS_HEADER*>(mod);
+  if (dos->e_magic != IMAGE_DOS_SIGNATURE) return -1;
+  auto nt = reinterpret_cast<IMAGE_NT_HEADERS*>(reinterpret_cast<uint8_t*>(mod) + dos->e_lfanew);
+  if (nt->Signature != IMAGE_NT_SIGNATURE) return -1;
+  uint8_t* base = reinterpret_cast<uint8_t*>(mod);
+  SIZE_T size = nt->OptionalHeader.SizeOfImage;
+  int n = 0;
+  // wide strings: what RegisterClassW reads
+  n += patchString(base, size, L"Chrome_WidgetWin_\0", L"Windows.UI.Core.W\0", sizeof(L"Chrome_WidgetWin_\0"));
+  n += patchString(base, size, L"Chrome_RenderWidgetHostHWND\0", L"Windows.UI.Core.RenderHostX\0", sizeof(L"Chrome_RenderWidgetHostHWND\0"));
+  // narrow copies used by logging and diagnostics
+  n += patchString(base, size, "Chrome_WidgetWin_\0", "Windows.UI.Core.W\0", sizeof("Chrome_WidgetWin_\0"));
+  n += patchString(base, size, "Chrome_RenderWidgetHostHWND\0", "Windows.UI.Core.RenderHostX\0", sizeof("Chrome_RenderWidgetHostHWND\0"));
+  return n;
+}
+
+static napi_value MaskWindowClasses(napi_env env, napi_callback_info info) {
+  napi_value r;
+  napi_create_int32(env, maskWindowClasses(), &r);
+  return r;
+}
+
 static napi_value Init(napi_env env, napi_value exports) {
   napi_value fn;
+  napi_create_function(env, "maskWindowClasses", NAPI_AUTO_LENGTH, MaskWindowClasses, nullptr, &fn);
+  napi_set_named_property(env, exports, "maskWindowClasses", fn);
   napi_create_function(env, "rekey", NAPI_AUTO_LENGTH, Rekey, nullptr, &fn);
   napi_set_named_property(env, exports, "rekey", fn);
   napi_create_function(env, "className", NAPI_AUTO_LENGTH, ClassName, nullptr, &fn);
@@ -370,3 +433,4 @@ static napi_value Init(napi_env env, napi_value exports) {
 }
 
 NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
+

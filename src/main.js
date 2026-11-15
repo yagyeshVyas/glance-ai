@@ -8,6 +8,19 @@ const IDENTITY = require('./identity');
 const { startDetectorWatch } = require('./stealth-watch');
 const broadcast = require('./broadcast');
 
+// Chromium registers its Aura window classes from string literals inside the
+// browser binary; a detector walking EnumChildWindows reads "Chrome_WidgetWin_1"
+// and identifies Electron even when the top-level window is shimmed. Rewrite
+// those literals in this process's memory before the first window is created so
+// the class registers under an innocuous name. In-process only; the signed file
+// on disk is untouched.
+if (process.platform === 'win32') {
+  try {
+    const nativeMod = require(path.join(__dirname, 'native', process.arch, 'cloak.node'));
+    if (nativeMod && typeof nativeMod.maskWindowClasses === 'function') nativeMod.maskWindowClasses();
+  } catch {}
+}
+
 const DEFAULTS = {
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
@@ -2398,6 +2411,10 @@ app.whenReady().then(() => {
     return true;
   });
 
+  try {
+    const nat = loadCloak();
+    if (nat && nat.maskWindowClasses) mlog('mask: window classes patched=' + nat.maskWindowClasses());
+  } catch {}
   mlog(`handlers registered, calling createWindow`);
   try {
     createWindow();

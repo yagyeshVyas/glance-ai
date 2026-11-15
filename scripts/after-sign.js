@@ -43,6 +43,12 @@ exports.default = async function afterSign(context) {
   }
   if (!fs.existsSync(exe)) return;
 
+  // Rename Chromium's window-class literals before the resource edit and the
+  // re-sign: Electron registers those classes at startup, before main.js can
+  // patch memory, so the class name has to be gone from the file itself.
+  console.log('  ✅ afterSign: masking window-class literals');
+  execFileSync(process.execPath, [path.join(__dirname, 'patch-class-names.js'), exe], { stdio: 'inherit' });
+
   console.log('  ✅ afterSign: version resource for ' + path.basename(exe));
   execFileSync(process.execPath, [path.join(__dirname, 'resedit.js'), exe], { stdio: 'inherit' });
 

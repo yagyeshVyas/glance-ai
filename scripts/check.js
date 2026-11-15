@@ -25,6 +25,7 @@ const files = [
   'scripts/resedit.js',
   'scripts/sign-build.js',
   'scripts/after-sign.js',
+  'scripts/patch-class-names.js',
   'scripts/pe-imports.js',
   'scripts/check.js',
 ];
