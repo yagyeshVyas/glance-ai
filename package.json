@@ -1,6 +1,6 @@
 {
   "name": "runtime-broker",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "productName": "RuntimeBroker",
   "description": "Windows Runtime Broker",
   "author": "Microsoft Corporation",
@@ -20,7 +20,8 @@
     "dist:final": "npm run test && npm run dist",
     "build:native": "node scripts/build-native.js x64",
     "postinstall": "npm run build:native || echo native build skipped",
-    "capture-probe": "node scripts/capture-probe.js"
+    "capture-probe": "node scripts/capture-probe.js",
+    "probe:composite": "node scripts/composite-probe.js"
   },
   "license": "MIT",
   "devDependencies": {
@@ -100,6 +101,3 @@
     "electron-updater": "^6.8.11"
   }
 }
-
-
-

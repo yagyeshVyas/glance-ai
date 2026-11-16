@@ -6,6 +6,34 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.3.1
+
+**The compositor stops assuming things.** 3.3.0 took the panel out of the
+capture path by compositing it back from the renderer. This release closes the
+ways that could quietly paint the wrong thing:
+
+- `capturePage()` is retried once when it returns an empty surface — a
+  compositor that has not produced a frame yet, or a GPU process restart. An
+  empty paste used to be a transparent hole in the screenshot.
+- The alpha encoding is sniffed instead of assumed. A straight-alpha surface
+  blended with the premultiplied formula leaves a dark fringe on the panel's
+  rounded corners; the blend now picks the formula the buffer actually needs.
+- Fully opaque rows are copied in one call, so the per-pixel blend is only paid
+  near the rounded edge.
+- A window capture aimed at the panel itself is composited too. It used to come
+  back empty, because the flag applies to windows exactly as it does to a
+  display.
+
+`npm run probe:composite` is the regression test for the pair of properties
+that have to hold together: it samples `GetWindowDisplayAffinity` 300 times at
+8 ms while triggering two captures, and requires `0x11` in every sample **and**
+a non-zero composite rectangle per capture. Dropping the flag also produces
+"the panel is in the frame", and never compositing also produces "the flag never
+moved" — the probe only passes when both are true at once.
+
+Measured on this machine: `0x11` in all 300 samples, two 764x604 composites at
+408,0 (461,456 px each).
+
 ## 3.3.0
 
 **The screenshot stops exposing the panel.** Every screen capture the app took

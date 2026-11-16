@@ -997,7 +997,9 @@ async function captureScreen() {
     : sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
   if (!src) throw new Error(wantWindow ? 'Window is gone' : 'No screen source available');
 
-  const image = wantWindow ? src.thumbnail : await withPanelComposited(src.thumbnail, display);
+  const image = wantWindow
+    ? (capturesOurWindow(src) ? await compositeOwnWindow(src.thumbnail) : src.thumbnail)
+    : await withPanelComposited(src.thumbnail, display);
   const jpeg = image.toJPEG(82);
   return {
     b64: jpeg.toString('base64'),
@@ -1008,7 +1010,7 @@ async function captureScreen() {
   };
 }
 
-// Put the panel back into a screen capture that is missing it.
+// Put the panel back into a capture that is missing it.
 //
 // `desktopCapturer` honours WDA_EXCLUDEFROMCAPTURE, so a protected panel is not
 // in the frame — which is the point of the flag, and used to be worked around by
@@ -1018,77 +1020,172 @@ async function captureScreen() {
 // renders the page's own surface — so the panel can be painted back in without
 // the protection flag ever moving.
 //
-// The rect comes from the native addon, not from win.getBounds(): after the host
-// blend Electron's idea of the position goes stale (measured 179 px), while the
-// host window is exactly where the user sees the panel.
+// Everything in here is user mode: one GetWindowRect on the host (native addon),
+// one compositor read, and a bitmap blend. Nothing asks the display pipeline for
+// anything, which is why the flag can stay on.
 async function withPanelComposited(screenImage, display) {
   try {
-    const nat = loadCloak();
-    if (!nat || !nat.hostHandle || !nat.windowRect) return screenImage;
-    if (!win || win.isDestroyed() || !win.isVisible()) return screenImage;
-    const host = nat.hostHandle();
-    if (!host) return screenImage;
-    const r = nat.windowRect(host);
-    if (!r || !r.ok || r.w < 8 || r.h < 8) return screenImage;
-
-    const img = screenImage.getSize();
-    if (!img.width || !img.height) return screenImage;
-    const pxPerDipX = img.width / display.size.width;
-    const pxPerDipY = img.height / display.size.height;
-
-    // The addon reads GetWindowRect in this DPI-aware process, so the numbers are
-    // physical pixels; a DPI-unaware caller reads the same window scaled. Pick the
-    // unit by comparing against Electron's own DIP width — its position is stale,
-    // its size is not.
-    const dsf = display.scaleFactor || 1;
-    const bounds = win.getBounds();
-    const unit = Math.abs(r.w - bounds.width) <= Math.abs(r.w - bounds.width * dsf) ? 1 : dsf;
-
-    const x = Math.round((r.x / unit - display.bounds.x) * pxPerDipX);
-    const y = Math.round((r.y / unit - display.bounds.y) * pxPerDipY);
-    const w = Math.round((r.w / unit) * pxPerDipX);
-    const h = Math.round((r.h / unit) * pxPerDipY);
-    if (w < 8 || h < 8) return screenImage;
-
-    const page = (await win.webContents.capturePage()).resize({ width: w, height: h, quality: 'best' });
-    const top = page.toBitmap();
-    const base = screenImage.toBitmap();
-    if (top.length < w * h * 4 || base.length < img.width * img.height * 4) return screenImage;
-
-    let painted = 0;
-    for (let row = 0; row < h; row++) {
-      const ty = y + row;
-      if (ty < 0 || ty >= img.height) continue;
-      for (let col = 0; col < w; col++) {
-        const tx = x + col;
-        if (tx < 0 || tx >= img.width) continue;
-        const ti = (row * w + col) * 4;
-        const a = top[ti + 3];
-        if (!a) continue;
-        const si = (ty * img.width + tx) * 4;
-        if (a === 255) {
-          base[si] = top[ti];
-          base[si + 1] = top[ti + 1];
-          base[si + 2] = top[ti + 2];
-          base[si + 3] = 255;
-        } else {
-          // Skia bitmaps are premultiplied BGRA, so source-over is
-          // src + dst*(1-alpha) with no divide.
-          const inv = 255 - a;
-          base[si] = Math.min(255, top[ti] + ((base[si] * inv) / 255 | 0));
-          base[si + 1] = Math.min(255, top[ti + 1] + ((base[si + 1] * inv) / 255 | 0));
-          base[si + 2] = Math.min(255, top[ti + 2] + ((base[si + 2] * inv) / 255 | 0));
-          base[si + 3] = 255;
-        }
-        painted++;
-      }
-    }
-    if (!painted) return screenImage;
-    mlog(`composite: ${painted} px at ${x},${y} ${w}x${h} (unit ${unit})`);
-    return nativeImage.createFromBitmap(base, { width: img.width, height: img.height });
+    const rect = panelRectOnDisplay(display, screenImage.getSize());
+    if (!rect) return screenImage;
+    const page = await capturePageOnce();
+    if (!page) return screenImage;
+    return paintPanel(screenImage, page, rect);
   } catch (e) {
     mlog('composite: ' + (e && e.message));
     return screenImage;
+  }
+}
+
+// Where the panel sits inside a captured display, in the capture's pixels.
+//
+// The rect comes from the native addon, not from win.getBounds(): after the host
+// blend Electron's idea of the position goes stale (measured 179 px), while the
+// host window is exactly where the user sees the panel.
+function panelRectOnDisplay(display, img) {
+  const nat = loadCloak();
+  if (!nat || !nat.hostHandle || !nat.windowRect) return null;
+  if (!win || win.isDestroyed() || !win.isVisible()) return null;
+  const host = nat.hostHandle();
+  if (!host) return null;
+  const r = nat.windowRect(host);
+  if (!r || !r.ok || r.w < 8 || r.h < 8) return null;
+  if (!img || !img.width || !img.height) return null;
+
+  // The addon reads GetWindowRect in this DPI-aware process, so the numbers are
+  // physical pixels; a DPI-unaware caller reads the same window scaled. Pick the
+  // unit by comparing against Electron's own DIP width — its position is stale,
+  // its size is not.
+  const dsf = display.scaleFactor || 1;
+  const bounds = win.getBounds();
+  const unit = Math.abs(r.w - bounds.width) <= Math.abs(r.w - bounds.width * dsf) ? 1 : dsf;
+  const pxPerDipX = img.width / display.size.width;
+  const pxPerDipY = img.height / display.size.height;
+
+  const x = Math.round((r.x / unit - display.bounds.x) * pxPerDipX);
+  const y = Math.round((r.y / unit - display.bounds.y) * pxPerDipY);
+  const w = Math.round((r.w / unit) * pxPerDipX);
+  const h = Math.round((r.h / unit) * pxPerDipY);
+  if (w < 8 || h < 8) return null;
+  return { x, y, w, h };
+}
+
+// capturePage() can come back as an empty surface — a window whose compositor
+// has not produced a frame yet, or right after a GPU process restart. Pasting
+// that would paint a transparent hole into the screenshot, so it is retried.
+async function capturePageOnce() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let img = null;
+    try { img = await win.webContents.capturePage(); } catch {}
+    const size = img && img.getSize ? img.getSize() : null;
+    if (size && size.width > 0 && size.height > 0) return img;
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  return null;
+}
+
+function rowOpaque(buf, off, cols) {
+  for (let i = 0; i < cols; i++) if (buf[off + i * 4 + 3] !== 255) return false;
+  return true;
+}
+
+// Skia hands back premultiplied BGRA on Windows, but that is an implementation
+// detail of the image decoder, not a contract. A straight-alpha surface blended
+// with the premultiplied formula leaves a dark fringe on the panel's rounded
+// corners, so the encoding is sniffed rather than assumed: in a premultiplied
+// surface no colour channel can exceed its alpha.
+function isPremultiplied(buf, w, h) {
+  const total = w * h;
+  const stride = Math.max(1, Math.floor(total / 4096));
+  for (let p = 0; p < total; p += stride) {
+    const o = p * 4;
+    const a = buf[o + 3];
+    if (buf[o] > a + 1 || buf[o + 1] > a + 1 || buf[o + 2] > a + 1) return false;
+  }
+  return true;
+}
+
+// Alpha-composite the page image into the frame at `rect`, clipped to the frame.
+// Fully opaque rows are a straight copy — a glass panel is only transparent near
+// its rounded edge, so most rows take that path and the per-pixel blend is only
+// paid for the few that need it.
+function paintPanel(baseImage, pageImage, rect) {
+  const img = baseImage.getSize();
+  if (!img.width || !img.height) return baseImage;
+  const page = pageImage.resize({ width: rect.w, height: rect.h, quality: 'best' });
+  const top = page.toBitmap();
+  const base = baseImage.toBitmap();
+  if (top.length < rect.w * rect.h * 4) return baseImage;
+  if (base.length < img.width * img.height * 4) return baseImage;
+
+  const premul = isPremultiplied(top, rect.w, rect.h);
+  const x0 = Math.max(0, rect.x);
+  const y0 = Math.max(0, rect.y);
+  const x1 = Math.min(img.width, rect.x + rect.w);
+  const y1 = Math.min(img.height, rect.y + rect.h);
+  if (x1 <= x0 || y1 <= y0) return baseImage;
+
+  const cols = x1 - x0;
+  let painted = 0;
+  for (let ty = y0; ty < y1; ty++) {
+    const row = ty - rect.y;
+    const src0 = (row * rect.w + (x0 - rect.x)) * 4;
+    const dst0 = (ty * img.width + x0) * 4;
+    if (rowOpaque(top, src0, cols)) {
+      top.copy(base, dst0, src0, src0 + cols * 4);
+      painted += cols;
+      continue;
+    }
+    for (let i = 0; i < cols; i++) {
+      const ti = src0 + i * 4;
+      const a = top[ti + 3];
+      if (!a) continue;
+      const si = dst0 + i * 4;
+      if (a === 255) {
+        base[si] = top[ti];
+        base[si + 1] = top[ti + 1];
+        base[si + 2] = top[ti + 2];
+        base[si + 3] = 255;
+      } else {
+        const inv = 255 - a;
+        if (premul) {
+          base[si] = Math.min(255, top[ti] + ((base[si] * inv) / 255 | 0));
+          base[si + 1] = Math.min(255, top[ti + 1] + ((base[si + 1] * inv) / 255 | 0));
+          base[si + 2] = Math.min(255, top[ti + 2] + ((base[si + 2] * inv) / 255 | 0));
+        } else {
+          base[si] = Math.min(255, ((top[ti] * a) / 255 | 0) + ((base[si] * inv) / 255 | 0));
+          base[si + 1] = Math.min(255, ((top[ti + 1] * a) / 255 | 0) + ((base[si + 1] * inv) / 255 | 0));
+          base[si + 2] = Math.min(255, ((top[ti + 2] * a) / 255 | 0) + ((base[si + 2] * inv) / 255 | 0));
+        }
+        base[si + 3] = 255;
+      }
+      painted++;
+    }
+  }
+  if (!painted) return baseImage;
+  mlog(`composite: ${painted} px at ${x0},${y0} ${cols}x${y1 - y0}${premul ? '' : ' (straight alpha)'}`);
+  return nativeImage.createFromBitmap(base, { width: img.width, height: img.height });
+}
+
+// A window capture of the panel itself comes back empty for the same reason a
+// screen capture does: the flag applies to the window. The page fills that
+// window exactly, so the composite is the whole frame.
+function capturesOurWindow(src) {
+  const nat = loadCloak();
+  const m = /^window:(\d+)/.exec(String((src && src.id) || ''));
+  if (!m || !nat || !nat.hostHandle) return false;
+  return String(nat.hostHandle()) === m[1];
+}
+
+async function compositeOwnWindow(image) {
+  try {
+    const page = await capturePageOnce();
+    if (!page) return image;
+    const size = image.getSize();
+    if (!size.width || !size.height) return image;
+    return paintPanel(image, page, { x: 0, y: 0, w: size.width, h: size.height });
+  } catch (e) {
+    mlog('composite: ' + (e && e.message));
+    return image;
   }
 }
 

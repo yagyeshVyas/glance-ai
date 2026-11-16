@@ -320,6 +320,18 @@ Two details that make it work rather than nearly work:
   picks the unit by comparing the read width against Electron's DIP width (its
   size is reliable even when its position is not).
 
+Three failure modes are handled rather than assumed:
+
+- **An empty compositor read.** `capturePage()` can return a zero-sized surface
+  while a window has no frame yet; pasting that would paint a transparent hole,
+  so it is retried and, failing that, the frame is left alone.
+- **The alpha encoding.** Premultiplied and straight alpha need different
+  blends; the buffer is sniffed (no channel may exceed its alpha) instead of
+  trusting the decoder.
+- **A window capture of the panel itself.** The flag applies to windows exactly
+  as it does to a display, so that source is empty too — the page fills the
+  window, so the whole frame is the composite.
+
 A failure here is not silent: the trace log gets `composite: <n> px at x,y w×h`,
 and `scripts/capture-frame.js` saves the exact JPEG the screenshot path
 produced so it can be compared with what is on screen.
