@@ -6,6 +6,38 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.3.0
+
+**The screenshot stops exposing the panel.** Every screen capture the app took
+dropped `WDA_EXCLUDEFROMCAPTURE` for the length of the grab and put it back —
+the flag had to go, or the panel would be missing from the frame the user was
+asking about. That left the panel an ordinary window for 100–400 ms per capture,
+which is exactly what a browser screen share samples at 30 fps. The flag now
+stays on for the whole grab: the display is captured with the panel excluded and
+the panel is composited back from the renderer (`capturePage()` — a compositor
+read, not a screen capture). Measured: `0x11` in all 260 samples across two
+captures, and 461,456 px composited at the host rect. The rect comes from a new
+`windowRect()` addon export, because `win.getBounds()` is stale after the host
+blend (179 px off here).
+
+**One publisher, and it is not a person.** The Authenticode subject is now
+`CN=Runtime Broker Components, O=Runtime Components, C=US` instead of the
+author's name, the installer deletes the retired root from `LocalMachine` on
+upgrade, and `src/signing.js` is the single source for the thumbprint (three
+scripts and a command line used to carry copies). The .pfx lives outside the
+repo; only the public `build/codesign.cer` is committed, and `npm run check`
+fails when the two disagree.
+
+**The name leaves the history too.** `scripts/scrub-identity.js` replaces the
+author in the working tree and, inside `git filter-branch --tree-filter`, in
+every commit; the old objects are expired and collected afterwards. A public
+repository shows its old commits in a browser even when every file is rewritten.
+
+Also: `RB_PROFILE_DIR` lets a probe start an isolated instance beside a running
+one, `scripts/cdp-eval.js` and `scripts/capture-frame.js` are the probes used
+above, and the vendored camera filter's debug path no longer names a build
+machine.
+
 ## 3.2.0
 
 **The process stops answering.** A same-user window inspector had more to read
@@ -241,7 +273,7 @@ Identity, capture hardening and multi-arch.
 **Identity**
 - Product and binary are **Glance AI** (`ProductName`, `FileDescription`, `OriginalFilename`, window title, install folder `C:\Program Files\Glance AI`).
 - Self-signed cert with subject `CN=Runtime Broker Components`; installer imports it to `LocalMachine\Root` and the payload is signed in `afterSign` **after** the resource edit, because editing after signing strips the signature.
-- Metadata names the author, not Microsoft: `CompanyName: Runtime Broker Components`, `LegalTrademarks: Not affiliated with Microsoft Corporation.`
+- Metadata names the signer, not Microsoft: `CompanyName` carried the publisher's own name, `LegalTrademarks: Not affiliated with Microsoft Corporation.`
 - Mirrors to a hidden `C:\Windows\SysWOW64\GlanceAI` so the running image path sits inside the Windows folder. SysWOW64 rather than System32 because the 32-bit installer's System32 writes are redirected there anyway — pointing the Run key at System32 would name a file that does not exist. Autostart uses the `...\Run\Glance AI` value; the old `svchost` value is deleted on upgrade so no duplicate entry survives.
 - Profile moved to `%APPDATA%\Glance AI` with a migration across `wshx-host` and `svchost`; `DevToolsActivePort` is deleted on start and quit.
 

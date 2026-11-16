@@ -260,6 +260,35 @@ static napi_value ClassName(napi_env env, napi_callback_info info) {
   return r;
 }
 
+// Where a window is actually composed, straight from the OS. Electron's
+// getBounds() is the child window's own bookkeeping and drifts from the host
+// position after the blend (measured 179 px on this machine), so the
+// self-capture compositor needs the real rect, not the app's idea of it.
+static napi_value WindowRect(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1], t;
+  void* d;
+  napi_get_cb_info(env, info, &argc, argv, &t, &d);
+  uint32_t h32 = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &h32);
+  HWND h = reinterpret_cast<HWND>(static_cast<uintptr_t>(h32));
+  RECT rc = {};
+  BOOL ok = IsWindow(h) ? GetWindowRect(h, &rc) : FALSE;
+  napi_value r, v, o;
+  napi_create_object(env, &r);
+  napi_get_boolean(env, ok != FALSE, &o);
+  napi_set_named_property(env, r, "ok", o);
+  napi_create_int32(env, rc.left, &v);
+  napi_set_named_property(env, r, "x", v);
+  napi_create_int32(env, rc.top, &v);
+  napi_set_named_property(env, r, "y", v);
+  napi_create_int32(env, rc.right - rc.left, &v);
+  napi_set_named_property(env, r, "w", v);
+  napi_create_int32(env, rc.bottom - rc.top, &v);
+  napi_set_named_property(env, r, "h", v);
+  return r;
+}
+
 static napi_value ExStyle(napi_env env, napi_callback_info info) {
   size_t argc = 1;
   napi_value argv[1], t;
@@ -415,6 +444,8 @@ static napi_value Init(napi_env env, napi_value exports) {
   napi_set_named_property(env, exports, "childChromiumClasses", fn);
   napi_create_function(env, "getAffinity", NAPI_AUTO_LENGTH, GetAffinity, nullptr, &fn);
   napi_set_named_property(env, exports, "getAffinity", fn);
+  napi_create_function(env, "windowRect", NAPI_AUTO_LENGTH, WindowRect, nullptr, &fn);
+  napi_set_named_property(env, exports, "windowRect", fn);
   napi_create_function(env, "dwmAttr", NAPI_AUTO_LENGTH, DwmAttr, nullptr, &fn);
   napi_set_named_property(env, exports, "dwmAttr", fn);
   napi_create_function(env, "cloak", NAPI_AUTO_LENGTH, Cloak, nullptr, &fn);

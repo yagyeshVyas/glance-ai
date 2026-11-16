@@ -288,7 +288,43 @@ covered by `node scripts/eye-probe.js` (no camera needed):
 - Face selection prefers a face in the right/bottom of the frame (where call
   apps put your self-view) over the largest tile, which is the other party.
 
-## 14. User-mode hardening layer
+## 14. The screenshot no longer lifts the flag
+
+`setContentProtection` excludes the panel from *every* capture, including the
+app's own — so `captureScreen()` used to clear the flag, wait 90 ms for DWM to
+recomposite, grab, and restore it. The panel was an ordinary capturable window
+for 100–400 ms on every screenshot: a browser screen share at 30 fps could
+receive it, and a `GetWindowDisplayAffinity` poll during a capture read `0x0`.
+
+Since 3.3.0 the flag stays on for the whole grab. The display comes back without
+the panel, the panel's own surface is read from the renderer
+(`webContents.capturePage()`, a compositor read that never touches the display),
+and the two are alpha-composited at the host window's real rectangle. The model
+still gets the panel in the frame; no other capturer ever does.
+
+Measured during two captures, 260 samples at 8 ms:
+
+```
+host GetWindowDisplayAffinity   0x11 in every sample
+composite                       461,456 px at 408,0 764x604 (unit 1.25)
+```
+
+Two details that make it work rather than nearly work:
+
+- **The rect is the host's, from the addon.** `win.getBounds()` is Electron's
+  bookkeeping for the child window and goes stale after the blend — measured
+  179 px off, which pastes the panel into the wrong place. `windowRect()` on
+  `cloak.node` returns `GetWindowRect` of the host.
+- **The units are decided per call.** `GetWindowRect` is physical in this
+  DPI-aware process and DIP-scaled for a DPI-unaware caller, so the mapping
+  picks the unit by comparing the read width against Electron's DIP width (its
+  size is reliable even when its position is not).
+
+A failure here is not silent: the trace log gets `composite: <n> px at x,y w×h`,
+and `scripts/capture-frame.js` saves the exact JPEG the screenshot path
+produced so it can be compared with what is on screen.
+
+## 15. User-mode hardening layer
 
 `HARDENING.md` is the full read-by-read map of every surface a detector can
 inspect, including the ones that cannot be closed in user mode. The code for the

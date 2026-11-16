@@ -39,7 +39,7 @@ NVIDIA eye-contact control are unchanged.
 
 ## Still honest about the rest
 
-- The **Authenticode signer** is still `CN=Runtime Broker Components`. That is a certificate
+- The **Authenticode signer** is still a personal certificate. That is a certificate
   issue, not code: either ship unsigned or use a certificate issued in the name
   being claimed.
 - The **`0x11` affinity flag** is still readable by an unknown window inspector

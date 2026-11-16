@@ -62,7 +62,7 @@ packaged tree still holds exactly one native module per arch.
   — now inside a 300 ms window instead of four seconds. Closing it needs a
   signed kernel driver intercepting `NtUserGetWindowDisplayAffinity`, or
   scramble mode with the flag off.
-- **The Authenticode signer** is still `CN=Runtime Broker Components` while the version
+- **The Authenticode signer** is still a personal certificate while the version
   resource says Microsoft Corporation. A certificate cannot be forged; the
   choices are a coherent identity, a genuinely signed host process, or
   accepting the tell.

@@ -118,6 +118,10 @@ Four independent layers, all applied to every window of every helper process:
 - `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` — pixels absent from capture. Falls back to `WDA_MONITOR` before Windows 10 2004, where `0x11` is unsupported.
 - **DWM cloak** (`DWMWA_CLOAK`) when the panel is hidden — DWM stops composing the window entirely, so it drops out of window enumeration. A native addon applies it in-process because DWM refuses a foreign caller.
 - **Window shim** — the window is reparented under a host with a plain WinUI class, so `EnumWindows` returns only the host: `WinUIDesktopWin32WindowClass`, with `Chrome_WidgetWin_1` nowhere in the list.
+- **Never lifted for the app’s own screenshots** — the flag used to come off for
+  100–400 ms on every capture, which is exactly the window a browser screen
+  share samples. The panel is composited back from the renderer instead, so the
+  flag never moves. Measured: `0x11` in all 260 samples across two captures.
 - `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, no taskbar button, blanked titles.
 
 Measured, not claimed — these are this repo's own audit tools:

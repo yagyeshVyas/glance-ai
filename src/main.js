@@ -528,10 +528,11 @@ function removeDevtoolsPort() {
   try { fs.unlinkSync(path.join(app.getPath('userData'), 'DevToolsActivePort')); } catch {}
 }
 
-// While we grab our OWN screen frame, capture protection must be OFF or the
-// overlay is excluded from a screenshot we are taking for ourselves (blank
-// frame / missing panel). Cluely does exactly this with isCapturingScreenshot.
-let selfCapturing = false;
+// Capture protection is never lifted for our own screenshot. Lifting it — the
+// behaviour until 3.3.0 — made the panel capturable by every other capturer for
+// the whole grab (90 ms settle plus the source enumeration), which is exactly
+// the window a browser screen share samples at 30 fps. `captureScreen()`
+// composites the panel back from the renderer instead.
 
 // A known window inspector (Process Explorer, a proctoring client) is running.
 // While true the exclusion flag is dropped — the panel becomes capturable, so
@@ -608,7 +609,7 @@ function applyAffinity() {
   const host = nat.hostHandle();
   if (!host) return;
 
-  const wantOn = Boolean(cfg.stealth) && !selfCapturing && !flaglessMode;
+  const wantOn = Boolean(cfg.stealth) && !flaglessMode;
 
   // The exclusion flag only works on TOP-LEVEL windows, so it has to live on the
   // host; a call on the reparented child is accepted but has no effect, which
@@ -631,7 +632,7 @@ function applyAffinity() {
 
 function applyStealth() {
   if (win && !win.isDestroyed()) {
-    win.setContentProtection(Boolean(cfg.stealth) && !selfCapturing && !flaglessMode);
+    win.setContentProtection(Boolean(cfg.stealth) && !flaglessMode);
   }
   // the exclusion flag is top-level only; with the blend host present the flag
   // belongs on the host, and a call on the child is accepted but ignored
@@ -983,35 +984,111 @@ async function captureScreen() {
   const scale = Math.min(1, 1920 / Math.max(width, height)); // 1920px keeps code/text legible
   const thumbW = Math.round(width * scale);
   const thumbH = Math.round(height * scale);
-  // Capture protection excludes the overlay from the very screenshot we are
-  // taking, so drop it for the grab and set it back afterwards.
-  selfCapturing = Boolean(cfg.stealth);
+  // Protection stays on for the entire grab. The panel is therefore missing from
+  // this frame and is composited back from the renderer — see
+  // withPanelComposited() — instead of being exposed to every other capturer for
+  // the length of the screenshot.
+  const sources = await desktopCapturer.getSources({
+    types: wantWindow ? ['window'] : ['screen'],
+    thumbnailSize: { width: thumbW, height: thumbH },
+  });
+  const src = wantWindow
+    ? sources.find((s) => String(s.id) === wantWindow) || sources[0]
+    : sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+  if (!src) throw new Error(wantWindow ? 'Window is gone' : 'No screen source available');
+
+  const image = wantWindow ? src.thumbnail : await withPanelComposited(src.thumbnail, display);
+  const jpeg = image.toJPEG(82);
+  return {
+    b64: jpeg.toString('base64'),
+    tokens: visionTokens(thumbW, thumbH),
+    // OCR is extracted locally so the model gets exact text for code, forms
+    // and tables instead of having to read glyphs out of the pixels
+    text: cfg.ocr ? ocrBuffer(jpeg) : '',
+  };
+}
+
+// Put the panel back into a screen capture that is missing it.
+//
+// `desktopCapturer` honours WDA_EXCLUDEFROMCAPTURE, so a protected panel is not
+// in the frame — which is the point of the flag, and used to be worked around by
+// turning the flag off for the screenshot. That workaround exposed the panel to
+// every other capturer (a browser screen share included) for the duration of the
+// grab. The renderer's compositor is not a screen capture — capturePage()
+// renders the page's own surface — so the panel can be painted back in without
+// the protection flag ever moving.
+//
+// The rect comes from the native addon, not from win.getBounds(): after the host
+// blend Electron's idea of the position goes stale (measured 179 px), while the
+// host window is exactly where the user sees the panel.
+async function withPanelComposited(screenImage, display) {
   try {
-    if (selfCapturing) {
-      applyStealth();
-      await new Promise((r) => setTimeout(r, 90)); // let DWM re-composite
+    const nat = loadCloak();
+    if (!nat || !nat.hostHandle || !nat.windowRect) return screenImage;
+    if (!win || win.isDestroyed() || !win.isVisible()) return screenImage;
+    const host = nat.hostHandle();
+    if (!host) return screenImage;
+    const r = nat.windowRect(host);
+    if (!r || !r.ok || r.w < 8 || r.h < 8) return screenImage;
+
+    const img = screenImage.getSize();
+    if (!img.width || !img.height) return screenImage;
+    const pxPerDipX = img.width / display.size.width;
+    const pxPerDipY = img.height / display.size.height;
+
+    // The addon reads GetWindowRect in this DPI-aware process, so the numbers are
+    // physical pixels; a DPI-unaware caller reads the same window scaled. Pick the
+    // unit by comparing against Electron's own DIP width — its position is stale,
+    // its size is not.
+    const dsf = display.scaleFactor || 1;
+    const bounds = win.getBounds();
+    const unit = Math.abs(r.w - bounds.width) <= Math.abs(r.w - bounds.width * dsf) ? 1 : dsf;
+
+    const x = Math.round((r.x / unit - display.bounds.x) * pxPerDipX);
+    const y = Math.round((r.y / unit - display.bounds.y) * pxPerDipY);
+    const w = Math.round((r.w / unit) * pxPerDipX);
+    const h = Math.round((r.h / unit) * pxPerDipY);
+    if (w < 8 || h < 8) return screenImage;
+
+    const page = (await win.webContents.capturePage()).resize({ width: w, height: h, quality: 'best' });
+    const top = page.toBitmap();
+    const base = screenImage.toBitmap();
+    if (top.length < w * h * 4 || base.length < img.width * img.height * 4) return screenImage;
+
+    let painted = 0;
+    for (let row = 0; row < h; row++) {
+      const ty = y + row;
+      if (ty < 0 || ty >= img.height) continue;
+      for (let col = 0; col < w; col++) {
+        const tx = x + col;
+        if (tx < 0 || tx >= img.width) continue;
+        const ti = (row * w + col) * 4;
+        const a = top[ti + 3];
+        if (!a) continue;
+        const si = (ty * img.width + tx) * 4;
+        if (a === 255) {
+          base[si] = top[ti];
+          base[si + 1] = top[ti + 1];
+          base[si + 2] = top[ti + 2];
+          base[si + 3] = 255;
+        } else {
+          // Skia bitmaps are premultiplied BGRA, so source-over is
+          // src + dst*(1-alpha) with no divide.
+          const inv = 255 - a;
+          base[si] = Math.min(255, top[ti] + ((base[si] * inv) / 255 | 0));
+          base[si + 1] = Math.min(255, top[ti + 1] + ((base[si + 1] * inv) / 255 | 0));
+          base[si + 2] = Math.min(255, top[ti + 2] + ((base[si + 2] * inv) / 255 | 0));
+          base[si + 3] = 255;
+        }
+        painted++;
+      }
     }
-    const sources = await desktopCapturer.getSources({
-      types: wantWindow ? ['window'] : ['screen'],
-      thumbnailSize: { width: thumbW, height: thumbH },
-    });
-    const src = wantWindow
-      ? sources.find((s) => String(s.id) === wantWindow) || sources[0]
-      : sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
-    if (!src) throw new Error(wantWindow ? 'Window is gone' : 'No screen source available');
-    const jpeg = src.thumbnail.toJPEG(82);
-    return {
-      b64: jpeg.toString('base64'),
-      tokens: visionTokens(thumbW, thumbH),
-      // OCR is extracted locally so the model gets exact text for code, forms
-      // and tables instead of having to read glyphs out of the pixels
-      text: cfg.ocr ? ocrBuffer(jpeg) : '',
-    };
-  } finally {
-    if (selfCapturing) {
-      selfCapturing = false;
-      applyStealth();
-    }
+    if (!painted) return screenImage;
+    mlog(`composite: ${painted} px at ${x},${y} ${w}x${h} (unit ${unit})`);
+    return nativeImage.createFromBitmap(base, { width: img.width, height: img.height });
+  } catch (e) {
+    mlog('composite: ' + (e && e.message));
+    return screenImage;
   }
 }
 
@@ -1050,9 +1127,9 @@ function ocrBuffer(jpegBuf) {
 const GHOST_SAMPLE = { w: 180, h: 110 };
 
 function grabRaw(display) {
-  // desktopCapturer only — deliberately does not touch selfCapturing, because
-  // the panel has to stay protected while the check runs.
   const s = display.scaleFactor || 1;
+  // desktopCapturer only — never touches capture protection, so the panel stays
+  // excluded for the whole check.
   return desktopCapturer.getSources({
     types: ['screen'],
     thumbnailSize: {
@@ -1864,6 +1941,16 @@ try {
   }
 } catch {}
 
+// Test hook: a second, isolated instance for the probes. The single-instance
+// lock is keyed on userData, and the app later forces userData to its own
+// profile folder — so an isolated run has to move it *before* the lock is taken,
+// or a probe launched while the user's overlay is running would simply exit.
+// Only the probes set it (`scripts/browser-proof.js`, `scripts/cdp-eval.js`
+// flows); a normal launch never sees the variable.
+if (process.env.RB_PROFILE_DIR) {
+  try { app.setPath('userData', process.env.RB_PROFILE_DIR); } catch {}
+}
+
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) {
   app.quit();
@@ -1968,7 +2055,7 @@ app.whenReady().then(() => {
   // reads as the app's name in every file listing. We keep it under APPDATA so
   // the wipe-helper path math (sibling of userData) still works, and the
   // folder name blends in with the rest of the per-user app state.
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && !process.env.RB_PROFILE_DIR) {
     try {
       // one-time migration across every previous name, oldest first so the most
       // recent profile wins. Chromium pre-creates the new folder, so copy missing

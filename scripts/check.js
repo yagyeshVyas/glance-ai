@@ -75,4 +75,49 @@ if (!nsh.includes('"Software\\Microsoft\\Windows\\CurrentVersion\\Run" "' + IDEN
 }
 if (!bad) console.log('ok   identity (package.json <-> src/identity.js <-> build/installer.nsh)');
 
+// The project must not name a person anywhere it ships: not in the signature,
+// not in package metadata, not on the site, not in a doc. This is the same walk
+// the history filter uses, so a regression in the working tree is caught before
+// it can be committed.
+try {
+  execFileSync(process.execPath, [path.join(__dirname, 'scrub-identity.js'), '--check'], { stdio: 'pipe' });
+  console.log('ok   publisher (no personal name in the tree)');
+} catch (e) {
+  bad++;
+  console.error('FAIL publisher: a personal name is still in the tree\n' + String(e.stdout || '').trim());
+}
+
+// A thumbprint is a selector, not a signature: a wrong one produces an unsigned
+// build and an installer that trusts nothing, both silently. The committed .cer
+// is the certificate the installer imports, so its SHA-1 *is* the thumbprint the
+// build must select — comparing them catches a re-issued cert that was exported
+// without updating the module.
+const SIGNING = require('../src/signing');
+if (!/^[0-9A-F]{40}$/.test(SIGNING.THUMBPRINT || '')) {
+  bad++; console.error('FAIL signing: thumbprint is not a 40-hex SHA-1');
+}
+if (!/^CN=[^,]+/.test(SIGNING.SUBJECT || '')) {
+  bad++; console.error('FAIL signing: subject has no CN');
+}
+try {
+  const der = fs.readFileSync(path.join(__dirname, '..', 'build', 'codesign.cer'));
+  const thumb = require('crypto').createHash('sha1').update(der).digest('hex').toUpperCase();
+  if (thumb !== SIGNING.THUMBPRINT) {
+    bad++;
+    console.error('FAIL signing: build/codesign.cer is ' + thumb + ' but src/signing.js pins ' + SIGNING.THUMBPRINT);
+  }
+} catch (e) {
+  bad++; console.error('FAIL signing: build/codesign.cer is unreadable (' + e.message + ')');
+}
+if (!bad) console.log('ok   signing (' + SIGNING.SUBJECT.split(',')[0] + ', .cer matches)');
+
+// The site prints the release it documents. A version bump that misses it is a
+// page advertising the previous build.
+const siteHtml = fs.readFileSync(path.join(__dirname, '..', 'website', 'index.html'), 'utf8');
+if (!siteHtml.includes('"' + pkg.version + '"') && !siteHtml.includes('v' + pkg.version)) {
+  bad++; console.error('FAIL version: website/index.html does not carry ' + pkg.version);
+} else {
+  console.log('ok   version (' + pkg.version + ' on site and in package.json)');
+}
+
 process.exit(bad ? 1 : 0);

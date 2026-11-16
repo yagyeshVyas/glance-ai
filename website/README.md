@@ -118,6 +118,6 @@ Product claims, hotkeys, limits and comparison rows are taken from the repositor
 - [Lenis](https://github.com/darkroomengineering/lenis): MIT
 - CSS 3D transforms: native, no runtime library
 - Manrope and Instrument Serif: SIL Open Font License
-- Demo capture, logo and screenshots: Glance AI / Runtime Broker Components
+- Demo capture, logo and screenshots: Glance AI
 
 Glance AI is MIT licensed. The website is part of the project repository.

@@ -81,17 +81,14 @@ function probeExe() {
   return path.join(cacheDir(), `probe-${sourceHash()}.exe`);
 }
 
-// The repo already pins the local signing certificate twice — as a subject in
-// build.win.signtoolOptions and as a thumbprint in the `dist:signed` script.
-// Subject-only selection is ambiguous (signtool finds several certs by name), so
-// prefer the pinned thumbprint and fall back to the subject.
+// One pinned pair, from src/signing.js — the same module the build's sign hooks
+// use. Subject-only selection is ambiguous (signtool finds several certs by
+// name), so the thumbprint is the selector and the subject is only a fallback.
+// A missing module means "no signing", never "sign with whatever is installed".
 function certIdentity() {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    const opts = (pkg.build && pkg.build.win && pkg.build.win.signtoolOptions) || {};
-    const script = (pkg.scripts && pkg.scripts['dist:signed']) || '';
-    const m = script.match(/certificateSha1=([0-9A-Fa-f]+)/);
-    return { thumbprint: m ? m[1] : '', subject: opts.certificateSubjectName || '' };
+    const s = require('../src/signing');
+    return { thumbprint: s.THUMBPRINT || '', subject: s.SUBJECT || '' };
   } catch {
     return { thumbprint: '', subject: '' };
   }

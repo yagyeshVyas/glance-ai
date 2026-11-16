@@ -14,7 +14,8 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const IDENTITY = require('../src/identity');
 const EXE = path.join(ROOT, 'dist', 'win-unpacked', IDENTITY.EXE);
-const CERT_THUMB = process.env.WSHX_CERT_THUMB || 'E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C';
+const { THUMBPRINT } = require('../src/signing');
+const CERT_THUMB = process.env.WSHX_CERT_THUMB || THUMBPRINT;
 
 function signtool() {
   const kits = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';

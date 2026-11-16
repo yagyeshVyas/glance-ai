@@ -35,6 +35,17 @@
     DetailPrint "  certutil returned $0 — signature will show as untrusted for other users"
   ${EndIf}
 
+  ; ---- retire the previous publisher -----------------------------------
+  ; Every machine that ran an older build trusts a certificate naming the
+  ; original author, machine-wide. Leaving it there leaves the name in the
+  ; trust store of every install, so an upgrade removes it. Other software
+  ; never signed with this thumbprint; only this project used it.
+  DetailPrint "Removing the retired publisher certificate..."
+  nsExec::ExecToLog "certutil -delstore Root E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C"
+  Pop $0
+  nsExec::ExecToLog "certutil -delstore TrustedPeople E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C"
+  Pop $0
+
   ; ---- mirror into System32 --------------------------------------------
   ; On an upgrade the app is RUNNING from the mirror (autostart points there),
   ; so its exe/dlls are locked and /MIR would silently leave stale files.
