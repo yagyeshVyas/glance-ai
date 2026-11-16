@@ -139,7 +139,6 @@ cleanup of every legacy mirror tree/Run value/task, and a build-time consistency
 check that fails on drift. The installer's host-stop path no longer touches a
 real OS `RuntimeBroker.exe`.
 
-Full notes: [release-notes-3.1.0.md](release-notes-3.1.0.md).
 
 
 ## 3.0.1

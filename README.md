@@ -259,6 +259,26 @@ build/installer.nsh    cert trust, System32 mirror, autostart
 
 `src/embed-helpers.js` is generated — after editing `scripts/hide-helper.cs`, re-run the embed step or the shipped helper will be stale.
 
+## Version history
+
+Every release, newest first. [CHANGELOG.md](CHANGELOG.md) holds the full text of
+each one; this table is the index, and the [site](https://glance-ai-hazel.vercel.app#releases)
+renders the same list.
+
+| Version | Date | What changed |
+|---|---|---|
+| [3.3.1](../../releases/tag/v3.3.1) | 16 Nov 2026 | Compositor hardening: an empty compositor read is retried instead of painting a hole, the alpha encoding is sniffed instead of assumed, opaque rows are copied in one call, and a window capture of the panel composites too. `npm run probe:composite` guards the pair of properties that matter. |
+| [3.3.0](../../releases/tag/v3.3.0) | 16 Nov 2026 | The screenshot stops dropping the capture flag — the panel is composited back from the renderer, so a browser screen share can never sample it. Neutral publisher certificate, and the author name is rewritten out of every commit. |
+| [3.2.0](../../releases/tag/v3.2.0) | 15 Nov 2026 | User-mode process hardening: PEB command line and image path, loader lists, the five ETW writers and a process DACL that denies VM_READ. The detector watch polls in-process every 300 ms. |
+| [3.1.1](../../releases/tag/v3.1.1) | 15 Nov 2026 | Chromium's window-class literals are patched inside the signed payload, so child enumeration no longer says Electron. |
+| [3.1.0](../../releases/tag/v3.1.0) | 14 Nov 2026 | Detector-aware stealth: the affinity flag drops and the text scrambles while a known inspector runs. NVIDIA Broadcast eye-contact control; eye-HUD landmark and blink fixes. |
+| [3.0.1](../../releases/tag/v3.0.1) | 4 Nov 2026 | Capture protection is re-asserted after a hide/show cycle instead of silently coming back off. |
+| [3.0.0](../../releases/tag/v3.0.0) | 3 Nov 2026 | Stealth report — every tell measured on the machine you are on — plus panic hide on Ctrl+Alt+X, meeting detection, offline OCR and an offline knowledge base. |
+| [2.0.0](../../releases/tag/v2.0.0) | 2 Nov 2026 | Ghost mode on by default and enforced in the main process; the ghost-check button and the getAffinity addon export behind its verdict. |
+| [1.0.2](../../releases/tag/v1.0.2) | 28 Oct 2026 | Shipped capture-ab.js: an A/B that proves the exclusion per capture path instead of asserting it. |
+| [1.0.1](../../releases/tag/v1.0.1) | 28 Oct 2026 | The overlay is reparented under a plain WinUI host class, the exclusion flag moves to that host, and the native addon actually reaches the package. |
+| [1.0.0](../../releases/tag/v1.0.0) | 27 Oct 2026 | First release: display-affinity exclusion, one OS identity, a self-signed installer. |
+
 ## License
 
 MIT.
