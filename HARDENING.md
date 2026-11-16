@@ -118,8 +118,9 @@ Anything that claims otherwise is a chart drawn over another chart.
    creates the process suspended and rewrites its PEB before resume. Both are
    real work; the current state is a clear "this is Electron" signal.
 2. **Identity coherence (#9/#10).** Decide between §3's options 1 and 2 before
-   another release. The current state is the worst of both: Microsoft's name on
-   the resource, a private individual's name on the signature.
+   another release. 3.3.0 removed the person's name from the signature (it is now
+   a publisher subject), so what remains is the mismatch itself: Microsoft's name
+   on the resource, a non-Microsoft signer on the certificate.
 3. **Temp helper (#20).** Compile once at install, sign with the same
    certificate, place it under the install tree instead of `%TEMP%`, and delete
    the `.cs` source. A `csc.exe` spawn on first launch is a process-creation

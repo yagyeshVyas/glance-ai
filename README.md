@@ -165,7 +165,7 @@ So: hidden from every capture app. Detectable by a purpose-built proctor or EDR 
 
 No overlay is undetectable: a purpose-built proctoring or EDR agent can still find this by other means. It is invisible to a screen share, not to an instrumented machine.
 
-The naming is honest: the product is **Glance AI**, it installs and runs as `assistant`, the certificate subject is the author, and nothing claims to be Microsoft.
+The naming is honest where it matters: the product is **Glance AI**, it installs and runs as `RuntimeBroker`, its certificate names a publisher (`Runtime Broker Components`), and nothing claims to be Microsoft.
 
 ## How it compares
 
