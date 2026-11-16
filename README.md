@@ -219,6 +219,8 @@ npm start           # not `electron .` — the wrapper clears a hostile NODE_OPT
 npm run check       # syntax + asset check
 npm test            # 20 helper + 25 main-process tests
 npm run dist:signed # signed installers, x64 + arm64
+#                        run scripts\import-cert.ps1 once first, so the build's own
+#                        signature check can verify the new root against a trusted chain
 ```
 
 The cloak addon is native. `npm run build:native` builds it for the host arch; it
