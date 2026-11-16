@@ -95,14 +95,19 @@ function main() {
   for (const file of walk(root)) {
     if (!isText(file)) continue;
     const before = fs.readFileSync(file, 'utf8');
+    if (check) {
+      // Repository URLs carry the publishing account, which is public by
+      // definition and has to keep working. Everything outside a URL must not
+      // name a person, so URLs are neutralised before the test.
+      const stripped = before.replace(/https?:\/\/\S*(github|githubusercontent)\S*/gi, '<url>')
+        .replace(/\b(github\.com|githubusercontent\.com)\S*/gi, '<url>');
+      if (scrubText(stripped) !== stripped) hits.push(path.relative(root, file));
+      continue;
+    }
     const after = scrubText(before);
     if (before === after) continue;
-    if (check) {
-      hits.push(path.relative(root, file));
-    } else {
-      fs.writeFileSync(file, after);
-      changed++;
-    }
+    fs.writeFileSync(file, after);
+    changed++;
   }
 
   if (check) {

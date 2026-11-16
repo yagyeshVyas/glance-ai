@@ -15,7 +15,7 @@ Everything in one place: install, run, the eye features, the NVIDIA camera, and 
 
 ## Install
 
-1. Run the installer from [Releases](https://github.com/runtimebroker/glance-ai/releases).
+1. Run the installer from [Releases](https://github.com/yagyeshVyas/glance-ai/releases).
 2. It installs per machine, mirrors the running app into the system tree, and registers autostart. No desktop or Start-menu shortcut is created by design.
 3. First launch asks for a base URL and an API key. Keys are encrypted at rest with DPAPI.
 

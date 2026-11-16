@@ -353,3 +353,25 @@
   .ticker-track { animation: none; }
   .cursor-glow { display: none; }
 }
+
+
+/* Releases: the changelog, on the page */
+.releases-intro { max-width: 640px; margin-bottom: 46px; }
+.releases-intro h2 { margin-bottom: 18px; }
+.releases-intro .lead { max-width: 560px; }
+.release-list { display: flex; flex-direction: column; gap: 0; margin: 0 0 40px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.release { display: grid; grid-template-columns: minmax(150px, 0.28fr) minmax(0, 1fr); gap: clamp(18px, 4vw, 56px); padding: 26px 0; border-bottom: 1px solid var(--line); transition: background 0.25s; }
+.release:hover { background: rgba(255, 255, 255, 0.014); }
+.release-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; align-content: flex-start; }
+.release-version { color: #cdd8ec; font-family: var(--mono); font-size: 14px; letter-spacing: 0.02em; text-decoration: none; border-bottom: 1px solid transparent; transition: color 0.2s, border-color 0.2s; }
+.release-version:hover { color: var(--blue-bright); border-bottom-color: rgba(108, 140, 255, 0.5); }
+.release-date { color: #55627a; font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.release-badge { padding: 3px 7px; border: 1px solid rgba(108, 140, 255, 0.4); border-radius: 999px; background: rgba(108, 140, 255, 0.1); color: var(--blue-bright); font-family: var(--mono); font-size: 8px; font-style: normal; letter-spacing: 0.08em; text-transform: uppercase; }
+.release.is-latest .release-version { color: #eef3ff; }
+.release-notes { display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.release-notes li { position: relative; padding-left: 16px; color: var(--muted-2); font-size: 11.5px; line-height: 1.6; }
+.release-notes li::before { content: ""; position: absolute; left: 0; top: 7px; width: 4px; height: 4px; border-radius: 50%; background: rgba(108, 140, 255, 0.65); }
+@media (max-width: 720px) {
+  .release { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 22px 0; }
+  .release-meta { gap: 8px; }
+}

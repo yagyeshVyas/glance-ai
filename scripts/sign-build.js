@@ -45,9 +45,33 @@ function thumbExists(thumb) {
   };
 
   console.log('1/4 electron-builder');
-  execFileSync(process.execPath, [path.join(ROOT, 'node_modules', 'electron-builder', 'cli.js'), '--win'], {
-    cwd: ROOT, stdio: 'inherit', env: { ...process.env, NODE_OPTIONS: '' },
-  });
+  // The published build has to name the account releases actually live under,
+  // because electron-builder writes that into resources/app-update.yml and
+  // electron-updater reads it from there. The source tree keeps a neutral
+  // placeholder (and `npm run check` rejects a personal name), so the account is
+  // injected for the pack and the file is restored afterwards — a crash restores
+  // it too, via the exit handler installed below.
+  const pkgFile = path.join(ROOT, 'package.json');
+  const originalPkg = fs.readFileSync(pkgFile, 'utf8');
+  const restorePkg = () => { try { fs.writeFileSync(pkgFile, originalPkg); } catch {} };
+  const owner = process.env.RB_REPO_OWNER;
+  if (owner) {
+    const pkg = JSON.parse(originalPkg);
+    const pub = (pkg.build && pkg.build.publish) || [];
+    if (pub[0]) pub[0].owner = owner;
+    if (process.env.RB_REPO_NAME && pub[0]) pub[0].repo = process.env.RB_REPO_NAME;
+    fs.writeFileSync(pkgFile, JSON.stringify(pkg, null, 2) + '\n');
+    console.log(`  • release owner injected for this pack: ${owner}/${pub[0] && pub[0].repo}`);
+    process.on('exit', restorePkg);
+    process.on('SIGINT', () => { restorePkg(); process.exit(130); });
+  }
+  try {
+    execFileSync(process.execPath, [path.join(ROOT, 'node_modules', 'electron-builder', 'cli.js'), '--win'], {
+      cwd: ROOT, stdio: 'inherit', env: { ...process.env, NODE_OPTIONS: '' },
+    });
+  } finally {
+    if (owner) restorePkg();
+  }
 
   // Read the payload metadata back. NOTE: resedit rewrites the PE and would
   // strip the signature electron-builder just applied, so read it via the
