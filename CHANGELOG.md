@@ -6,6 +6,26 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.3.4
+
+**It stops transcribing itself.** Read-aloud plays through the same output device
+the loopback records, so the panel's own voice was being captioned back into the
+transcript. The player now marks itself as speaking for the length of the clip and
+the listen loops stand down until it ends.
+
+**It stops inventing lines.** Whisper answers music, noise and silence with a
+sentence of its own — "Thank you.", "Thanks for watching." — which is what landed
+in the transcript whenever a video had music under the speech. The worker now
+drops a segment when the model reports no speech (`no_speech_prob > 0.55`) or
+when its own confidence is low (`avg_logprob < -1.1`).
+
+Measured: three seconds of digital silence returns an empty transcript instead of
+a made-up sentence, and the same worker still returns the spoken sentence
+verbatim.
+
+The caption mode from 3.3.3 is unchanged: 1.5 s chunks, listening starts on
+launch, no API key when it runs against the local server.
+
 ## 3.3.3
 
 **Live captions.** A new toolbar mode turns Glance into a subtitle layer: it

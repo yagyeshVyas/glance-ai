@@ -118,7 +118,21 @@ def main():
                 no_speech_threshold=0.6,
                 vad_filter=False,
             )
-            text = clean(" ".join(s.text.strip() for s in segments))
+            kept = []
+            for seg in segments:
+                # Whisper invents a sentence on music, noise or an empty chunk —
+                # "Thank you." and "Thanks for watching." are the classic ones. The
+                # model reports how sure it is that there was no speech at all, and
+                # how confident the transcript is; both are used to drop the block
+                # instead of putting invented words into the transcript.
+                if getattr(seg, "no_speech_prob", 0.0) > 0.55:
+                    continue
+                if getattr(seg, "avg_logprob", 0.0) < -1.1:
+                    continue
+                piece = seg.text.strip()
+                if piece:
+                    kept.append(piece)
+            text = clean(" ".join(kept))
             emit({"id": req.get("id"), "text": text, "ms": int((time.time() - started) * 1000),
                   "lang": getattr(info, "language", None)})
         except Exception as e:

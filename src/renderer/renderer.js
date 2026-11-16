@@ -404,6 +404,9 @@ $('recap').addEventListener('click', recapTranscript);
 // transcriptText stays unlabelled because it is what gets sent to the model.
 const streams = new Map(); // 'you' | 'them' → MediaStream
 let listening = false;
+// true while the panel is playing its own speech — the listen loops stand down
+// instead of transcribing the app into its own transcript
+let speaking = false;
 const WHO = { you: 'You', them: 'Them' };
 
 async function openStream(kind) {
@@ -502,6 +505,10 @@ function enqueueChunk(buf, mime, who) {
 
 async function listenLoop(who) {
   while (listening && streams.has(who)) {
+    // do not record while the panel is speaking: that audio is on the same
+    // output device the loopback taps
+    while (speaking && listening) await new Promise((r) => setTimeout(r, 150));
+    if (!listening) break;
     const blob = await recordOnce(who, CHUNK_MS);
     if (!blob || !listening) break; // Stop arrived while this chunk was recording — do not enqueue it
     if (blob.size < 2000) continue; // near-silence / empty
@@ -1180,7 +1187,15 @@ $('speak').addEventListener('click', async () => {
   const r = await api.speak(answerRaw);
   btn.disabled = false;
   if (r.error) return setStatus(r.error.split('\n')[0].slice(0, 90), true);
-  new Audio('data:audio/mp3;base64,' + r.audio).play();
+  const player = new Audio('data:audio/mp3;base64,' + r.audio);
+  // The panel's own voice goes out through the default output device, which is
+  // exactly what the loopback records — without this the transcript would contain
+  // Glance reading its own answers back.
+  speaking = true;
+  const done = () => { speaking = false; };
+  player.onended = done;
+  player.onerror = done;
+  player.play().catch(done);
   setStatus('');
 });
 
