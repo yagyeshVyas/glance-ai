@@ -21,7 +21,8 @@
     "build:native": "node scripts/build-native.js x64",
     "postinstall": "npm run build:native || echo native build skipped",
     "capture-probe": "node scripts/capture-probe.js",
-    "probe:composite": "node scripts/composite-probe.js"
+    "probe:composite": "node scripts/composite-probe.js",
+    "probe:api": "node scripts/api-probe.js"
   },
   "license": "MIT",
   "devDependencies": {

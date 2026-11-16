@@ -211,6 +211,28 @@ open-source project does not.
 
 Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama with a compatible shim. The chat model needs vision for screen questions; transcription needs a Whisper-compatible endpoint. Keys never reach the renderer, and the IPC bridge is an explicit 27-method allowlist.
 
+## Local API server
+
+The app needs three routes — `/chat/completions`, `/audio/transcriptions`,
+`/audio/speech` — and most self-hosted gateways serve only the first. `server/`
+is a small proxy that gives the app one fixed base URL and sends each call to
+the provider that can actually answer it:
+
+```bat
+start-api.cmd          :: hidden, headless, prints nothing after the line below
+install-autostart.cmd  :: start at every logon (HKCU Run, no admin)
+stop-api.cmd           :: stops by PID, never by image name
+```
+
+Point Settings at `http://127.0.0.1:47821/v1` with any key at all — the real
+credential lives in `server/.env`, never in the build or the installer, and can
+be rotated without touching either. A browser tab opened on the port gets `{}`
+with a 404: it is a headless `node.exe`, not a page, so there is no tab, no
+window and no taskbar entry.
+
+Configuration, the credential model, the limits, and `npm run probe:api` (a
+key-free test of the proxy) are in [server/README.md](server/README.md).
+
 ## Build from source
 
 ```bash

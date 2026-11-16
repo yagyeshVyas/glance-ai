@@ -20,6 +20,8 @@ const files = [
   'scripts/ui-probe.js',
   'scripts/capture-probe.js',
   'scripts/composite-probe.js',
+  'scripts/api-probe.js',
+  'server/glance-api.js',
   'scripts/cdp-eval.js',
   'scripts/capture-frame.js',
   'scripts/affinity-reparent-probe.js',

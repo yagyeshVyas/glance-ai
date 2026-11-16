@@ -22,3 +22,8 @@ desktop.ini
 src/native/build/
 src/native/x64/
 src/native/arm64/
+
+# local API server: credentials and runtime state
+server/.env
+server/run/
+server/logs/
