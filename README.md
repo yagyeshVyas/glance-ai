@@ -138,7 +138,11 @@ $ npx electron scripts/capture-probe.js
 **Proof, per capture path.** Each mechanism was measured by capturing the panel's interior twice — once shown, once with the panel gone — and hashing the pixels. Identical hashes mean that path cannot see the overlay. Run `node scripts/capture-ab.js` to reproduce.
 
 | Capture path | Used by | Shown vs gone | Result |
-|---|---|---|---|
+|---|---|---|
+| [3.3.5](../../releases/tag/v3.3.5) | 16 Nov 2026 | Chunks end at a pause instead of a stopwatch, so boundaries fall between words; chunk length follows the model (3 s for small/medium/large); a chunk that does not finish a sentence continues the previous line. |
+| [3.3.4](../../releases/tag/v3.3.4) | 16 Nov 2026 | Read-aloud is no longer captioned back into the transcript, and Whisper's invented lines on music and silence are dropped by no-speech probability and confidence. |
+| [3.3.3](../../releases/tag/v3.3.3) | 16 Nov 2026 | Live captions: listening starts on launch with 1.5 s chunks and resumes by itself; the local worker collapses repeated-sentence loops. |
+| [3.3.2](../../releases/tag/v3.3.2) | 16 Nov 2026 | One model for audio and chat — a blank transcribe model falls back to the chat model; both audio sources by default; Fast on at boot. |---|
 | GDI / BitBlt | screen recorders, Snipping Tool, legacy OBS | identical | excluded |
 | WGC (Windows Graphics Capture) | OBS WGC mode, Win11 capture, PowerToys | identical | excluded |
 | `getDisplayMedia` in real Chrome | Meet, Teams Web, Webex Web, any browser tab share | identical | excluded |
