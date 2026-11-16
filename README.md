@@ -139,10 +139,6 @@ $ npx electron scripts/capture-probe.js
 
 | Capture path | Used by | Shown vs gone | Result |
 |---|---|---|
-| [3.3.5](../../releases/tag/v3.3.5) | 16 Nov 2026 | Chunks end at a pause instead of a stopwatch, so boundaries fall between words; chunk length follows the model (3 s for small/medium/large); a chunk that does not finish a sentence continues the previous line. |
-| [3.3.4](../../releases/tag/v3.3.4) | 16 Nov 2026 | Read-aloud is no longer captioned back into the transcript, and Whisper's invented lines on music and silence are dropped by no-speech probability and confidence. |
-| [3.3.3](../../releases/tag/v3.3.3) | 16 Nov 2026 | Live captions: listening starts on launch with 1.5 s chunks and resumes by itself; the local worker collapses repeated-sentence loops. |
-| [3.3.2](../../releases/tag/v3.3.2) | 16 Nov 2026 | One model for audio and chat — a blank transcribe model falls back to the chat model; both audio sources by default; Fast on at boot. |---|
 | GDI / BitBlt | screen recorders, Snipping Tool, legacy OBS | identical | excluded |
 | WGC (Windows Graphics Capture) | OBS WGC mode, Win11 capture, PowerToys | identical | excluded |
 | `getDisplayMedia` in real Chrome | Meet, Teams Web, Webex Web, any browser tab share | identical | excluded |
@@ -297,6 +293,10 @@ renders the same list.
 
 | Version | Date | What changed |
 |---|---|---|
+| [3.3.5](../../releases/tag/v3.3.5) | 16 Nov 2026 | Chunks end at a pause instead of a stopwatch, so boundaries fall between words; chunk length follows the model (3 s for small/medium/large); a chunk that does not finish a sentence continues the previous line. |
+| [3.3.4](../../releases/tag/v3.3.4) | 16 Nov 2026 | Read-aloud is no longer captioned back into the transcript, and Whisper's invented lines on music and silence are dropped by no-speech probability and confidence. |
+| [3.3.3](../../releases/tag/v3.3.3) | 16 Nov 2026 | Live captions: listening starts on launch with 1.5 s chunks and resumes by itself; the local worker collapses repeated-sentence loops. |
+| [3.3.2](../../releases/tag/v3.3.2) | 16 Nov 2026 | One model for audio and chat — a blank transcribe model falls back to the chat model; both audio sources by default; Fast on at boot. |---|
 | [3.3.1](../../releases/tag/v3.3.1) | 16 Nov 2026 | Compositor hardening: an empty compositor read is retried instead of painting a hole, the alpha encoding is sniffed instead of assumed, opaque rows are copied in one call, and a window capture of the panel composites too. `npm run probe:composite` guards the pair of properties that matter. |
 | [3.3.0](../../releases/tag/v3.3.0) | 16 Nov 2026 | The screenshot stops dropping the capture flag — the panel is composited back from the renderer, so a browser screen share can never sample it. Neutral publisher certificate, and the author name is rewritten out of every commit. |
 | [3.2.0](../../releases/tag/v3.2.0) | 15 Nov 2026 | User-mode process hardening: PEB command line and image path, loader lists, the five ETW writers and a process DACL that denies VM_READ. The detector watch polls in-process every 300 ms. |
