@@ -39,6 +39,9 @@ const DEFAULTS = {
   blendWindow: true, // reparent under an innocuous host: the only window other apps
   // can enumerate is the fake one — the Chromium windows become children of it
   scramble: false, // leave the window capturable (affinity 0) and scramble the text instead
+  // Live-captions mode: start listening on launch and cut audio into 1.5 s
+  // chunks. Persisted so a restart resumes without a click.
+  captionMode: false,
   // NVIDIA Broadcast ships an eye-contact effect and a loopback MCP gateway.
   // Glance drives that gateway (set_effects -> eye_contact) instead of copying
   // NVIDIA's Maxine model, which is licensed and not redistributable. When the

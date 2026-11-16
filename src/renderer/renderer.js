@@ -915,8 +915,25 @@ let copilotBusy = false;
 
 // fast mode cuts detection latency: shorter audio chunks + shorter end-of-question debounce
 let fastMode = true;
-let CHUNK_MS = 7000;
-let copilotDebounce = 2500;
+// captions mode is the Zoom-subtitle shape: keep listening, cut the audio into
+// 1.5 s pieces so text lands while the sentence is still being spoken. It wins
+// over fast mode because the point is latency, not question detection.
+let captionMode = false;
+let CHUNK_MS = 4000;
+let copilotDebounce = 1200;
+
+function applyTiming() {
+  if (captionMode) {
+    CHUNK_MS = 1500;
+    copilotDebounce = 700;
+  } else if (fastMode) {
+    CHUNK_MS = 4000;
+    copilotDebounce = 1200;
+  } else {
+    CHUNK_MS = 7000;
+    copilotDebounce = 2500;
+  }
+}
 
 // looksLikeQuestion lives in shared.js (unit-tested in scripts/test.js)
 
@@ -1089,8 +1106,7 @@ el.exportMd.addEventListener('click', async () => {
 (function initFast() {
   const btn = document.getElementById('fastBtn');
   const apply = () => {
-    CHUNK_MS = fastMode ? 4000 : 7000;
-    copilotDebounce = fastMode ? 1200 : 2500;
+    applyTiming();
     btn.classList.toggle('on', fastMode);
     btn.textContent = 'Fast: ' + (fastMode ? 'on' : 'off');
   };
@@ -1102,6 +1118,39 @@ el.exportMd.addEventListener('click', async () => {
   // The default is on, so the chunk length and the button have to follow it at
   // boot rather than only when the button is first pressed.
   apply();
+})();
+
+// ---------- captions mode ----------
+// The Zoom-subtitle shape: listening starts on launch and the audio is cut into
+// 1.5 s pieces, so a line lands while the sentence is still being spoken. The
+// state is persisted, so launching Glance is the only thing a user has to do.
+function paintCaptions() {
+  const btn = document.getElementById('captionsBtn');
+  if (!btn) return;
+  btn.classList.toggle('on', captionMode);
+  btn.textContent = 'Captions: ' + (captionMode ? 'on' : 'off');
+}
+
+async function setCaptions(on, { persist = true } = {}) {
+  captionMode = Boolean(on);
+  applyTiming();
+  paintCaptions();
+  if (persist) {
+    try { await api.setConfig({ captionMode }); } catch {}
+  }
+  if (captionMode) {
+    if (!listening) {
+      const b = document.getElementById('listen');
+      if (b && b.textContent !== 'Stop') toggleListen();
+    }
+    setStatus('Captions: listening, 1.5s chunks');
+  }
+}
+
+(function initCaptions() {
+  paintCaptions();
+  const btn = document.getElementById('captionsBtn');
+  if (btn) btn.addEventListener('click', () => setCaptions(!captionMode));
 })();
 
 // ---------- quick-action templates ----------
@@ -1247,6 +1296,9 @@ api.getConfig().then((c) => {
   if (!c.hasKey) {
     el.answer.innerHTML = '<span class="muted">No API key yet. Click ⚙ and add any OpenAI-compatible key + base URL.</span>';
   }
+  // Captions mode resumes by itself: the app starts listening with no click,
+  // which is what makes it usable as a background subtitle layer.
+  if (c.captionMode) setTimeout(() => setCaptions(true, { persist: false }).catch(() => {}), 1200);
 });
 
 

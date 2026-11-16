@@ -6,6 +6,27 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.3.3
+
+**Live captions.** A new toolbar mode turns Glance into a subtitle layer: it
+starts listening on launch and cuts the audio into 1.5 s pieces, so a line lands
+while the sentence is still being spoken. The state lives in the config, so
+launching the app is the only action — no Listen button, no browser, no window to
+keep in front.
+
+- 1.5 s chunks (Fast is 4 s, normal 7 s), question detection at 0.7 s.
+- Resumes by itself on the next launch.
+- Against the local server's on-device Whisper it needs no API key at all; against
+  a remote STT endpoint it is the same code path.
+
+The local worker also gained a repetition guard. A 1.5 s chunk is exactly the
+case where Whisper repeats one sentence until the token budget runs out — one
+chunk came back as the same line thirty times. Repeats and doubled words are now
+collapsed before the text reaches the transcript.
+
+Measured on this machine, model warm: first caption line 432 ms after speech
+started, a 1.5 s chunk transcribed in ~0.9 s.
+
 ## 3.3.2
 
 **One model, both sides of the call.** Audio and chat no longer need two model

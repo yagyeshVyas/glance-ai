@@ -28,6 +28,7 @@ Nothing is downloaded until the first run; then the model is cached under
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,24 @@ def load_audio(path):
         raise RuntimeError("ffmpeg: " + (detail[-1] if detail else "no audio decoded"))
     import numpy as np
     return np.frombuffer(proc.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def clean(text):
+    """Collapse the loops Whisper falls into on short, quiet or looping audio.
+
+    A 1.5-second chunk with no context is exactly the case where the model repeats
+    one sentence until the token budget runs out — one chunk can come back as the
+    same line thirty times. Repeats are removed here rather than shipped to the
+    transcript, and consecutive duplicate words go with them.
+    """
+    if not text:
+        return ""
+    text = re.sub(r"\s+", " ", text).strip()
+    # same sentence three or more times in a row -> keep one
+    text = re.sub(r"(?i)(\b[^.!?]{3,}?[.!?])(?:\s+\1){2,}", r"\1", text)
+    # immediate word doubling ("the the")
+    text = re.sub(r"(?i)\b(\w+)(?:\s+\1\b)+", r"\1", text)
+    return text.strip()
 
 
 def main():
@@ -95,9 +114,11 @@ def main():
                 best_of=1,
                 temperature=0.0,
                 condition_on_previous_text=False,
+                compression_ratio_threshold=2.2,
+                no_speech_threshold=0.6,
                 vad_filter=False,
             )
-            text = " ".join(s.text.strip() for s in segments).strip()
+            text = clean(" ".join(s.text.strip() for s in segments))
             emit({"id": req.get("id"), "text": text, "ms": int((time.time() - started) * 1000),
                   "lang": getattr(info, "language", None)})
         except Exception as e:
