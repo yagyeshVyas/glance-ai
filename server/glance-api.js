@@ -279,6 +279,27 @@ function extractFile(body, boundary) {
   return null;
 }
 
+// Read one non-file field out of the same multipart body.
+function extractField(body, boundary, name) {
+  const delim = Buffer.from('--' + boundary);
+  let at = body.indexOf(delim);
+  while (at >= 0) {
+    const after = at + delim.length;
+    const headerEnd = body.indexOf('\r\n\r\n', after);
+    if (headerEnd < 0) return '';
+    const headers = body.slice(after, headerEnd).toString('utf8');
+    const next = body.indexOf(delim, headerEnd);
+    if (next < 0) return '';
+    if (new RegExp('name="' + name + '"', 'i').test(headers)) {
+      let end = next;
+      if (body[end - 2] === 0x0d && body[end - 1] === 0x0a) end -= 2;
+      return body.slice(headerEnd + 4, end).toString('utf8');
+    }
+    at = next;
+  }
+  return '';
+}
+
 function extFor(type) {
   if (type.includes('wav')) return '.wav';
   if (type.includes('ogg')) return '.ogg';
@@ -303,6 +324,7 @@ async function transcribeLocally(req, res) {
   }
 
   const started = Date.now();
+  const stream = extractField(raw, (m[1] || m[2]).trim(), 'stream') || 'default';
   let out;
   try {
     out = await workerAsk(tmp);
@@ -314,7 +336,7 @@ async function transcribeLocally(req, res) {
     log('stt local -> error ' + out.error);
     return json(res, 502, { error: { message: 'glance-api: local transcription failed: ' + out.error, type: 'stt_error' } });
   }
-  log('stt local ' + part.data.length + 'B -> ' + JSON.stringify(out.text || '').slice(0, 60) + ' ' + (Date.now() - started) + 'ms');
+  log('stt local [' + stream + '] ' + part.data.length + 'B -> ' + JSON.stringify(out.text || '').slice(0, 60) + ' ' + (Date.now() - started) + 'ms');
   return json(res, 200, { text: out.text || '' });
 }
 

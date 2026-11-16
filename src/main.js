@@ -1934,7 +1934,7 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
   }
 }
 
-async function transcribe(_e, { data, mime }) {
+async function transcribe(_e, { data, mime, who }) {
   requireKey('transcribe');
   const ext = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'mp4' : 'webm';
   const base = (cfg.transcribeBaseUrl || cfg.baseUrl).replace(/\/+$/, '');
@@ -1942,6 +1942,10 @@ async function transcribe(_e, { data, mime }) {
   const form = new FormData();
   form.append('file', new Blob([Buffer.from(data)], { type: mime }), `audio.${ext}`);
   form.append('model', cfg.transcribeModel || cfg.chatModel || 'whisper-1');
+  // Which side of the call this chunk came from. The local server keeps one
+  // rolling context per stream so a sentence split across chunks is transcribed
+  // with its own beginning, not with the other speaker's words.
+  if (who) form.append('stream', String(who).slice(0, 16));
 
   // retry transcription on transient failures only (429 / 5xx / network)
   for (let i = 0; i < 3; i++) {

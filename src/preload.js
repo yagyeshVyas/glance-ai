@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('glance', {
   ask: (payload) => ipcRenderer.invoke('ask', payload),
   captureOne: () => ipcRenderer.invoke('capture:one'),
   cancel: () => ipcRenderer.invoke('cancel'),
-  transcribe: (data, mime) => ipcRenderer.invoke('transcribe', { data, mime }),
+  transcribe: (data, mime, who) => ipcRenderer.invoke('transcribe', { data, mime, who }),
   hide: () => ipcRenderer.invoke('window:hide'),
   minimize: () => ipcRenderer.invoke('window:minimize'),
   quit: () => ipcRenderer.invoke('window:quit'),

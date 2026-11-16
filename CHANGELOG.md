@@ -6,6 +6,39 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.3.5
+
+**Chunks end at a pause, not at a stopwatch.** A fixed 1.5 s cut lands inside a
+word about as often as between two, and the half-word is gone — the model never
+sees it. The recorder now watches the level of the chunk it is recording and stops
+at the first quiet moment after roughly a second, so boundaries fall between
+words. Measured on spoken sentences with pauses: three lines, each a complete
+sentence, instead of clipped fragments.
+
+**The chunk length follows the model.** `small.en` needs about twice the audio per
+call to stay real time on a CPU; at 1.5 s chunks it fell behind and read worse
+than base. The renderer now uses 3 s chunks when the configured transcribe model
+is small/medium/large, 1.5 s otherwise.
+
+**Continuation lines merge.** A chunk that does not end a sentence continues the
+previous line for the same speaker instead of starting a new fragment.
+
+Measured and dropped: passing the previous text as `initial_prompt`. On short
+chunks the model echoed the prompt's own tail instead of the audio — the second
+chunk came back as "10-" — so it is not in the build.
+
+Measured after the change, one spoken clip with pauses:
+
+```
+Them: Live Cap options work well now.
+Them: The next sentence starts after a pause.
+Them: And this one end.
+Them: the test. We'll see you next time. Bye.
+```
+
+Three complete sentences and one continuation; the sign-off on the last line is
+Whisper's habit on trailing silence, not audio that was there.
+
 ## 3.3.4
 
 **It stops transcribing itself.** Read-aloud plays through the same output device

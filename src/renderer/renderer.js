@@ -420,16 +420,47 @@ async function openStream(kind) {
   return navigator.mediaDevices.getUserMedia({ audio: true });
 }
 
-function recordOnce(who, ms) {
+// Record until a pause rather than until a stopwatch. A fixed cut lands inside a
+// word about as often as between two, and a word cut in half is gone: the model
+// never sees the other half. Ending the chunk in quiet means the boundary falls
+// between words, so consecutive chunks join back into the sentence they came from.
+const SPEECH_RMS = 0.008;
+
+function recordOnce(who, ms, { minMs = 0, quietMs = 0 } = {}) {
   return new Promise((resolve) => {
     const src = streams.get(who);
     if (!src) return resolve(null);
     const rec = new MediaRecorder(src);
     const parts = [];
     rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
-    rec.onstop = () => resolve(new Blob(parts, { type: rec.mimeType }));
+    let node = null;
+    let timer = null;
+    rec.onstop = () => {
+      clearInterval(timer);
+      try { node && node.disconnect(); } catch {}
+      resolve(new Blob(parts, { type: rec.mimeType }));
+    };
     rec.start();
-    setTimeout(() => rec.state !== 'inactive' && rec.stop(), ms);
+    const started = Date.now();
+    if (quietMs > 0) {
+      try {
+        const ctx = audioCtx();
+        node = ctx.createMediaStreamSource(src);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        node.connect(analyser);
+        const frame = new Float32Array(analyser.fftSize);
+        let lastLoud = Date.now();
+        timer = setInterval(() => {
+          analyser.getFloatTimeDomainData(frame);
+          let sum = 0;
+          for (let i = 0; i < frame.length; i++) sum += frame[i] * frame[i];
+          if (Math.sqrt(sum / frame.length) > SPEECH_RMS) lastLoud = Date.now();
+          if (Date.now() - started >= minMs && Date.now() - lastLoud >= quietMs && rec.state !== 'inactive') rec.stop();
+        }, 80);
+      } catch {}
+    }
+    setTimeout(() => { if (rec.state !== 'inactive') rec.stop(); }, ms);
   });
 }
 
@@ -472,7 +503,7 @@ async function drainQueue() {
   while (transcribeQueue.length) {
     const { buf, mime, who } = transcribeQueue.shift();
     try {
-      const r = await api.transcribe(buf, mime);
+      const r = await api.transcribe(buf, mime, who);
       if (r.error) {
         setStatus(r.error.slice(0, 80), true);
         continue;
@@ -481,7 +512,15 @@ async function drainQueue() {
       if (!text) continue;
       // the label is display-only: transcriptText stays plain so the prompt reads
       // like speech, not like a screenplay
-      transcriptLog.push({ at: new Date().toISOString(), text, who });
+      const last = transcriptLog[transcriptLog.length - 1];
+      const continues = last && last.who === who && /[a-z0-9,;:]$/.test(last.text);
+      if (continues) {
+        // same speaker, previous line did not finish a sentence: keep one line
+        last.text = (last.text + ' ' + text).replace(/\s+/g, ' ').trim();
+        last.at = new Date().toISOString();
+      } else {
+        transcriptLog.push({ at: new Date().toISOString(), text, who });
+      }
       transcriptText += (transcriptText ? ' ' : '') + text;
       paintTranscript();
       onTranscriptUpdated();
@@ -509,7 +548,7 @@ async function listenLoop(who) {
     // output device the loopback taps
     while (speaking && listening) await new Promise((r) => setTimeout(r, 150));
     if (!listening) break;
-    const blob = await recordOnce(who, CHUNK_MS);
+    const blob = await recordOnce(who, CHUNK_MS, { minMs: Math.max(900, Math.round(CHUNK_MS * 0.7)), quietMs: 240 });
     if (!blob || !listening) break; // Stop arrived while this chunk was recording — do not enqueue it
     if (blob.size < 2000) continue; // near-silence / empty
     const buf = await blob.arrayBuffer();
@@ -929,9 +968,16 @@ let captionMode = false;
 let CHUNK_MS = 4000;
 let copilotDebounce = 1200;
 
+function modelWantsLongChunks() {
+  // a bigger model needs more audio per call to stay real time on a CPU; the
+  // name is the only signal the renderer has, and it is the one the user set
+  return /small|medium|large/i.test(appCfg.transcribeModel || '');
+}
+
 function applyTiming() {
+  const base = modelWantsLongChunks() ? 3000 : 1500;
   if (captionMode) {
-    CHUNK_MS = 1500;
+    CHUNK_MS = base;
     copilotDebounce = 700;
   } else if (fastMode) {
     CHUNK_MS = 4000;
@@ -1314,6 +1360,8 @@ api.getConfig().then((c) => {
   // Captions mode resumes by itself: the app starts listening with no click,
   // which is what makes it usable as a background subtitle layer.
   if (c.captionMode) setTimeout(() => setCaptions(true, { persist: false }).catch(() => {}), 1200);
+  // the chunk length depends on the configured model, which is only known now
+  applyTiming();
 });
 
 
