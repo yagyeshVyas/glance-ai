@@ -51,7 +51,7 @@ Built for live interviews: it listens to the interviewer, reads the question on 
 - **Hidden from software screen share** — nothing you see here appears in a capture
 - **Stealth report** — a per-tell measurement of what a detector can see on *this* machine
 - **Panic hide** on `Ctrl+Alt+X` — the panel is gone before the call reacts
-- **Live transcription** from mic, system loopback, or **both at once** with You/Them labels
+- **Live transcription** from mic, system loopback, or **both at once** with You/Them labels — **one model for audio and chat**: leave the transcribe model blank and it uses the chat model, same URL, same key
 - **Screen Q&A** — capture up to five frames, ask once, get a streamed answer
 - **Local OCR** on every captured frame, so code, forms and error text reach the model as exact characters rather than pixels
 - **Offline knowledge base** — paste notes; only the entries matching the question ride along, scored on-device

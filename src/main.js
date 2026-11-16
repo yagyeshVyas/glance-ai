@@ -25,7 +25,10 @@ const DEFAULTS = {
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   chatModel: 'gpt-4o-mini',
-  transcribeModel: 'whisper-1',
+  // Blank means "the same model as chat": a gateway that transcribes with the
+  // model it chats with needs no second name, and no second key. Set it only when
+  // the audio model is genuinely a different one (a dedicated whisper endpoint).
+  transcribeModel: '',
   stealth: true, // hide overlay from screen capture / screen share
   stealthProcess: true, // AUMID hint for shell/taskbar grouping (does not rename the exe)
   stealthDeep: true, // DWM-cloak + off-screen by default
@@ -1935,7 +1938,7 @@ async function transcribe(_e, { data, mime }) {
   const key = requireKey('transcribe');
   const form = new FormData();
   form.append('file', new Blob([Buffer.from(data)], { type: mime }), `audio.${ext}`);
-  form.append('model', cfg.transcribeModel);
+  form.append('model', cfg.transcribeModel || cfg.chatModel || 'whisper-1');
 
   // retry transcription on transient failures only (429 / 5xx / network)
   for (let i = 0; i < 3; i++) {

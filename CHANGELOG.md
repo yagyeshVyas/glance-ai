@@ -6,6 +6,26 @@ profile folder — enforced from `src/identity.js` by `npm run check`. The earli
 names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
 installer on upgrade.
 
+## 3.3.2
+
+**One model, both sides of the call.** Audio and chat no longer need two model
+names. `transcribeModel` is optional: blank means "use the chat model" on the
+same base URL with the same key, so a gateway that transcribes with the model it
+chats with needs no second configuration. The field survives for providers whose
+audio model really is different (a dedicated whisper endpoint).
+
+- **Both sources by default.** The source selector starts on *Both (you + them)*
+  instead of mic only, so the interviewer's side and yours land in the transcript
+  with `You:` / `Them:` labels without a trip to the dropdown. Loopback is
+  granted in the main process (`setDisplayMediaRequestHandler`), so no picker
+  appears; if the system track cannot be opened the mic still runs and the status
+  line says which half failed.
+- **Fast is on at boot.** Fast mode existed behind a button and started off,
+  which meant a fresh install used 7 s chunks until someone found it. It now
+  starts on — 4 s chunks, 1.2 s question detection — and the toggle still applies.
+- The settings field now says what blank means, instead of looking like a
+  required value that had been pre-filled with `whisper-1`.
+
 ## 3.3.1
 
 **The compositor stops assuming things.** 3.3.0 took the panel out of the

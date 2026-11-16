@@ -914,7 +914,7 @@ let copilotSince = 0; // transcript length already handled — only inspect new 
 let copilotBusy = false;
 
 // fast mode cuts detection latency: shorter audio chunks + shorter end-of-question debounce
-let fastMode = false;
+let fastMode = true;
 let CHUNK_MS = 7000;
 let copilotDebounce = 2500;
 
@@ -1088,18 +1088,20 @@ el.exportMd.addEventListener('click', async () => {
 // ---------- fast mode ----------
 (function initFast() {
   const btn = document.getElementById('fastBtn');
-  const paint = () => {
+  const apply = () => {
+    CHUNK_MS = fastMode ? 4000 : 7000;
+    copilotDebounce = fastMode ? 1200 : 2500;
     btn.classList.toggle('on', fastMode);
     btn.textContent = 'Fast: ' + (fastMode ? 'on' : 'off');
   };
   btn.addEventListener('click', () => {
     fastMode = !fastMode;
-    CHUNK_MS = fastMode ? 4000 : 7000;
-    copilotDebounce = fastMode ? 1200 : 2500;
-    paint();
+    apply();
     setStatus(fastMode ? 'Fast mode: 4s chunks, 1.2s detection' : 'Normal mode: 7s chunks, 2.5s detection');
   });
-  paint();
+  // The default is on, so the chunk length and the button have to follow it at
+  // boot rather than only when the button is first pressed.
+  apply();
 })();
 
 // ---------- quick-action templates ----------

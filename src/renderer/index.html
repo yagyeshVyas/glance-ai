@@ -22,7 +22,7 @@
       <select id="source" title="Audio source">
         <option value="mic">Mic</option>
         <option value="system">Speakers (meeting)</option>
-        <option value="both">Both (you + them)</option>
+        <option value="both" selected>Both (you + them)</option>
       </select>
       <button id="listen" title="Ctrl+Shift+L">Listen</button>
       <button id="copilot" title="Auto-detect questions from audio and answer them">Copilot: off</button>
@@ -86,7 +86,7 @@
       </div>
       <label>Chat model <input id="s_chatModel" list="chatModels" placeholder="fetched from provider…" /></label>
       <datalist id="chatModels"></datalist>
-      <label>Transcribe model <input id="s_transcribeModel" list="transcribeModels" placeholder="fetched from provider…" /></label>
+      <label>Transcribe model <input id="s_transcribeModel" list="transcribeModels" placeholder="blank — use the chat model" /></label>
       <datalist id="transcribeModels"></datalist>
       <label>Context budget (tokens) <input id="s_contextTokens" placeholder="32000 — set to your model's window: 128000, 200000, 1000000…" /></label>
       <label>System prompt <textarea id="s_systemPrompt" rows="4"></textarea></label>
