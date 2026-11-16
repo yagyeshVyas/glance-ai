@@ -88,6 +88,7 @@ async function main() {
       CHAT_MODEL: 'forced-model',
       PID_FILE: pidFile,
       LOG: '0',
+      STT_LOCAL: '0', // this probe covers the proxy; local whisper is tested separately
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

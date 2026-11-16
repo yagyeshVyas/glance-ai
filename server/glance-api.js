@@ -35,6 +35,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 0) || 47821;
@@ -60,6 +61,12 @@ function loadEnvFile() {
 
 const env = { ...loadEnvFile(), ...process.env };
 const LOG_ON = String(env.LOG || '0') === '1';
+
+// Local Whisper: on by default, because a gateway with no /audio/transcriptions
+// is the common case and a transcript that silently stays empty is worse than one
+// produced on this machine. Set STT_LOCAL=0 to proxy to STT_BASE instead.
+const STT_LOCAL = String(env.STT_LOCAL === undefined ? '1' : env.STT_LOCAL) !== '0';
+const WORKER = path.join(ROOT, 'stt-worker.py');
 
 function upstream(kind) {
   const shared = { base: env.UPSTREAM_BASE || '', key: env.UPSTREAM_KEY || '' };
@@ -167,6 +174,150 @@ function readBody(req, limit = 32 * 1024 * 1024) {
   });
 }
 
+// ---------- local whisper worker ----------
+// One process, model loaded once, one JSON line per chunk. Spawning Python per
+// request would reload the model every 4 seconds and the transcript would always
+// be behind the conversation.
+const worker = { proc: null, booting: null, seq: 0, waiting: new Map(), lastError: '' };
+
+function pythonCandidates() {
+  if (env.PYTHON) return [{ cmd: env.PYTHON, args: [] }];
+  if (process.platform === 'win32') return [{ cmd: 'python', args: [] }, { cmd: 'py', args: ['-3'] }];
+  return [{ cmd: 'python3', args: [] }];
+}
+
+function bootWorker() {
+  if (worker.booting) return worker.booting;
+  worker.booting = new Promise((resolve, reject) => {
+    const candidates = pythonCandidates();
+    const tryNext = (i) => {
+      if (i >= candidates.length) return reject(new Error(worker.lastError || 'no python found'));
+      const { cmd, args } = candidates[i];
+      const proc = spawn(cmd, [...args, WORKER], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env } });
+      let buffered = '';
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        worker.lastError = err.message;
+        try { proc.kill(); } catch {}
+        tryNext(i + 1);
+      };
+      proc.on('error', fail);
+      proc.stdout.on('data', (d) => {
+        buffered += d.toString('utf8');
+        let nl;
+        while ((nl = buffered.indexOf('\n')) >= 0) {
+          const line = buffered.slice(0, nl).trim();
+          buffered = buffered.slice(nl + 1);
+          if (!line) continue;
+          let msg;
+          try { msg = JSON.parse(line); } catch { continue; }
+          if (msg.ready === true && !settled) {
+            settled = true;
+            worker.proc = proc;
+            log('stt worker ready ' + JSON.stringify({ model: msg.model, load_ms: msg.load_ms }));
+            resolve(proc);
+          } else if (msg.ready === false && !settled) {
+            fail(new Error(msg.error || 'worker refused to start'));
+          } else if (msg.id !== undefined && worker.waiting.has(msg.id)) {
+            const done = worker.waiting.get(msg.id);
+            worker.waiting.delete(msg.id);
+            done(msg);
+          }
+        }
+      });
+      proc.stderr.on('data', (d) => { worker.lastError = String(d).slice(0, 300); });
+      proc.on('exit', () => {
+        worker.proc = null;
+        worker.booting = null;
+        for (const [, done] of worker.waiting) done({ error: 'worker exited' });
+        worker.waiting.clear();
+      });
+    };
+    tryNext(0);
+  });
+  return worker.booting;
+}
+
+function workerAsk(file) {
+  return bootWorker().then((proc) => new Promise((resolve) => {
+    const id = ++worker.seq;
+    const timer = setTimeout(() => {
+      worker.waiting.delete(id);
+      resolve({ error: 'transcription timed out' });
+    }, 60000);
+    worker.waiting.set(id, (msg) => { clearTimeout(timer); resolve(msg); });
+    try { proc.stdin.write(JSON.stringify({ id, path: file, cleanup: true }) + '\n'); }
+    catch (e) { clearTimeout(timer); worker.waiting.delete(id); resolve({ error: e.message }); }
+  }));
+}
+
+// Pull the first part named "file" out of a multipart body. The app posts one
+// file and a model field, so a full multipart parser would be more code than the
+// request can exercise — but the boundary scan still has to be byte-exact.
+function extractFile(body, boundary) {
+  const delim = Buffer.from('--' + boundary);
+  let at = body.indexOf(delim);
+  while (at >= 0) {
+    const after = at + delim.length;
+    if (body.slice(after, after + 2).toString() === '--') return null;
+    const headerEnd = body.indexOf('\r\n\r\n', after);
+    if (headerEnd < 0) return null;
+    const headers = body.slice(after, headerEnd).toString('utf8');
+    const next = body.indexOf(delim, headerEnd);
+    if (next < 0) return null;
+    if (/name="file"/i.test(headers)) {
+      let dataStart = headerEnd + 4;
+      let dataEnd = next;
+      if (body[dataEnd - 2] === 0x0d && body[dataEnd - 1] === 0x0a) dataEnd -= 2;
+      const type = /content-type:\s*([^\r\n]+)/i.exec(headers);
+      return { data: body.slice(dataStart, dataEnd), type: type ? type[1].trim().toLowerCase() : 'audio/webm' };
+    }
+    at = next;
+  }
+  return null;
+}
+
+function extFor(type) {
+  if (type.includes('wav')) return '.wav';
+  if (type.includes('ogg')) return '.ogg';
+  if (type.includes('mpeg') || type.includes('mp3')) return '.mp3';
+  if (type.includes('mp4') || type.includes('m4a') || type.includes('aac')) return '.m4a';
+  if (type.includes('flac')) return '.flac';
+  return '.webm';
+}
+
+async function transcribeLocally(req, res) {
+  const raw = await readBody(req).catch(() => null);
+  if (!raw) return json(res, 400, { error: { message: 'glance-api: unreadable request body' } });
+  const ct = String(req.headers['content-type'] || '');
+  const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct);
+  if (!m) return json(res, 400, { error: { message: 'glance-api: expected a multipart body' } });
+  const part = extractFile(raw, (m[1] || m[2]).trim());
+  if (!part || !part.data.length) return json(res, 400, { error: { message: 'glance-api: no audio part in the request' } });
+
+  const tmp = path.join(require('os').tmpdir(), 'glance-stt-' + process.pid + '-' + (++worker.seq) + extFor(part.type));
+  try { fs.writeFileSync(tmp, part.data); } catch (e) {
+    return json(res, 500, { error: { message: 'glance-api: cannot write temp audio: ' + e.message } });
+  }
+
+  const started = Date.now();
+  let out;
+  try {
+    out = await workerAsk(tmp);
+  } catch (e) {
+    out = { error: e && e.message ? e.message : String(e) };
+  }
+  if (out.error) {
+    try { fs.unlinkSync(tmp); } catch {}
+    log('stt local -> error ' + out.error);
+    return json(res, 502, { error: { message: 'glance-api: local transcription failed: ' + out.error, type: 'stt_error' } });
+  }
+  log('stt local ' + part.data.length + 'B -> ' + JSON.stringify(out.text || '').slice(0, 60) + ' ' + (Date.now() - started) + 'ms');
+  return json(res, 200, { text: out.text || '' });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const p = url.pathname;
@@ -178,7 +329,7 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       port: PORT,
       uptime: Math.round(process.uptime()),
-      upstream: { chat: Boolean(chat.base), transcription: Boolean(stt.base), speech: Boolean(upstream('tts').base) },
+      upstream: { chat: Boolean(chat.base), transcription: STT_LOCAL ? 'local' : Boolean(stt.base), speech: Boolean(upstream('tts').base) },
     });
   }
 
@@ -199,7 +350,10 @@ const server = http.createServer(async (req, res) => {
     return proxy('chat', '/chat/completions', req, res);
   }
 
-  if (p === '/v1/audio/transcriptions' && req.method === 'POST') return proxy('stt', '/audio/transcriptions', req, res);
+  if (p === '/v1/audio/transcriptions' && req.method === 'POST') {
+    if (STT_LOCAL) return transcribeLocally(req, res);
+    return proxy('stt', '/audio/transcriptions', req, res);
+  }
   if (p === '/v1/audio/speech' && req.method === 'POST') return proxy('tts', '/audio/speech', req, res);
 
   // Nothing here is meant to be browsed: a tab on this port shows an empty 404,
@@ -234,7 +388,7 @@ server.listen(PORT, HOST, () => {
   const stt = upstream('stt');
   console.log(`glance-api: http://${HOST}:${PORT}/v1  pid ${process.pid}`);
   console.log(`  chat          ${chat.base ? chat.base : 'NOT CONFIGURED'}`);
-  console.log(`  transcription ${stt.base ? stt.base : 'NOT CONFIGURED'}`);
+  console.log(`  transcription ${STT_LOCAL ? 'local whisper (stt-worker.py)' : (stt.base ? stt.base : 'NOT CONFIGURED')}`);
   console.log(`  speech        ${upstream('tts').base ? upstream('tts').base : 'not configured'}`);
   log(`listen ${PORT}`);
 });
@@ -244,6 +398,13 @@ function shutdown() {
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1500).unref();
 }
+// A rejected promise inside an async request handler would otherwise take the
+// process down and reset every in-flight request — including the ones that were
+// fine. Log it and keep serving.
+process.on('unhandledRejection', (e) => {
+  log('unhandledRejection ' + (e && e.message ? e.message : String(e)));
+});
+
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 process.on('SIGHUP', shutdown);

@@ -1,0 +1,7 @@
+# Local transcription for server/glance-api.js.
+#
+#   python -m pip install -r server/requirements.txt
+#
+# ffmpeg is used to decode the audio chunks; without it on PATH the worker falls
+# back to faster-whisper's own decoder, which is sensitive to the PyAV version.
+faster-whisper>=1.2.0

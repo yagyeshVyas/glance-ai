@@ -230,6 +230,10 @@ be rotated without touching either. A browser tab opened on the port gets `{}`
 with a 404: it is a headless `node.exe`, not a page, so there is no tab, no
 window and no taskbar entry.
 
+Transcription can also run **entirely on this machine** — faster-whisper behind
+the same route, no key and no provider (`STT_LOCAL=1`, install with
+`server\install-stt.cmd`). See [server/README.md](server/README.md).
+
 Configuration, the credential model, the limits, and `npm run probe:api` (a
 key-free test of the proxy) are in [server/README.md](server/README.md).
 

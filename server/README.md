@@ -15,6 +15,43 @@ gateways serve one:
 `server/.env`, so a build can be handed out without a credential in it, and the
 credential can be rotated without touching the app or the installer.
 
+## Local transcription (no key)
+
+`STT_LOCAL=1` — the default — answers `/audio/transcriptions` on this machine
+with faster-whisper, so a gateway with no audio route, or no key at all, still
+produces a transcript. Install once:
+
+```bat
+server\install-stt.cmd
+```
+
+It installs `faster-whisper` and downloads `base.en` (~145 MB, cached under
+`%USERPROFILE%\.cache\huggingface`). Chunks are decoded with ffmpeg to 16 kHz
+mono and transcribed on the CPU: roughly 0.6–1.0 s for a 4-second chunk once the
+model is warm, because one worker keeps it loaded between chunks instead of
+reloading per request.
+
+Measured on this machine, a synthesized sentence posted to the endpoint:
+
+```json
+{"text":"Hello, this is a test of the transcription model. The answer should be four words.","ms":853}
+```
+
+and through the whole app path — speakers → loopback → 4 s chunk → local server:
+
+```
+[Nov 16, 11:24 AM] Them: hello this is a test of the transcription
+[Nov 16, 11:24 AM] Them: sunglasses? The answer should be four words. Hello.
+```
+
+Accuracy is `base.en` on 4-second chunks: words get clipped at chunk edges and
+two voices at once blur together (that second line also carried a video playing
+underneath). `STT_MODEL=small.en` costs about 4× the time and reads better.
+`STT_LOCAL=0` goes back to proxying `STT_BASE`.
+
+Requirements: Python 3 on PATH (or `PYTHON=` in `.env`) and ffmpeg on PATH. If
+either is missing the endpoint answers 502 with the reason instead of silence.
+
 ## Run it
 
 ```bat
