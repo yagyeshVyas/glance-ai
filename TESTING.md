@@ -152,6 +152,7 @@ Run against `dist/win-unpacked/GlanceAI.exe` after `npm run dist`:
 
 ## 10b. Published release (fresh Windows VMs)
 `.github/workflows/release-verify.yml`, run against the published `v3.3.7`:
+`gh workflow run release-verify.yml -f version=3.3.7 -f previous=3.3.6`
 - [x] Clean install of `GlanceAI-3.3.7-x64.exe` on a fresh `windows-latest` VM: installed to `C:\Program Files\GlanceAI`, ProductVersion `3.3.7.0`, signer `CN=Glance AI` (thumbprint `06468B49…AACC`)
 - [x] Installed app launches and writes its smoke marker
 - [x] 3.3.6 installed, its own updater found the published 3.3.7, downloaded it, and reported `Update 3.3.7 ready — restart to apply`
