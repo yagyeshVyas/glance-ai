@@ -34,11 +34,15 @@ jobs:
       # which ignores this skip and fails closed. A full target build is used
       # (not --dir) because app-update.yml is only written for installer
       # targets, and the verifier checks its publisher pin.
+      #
+      # --publish never: this runner only builds and launches the app. Without
+      # it electron-builder's CI default (onTagOrDraft) tries to upload a
+      # release and fails on a push because no GH_TOKEN is present.
       - name: Build arm64 payload and installer
         shell: pwsh
         run: |
           $env:SKIP_SIGNING = '1'
-          npx electron-builder --win --arm64
+          npx electron-builder --win --arm64 --publish never
 
       - name: Verify arm64 fuses, architecture and packaged launch
         run: npm run verify:build -- --arch=arm64 --launch

@@ -67,7 +67,10 @@ function thumbExists(thumb) {
     process.on('SIGINT', () => { restorePkg(); process.exit(130); });
   }
   try {
-    execFileSync(process.execPath, [path.join(ROOT, 'node_modules', 'electron-builder', 'cli.js'), '--win'], {
+    // --publish never: releasing is a separate, explicit step (`gh release
+    // upload`). Without this, electron-builder's CI default (onTagOrDraft)
+    // tries to upload and fails when no GH_TOKEN is present.
+    execFileSync(process.execPath, [path.join(ROOT, 'node_modules', 'electron-builder', 'cli.js'), '--win', '--publish', 'never'], {
       cwd: ROOT, stdio: 'inherit', env: { ...process.env, NODE_OPTIONS: '' },
     });
   } finally {

@@ -14,7 +14,7 @@
     "test": "node scripts/test.js && node scripts/test-main.js && node scripts/eye-probe.js",
     "eye": "node scripts/eye-probe.js",
     "test:main": "node scripts/test-main.js",
-    "dist": "electron-builder --win",
+    "dist": "electron-builder --win --publish never",
     "dist:signed": "node scripts/sign-build.js",
     "verify:build": "node scripts/verify-build.js",
     "resedit": "node scripts/resedit.js",

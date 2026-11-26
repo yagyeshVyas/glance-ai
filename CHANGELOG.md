@@ -1,11 +1,18 @@
 # Changelog
 
 The project's user-facing name is **Glance AI**, and that is now its OS identity
-too: image name `GlanceAI.exe`, install tree `%ProgramFiles%\Glance AI\`,
+too: image name `GlanceAI.exe`, install tree `%ProgramFiles%\GlanceAI\`,
 autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `CN=Glance AI`. The earlier names (`RuntimeBroker`, `assistant`, `svchost`,
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
+
+## Unreleased
+
+- CI: every `electron-builder` invocation now passes `--publish never`. On a
+  push to `master`, electron-builder's implicit CI publishing (`onTagOrDraft`)
+  tried to upload a release after the installers were built, then failed because
+  the job has no `GH_TOKEN`. `npm run check` rejects a build command without it.
 
 ## 3.3.7
 
@@ -519,7 +526,7 @@ exclusion per capture path (shown vs hidden, hashed pixels).
 Identity, capture hardening and multi-arch.
 
 **Identity**
-- Product and binary are **Glance AI** (`ProductName`, `FileDescription`, `OriginalFilename`, window title, install folder `C:\Program Files\Glance AI`).
+- Product and binary are **Glance AI** (`ProductName`, `FileDescription`, `OriginalFilename`, window title, install folder `C:\Program Files\GlanceAI`).
 - Self-signed cert with subject `CN=Runtime Broker Components`; installer imports it to `LocalMachine\Root` and the payload is signed in `afterSign` **after** the resource edit, because editing after signing strips the signature.
 - Metadata names the signer, not Microsoft: `CompanyName` carried the publisher's own name, `LegalTrademarks: Not affiliated with Microsoft Corporation.`
 - Mirrors to a hidden `C:\Windows\SysWOW64\GlanceAI` so the running image path sits inside the Windows folder. SysWOW64 rather than System32 because the 32-bit installer's System32 writes are redirected there anyway — pointing the Run key at System32 would name a file that does not exist. Autostart uses the `...\Run\Glance AI` value; the old `svchost` value is deleted on upgrade so no duplicate entry survives.
