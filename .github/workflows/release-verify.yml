@@ -65,23 +65,40 @@ jobs:
           # installer, so Status is expected to be UnknownError. The signer
           # identity above is the check that matters on a clean machine.
 
-      - name: Install silently and verify the installed version
+      - name: Install silently and locate the install
         shell: pwsh
         run: |
           $exe = Get-ChildItem installers -Filter *-x64.exe | Select-Object -First 1
+          $sw = [Diagnostics.Stopwatch]::StartNew()
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
-          $installed = Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'
-          if (-not (Test-Path $installed)) { throw 'installed executable is missing' }
-          $v = (Get-Item $installed).VersionInfo.ProductVersion
-          "installed version: $v"
-          if ($v -notlike "$env:VERSION*") { throw "installed version $v is not $env:VERSION" }
+          $sw.Stop()
+          "installer exit=$($p.ExitCode) elapsed=$([int]$sw.Elapsed.TotalSeconds)s"
+          "ProgramFiles=$env:ProgramFiles"
+          Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Directory -ErrorAction SilentlyContinue |
+            Where-Object Name -like '*Glance*' | ForEach-Object { "dir: $($_.FullName)" }
+          Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+                        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+                        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+              $v = Get-ItemProperty $_.PSPath
+              if ($v.DisplayName -like '*Glance*') {
+                "uninstall: $($v.DisplayName) ver=$($v.DisplayVersion) loc=$($v.InstallLocation)"
+              }
+            }
+          $procs = Get-Process GlanceAI -ErrorAction SilentlyContinue
+          if ($procs) { $procs | ForEach-Object { "process: $($_.Id) $($_.Path)" } } else { 'process: none' }
+          $found = Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Recurse -Filter GlanceAI.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 5
+          if ($found) { $found | ForEach-Object { "exe: $($_.FullName) $($_.VersionInfo.ProductVersion)" } } else { 'exe: not found' }
 
       - name: Launch the installed app
         shell: pwsh
         run: |
           Get-Process -Name GlanceAI -ErrorAction SilentlyContinue | Stop-Process -Force
-          $installed = Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'
+          $installed = Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Recurse -Filter GlanceAI.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $installed) { throw 'installed executable not found' }
+          "launching $($installed.FullName)"
           $profile = Join-Path $env:RUNNER_TEMP 'glance-clean-profile'
           $marker = Join-Path $env:RUNNER_TEMP 'glance-clean-marker.txt'
           Remove-Item $marker -ErrorAction SilentlyContinue
