@@ -108,6 +108,40 @@ if (/taskkill/i.test(nsh)) {
   console.error('FAIL installer: build/installer.nsh kills processes by image name');
 }
 if (installerOk) console.log('ok   installer (no trust-store import, no taskkill)');
+
+// electron-builder publishes implicitly when it detects CI (onTagOrDraft), so a
+// CI build with no GH_TOKEN fails after the installers are already built. Every
+// build invocation must say --publish never; publishing is an explicit step.
+const workflowDir = path.join(__dirname, '..', '.github', 'workflows');
+const builderFiles = fs.readdirSync(workflowDir)
+  .filter((f) => /\.ya?ml$/i.test(f))
+  .map((f) => ({
+    file: path.join(workflowDir, f),
+    pattern: /\bnpx\s+electron-builder\b/,
+    required: f === 'ci.yml' || f === 'arm64.yml',
+  }));
+builderFiles.push({
+  file: path.join(__dirname, 'sign-build.js'),
+  pattern: /'electron-builder',\s*'cli\.js'/,
+  required: true,
+});
+let publishOk = true;
+for (const { file, pattern, required } of builderFiles) {
+  const rel = path.relative(path.join(__dirname, '..'), file);
+  let seen = 0;
+  fs.readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, i) => {
+    if (!pattern.test(line)) return;
+    seen++;
+    if (/--publish['"\s,]+never/.test(line)) return;
+    bad++; publishOk = false;
+    console.error('FAIL publish ' + rel + ':' + (i + 1) + ': electron-builder runs without --publish never');
+  });
+  if (required && seen === 0) {
+    bad++; publishOk = false;
+    console.error('FAIL publish ' + rel + ': no electron-builder invocation found');
+  }
+}
+if (publishOk) console.log('ok   publish (CI builds never upload a release)');
 const identityChecks = [
   ['package.json name', pkg.name, 'glance-ai'],
   ['package.json productName', pkg.productName, IDENTITY.PRODUCT],

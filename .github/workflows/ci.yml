@@ -97,11 +97,16 @@ jobs:
       # A full target build, not --dir: app-update.yml (and therefore the
       # publisher pin the updater checks) is only written for installer
       # targets. The installer itself stays unsigned because CI has no key.
+      #
+      # --publish never is required. Without it electron-builder detects CI,
+      # selects onTagOrDraft, and tries to upload a release; on a push there is
+      # no GH_TOKEN, so the build fails after the installers are already built.
+      # Publishing is a separate, explicit step (`gh release upload`).
       - name: Build x64 payload and installer
         shell: pwsh
         run: |
           $env:SKIP_SIGNING = '1'
-          npx electron-builder --win --x64
+          npx electron-builder --win --x64 --publish never
 
       - name: Verify fuses, architecture, asar and update publisher
         run: npm run verify:build -- --arch=x64 --launch
