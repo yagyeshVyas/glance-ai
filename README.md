@@ -35,7 +35,7 @@ Download the installer for your machine from the [latest release](../../releases
 | x64 | `GlanceAI-<version>-x64.exe` |
 | arm64 | `GlanceAI-<version>-arm64.exe` |
 
-The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\Glance AI` and needs an administrator prompt once.
+The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\GlanceAI` and needs an administrator prompt once.
 
 Then open ⚙ and add an API key — or point the base URL at any OpenAI-compatible endpoint, including a local one.
 
