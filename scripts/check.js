@@ -32,6 +32,10 @@ const files = [
   'scripts/after-sign.js',
   'scripts/patch-class-names.js',
   'scripts/pe-imports.js',
+  'scripts/build-hide-helper.js',
+  'scripts/before-pack.js',
+  'scripts/remote-peb-probe.js',
+  'scripts/child-peb-probe.js',
   'scripts/check.js',
 ];
 let bad = 0;
@@ -61,19 +65,26 @@ const IDENTITY = require('../src/identity');
 const pkg = require('../package.json');
 const nsh = fs.readFileSync(path.join(__dirname, '..', 'build', 'installer.nsh'), 'utf8');
 const identityChecks = [
-  ['package.json name', pkg.name, 'runtime-broker'],
+  ['package.json name', pkg.name, 'glance-ai'],
   ['package.json productName', pkg.productName, IDENTITY.PRODUCT],
   ['package.json appId', pkg.build.appId, IDENTITY.APP_ID],
-  ['package.json executableName', pkg.build.win.executableName, IDENTITY.PRODUCT],
+  ['package.json executableName', pkg.build.win.executableName, IDENTITY.EXE.replace(/\.exe$/i, '')],
   ['package.json description', pkg.description, IDENTITY.DESCRIPTION],
   ['package.json author', pkg.author, IDENTITY.COMPANY],
+  ['package.json copyright', pkg.build.copyright, IDENTITY.COPYRIGHT],
+  ['package.json shortcutName', pkg.build.nsis.shortcutName, IDENTITY.PRODUCT],
 ];
 for (const [label, got, want] of identityChecks) {
   if (got !== want) { bad++; console.error('FAIL identity ' + label + ': ' + JSON.stringify(got) + ' !== ' + JSON.stringify(want)); }
 }
-// installer.nsh cannot require the module, so pin the two paths it must build.
-if (!nsh.includes('$R5\\' + IDENTITY.PRODUCT + '$\\"')) {
-  bad++; console.error('FAIL identity build/installer.nsh: mirror path is not $R5\\' + IDENTITY.PRODUCT);
+// installer.nsh cannot require the module, so pin the paths it must build:
+// the executable in $INSTDIR, the Run value, and no System32 mirror under the
+// product name (the old impersonation must not come back).
+if (!nsh.includes('$INSTDIR\\' + IDENTITY.EXE + '"')) {
+  bad++; console.error('FAIL identity build/installer.nsh: install path is not $INSTDIR\\' + IDENTITY.EXE);
+}
+if (nsh.includes('xcopy') && nsh.includes('$R5\\' + IDENTITY.PRODUCT)) {
+  bad++; console.error('FAIL identity build/installer.nsh: still mirrors ' + IDENTITY.PRODUCT + ' into System32');
 }
 if (!nsh.includes('"Software\\Microsoft\\Windows\\CurrentVersion\\Run" "' + IDENTITY.AUTOSTART_NAME + '"')) {
   bad++; console.error('FAIL identity build/installer.nsh: Run value is not ' + IDENTITY.AUTOSTART_NAME);

@@ -181,6 +181,182 @@ static napi_value SanitizePeb(napi_env env, napi_callback_info info) {
   return r;
 }
 
+// ------------------------------------------------------- remote PEB rewrite
+//
+// Chromium's renderer/GPU/utility helpers are separate processes. Their PEB is
+// theirs to edit, but the browser process is their parent and can write into it
+// from outside: the child's command line is the one string a same-user scanner
+// reads to fingerprint Electron (`--type=renderer --user-data-dir=…`). The main
+// process rewrites it once per child PID. Same-arch only — offsets are the
+// x64/arm64 process-parameters layout, and a WOW64 child (none exist under one
+// Electron) would be corrupted, so it is refused instead.
+
+static bool sameArch(HANDLE target) {
+  BOOL targetWow = FALSE, selfWow = FALSE;
+  if (!IsWow64Process(target, &targetWow) || !IsWow64Process(GetCurrentProcess(), &selfWow)) return false;
+  return targetWow == selfWow;
+}
+
+// Read the process-parameters pointer out of a remote PEB.
+static PVOID remoteParams(HANDLE proc) {
+  PROCESS_BASIC_INFORMATION pbi = {};
+  NTSTATUS st = NtQueryInformationProcess(proc, ProcessBasicInformation, &pbi, sizeof(pbi), nullptr);
+  if (st < 0 || !pbi.PebBaseAddress) return nullptr;
+  PVOID params = nullptr;
+  SIZE_T got = 0;
+  auto* slot = reinterpret_cast<BYTE*>(pbi.PebBaseAddress) + offsetof(PEB, ProcessParameters);
+  if (!ReadProcessMemory(proc, slot, &params, sizeof(params), &got) || got != sizeof(params)) return nullptr;
+  return params;
+}
+
+static bool readRemoteUnicode(HANDLE proc, BYTE* base, size_t offset, std::wstring* out) {
+  UNICODE_STRING u = {};
+  SIZE_T got = 0;
+  if (!ReadProcessMemory(proc, base + offset, &u, sizeof(u), &got) || got != sizeof(u)) return false;
+  if (!u.Buffer || u.Length < sizeof(wchar_t)) { out->clear(); return true; }
+  size_t chars = u.Length / sizeof(wchar_t);
+  if (chars > 0x8000) chars = 0x8000; // garbage guard
+  out->assign(chars, L'\0');
+  if (!ReadProcessMemory(proc, u.Buffer, &(*out)[0], chars * sizeof(wchar_t), &got)) { out->clear(); return false; }
+  return true;
+}
+
+// Replace one UNICODE_STRING inside the target's process parameters. The
+// replacement buffer is a fresh remote allocation: the original lives inside
+// the parameters block and is sized for the original argv.
+static bool writeRemoteUnicode(HANDLE proc, BYTE* base, size_t offset, const std::wstring& want) {
+  size_t bytes = want.size() * sizeof(wchar_t);
+  if (bytes > 0xFFFC) bytes = 0xFFFC;
+  LPVOID remote = VirtualAllocEx(proc, nullptr, bytes + sizeof(wchar_t), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+  if (!remote) return false;
+  if (bytes && !WriteProcessMemory(proc, remote, want.data(), bytes, nullptr)) {
+    VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
+    return false;
+  }
+  UNICODE_STRING repl = {};
+  repl.Length = static_cast<USHORT>(bytes);
+  repl.MaximumLength = static_cast<USHORT>(bytes + sizeof(wchar_t));
+  repl.Buffer = reinterpret_cast<PWSTR>(remote);
+  if (!WriteProcessMemory(proc, base + offset, &repl, sizeof(repl), nullptr)) {
+    VirtualFreeEx(proc, remote, 0, MEM_RELEASE);
+    return false;
+  }
+  return true;
+}
+
+static HANDLE openForPeb(DWORD pid, DWORD* err) {
+  HANDLE proc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION,
+                            FALSE, pid);
+  if (!proc && err) *err = GetLastError();
+  return proc;
+}
+
+static napi_value SanitizeRemotePeb(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+  uint32_t pid = 0;
+  DWORD err = ERROR_INVALID_PARAMETER;
+  bool ok = false;
+  int wrote = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &pid);
+  napi_valuetype t = napi_undefined;
+  if (argc >= 2) napi_typeof(env, argv[1], &t);
+
+  if (pid && pid != GetCurrentProcessId() && t == napi_object) {
+    HANDLE proc = openForPeb(pid, &err);
+    if (proc) {
+      if (!sameArch(proc)) {
+        err = ERROR_NOT_SUPPORTED;
+      } else if (PVOID params = remoteParams(proc)) {
+        auto* base = reinterpret_cast<BYTE*>(params);
+        struct { const char* key; size_t offset; } fields[] = {
+          { "commandLine", offsetof(MY_RTL_USER_PROCESS_PARAMETERS, CommandLine) },
+          { "imagePath", offsetof(MY_RTL_USER_PROCESS_PARAMETERS, ImagePathName) },
+          { "windowTitle", offsetof(MY_RTL_USER_PROCESS_PARAMETERS, WindowTitle) },
+          { "currentDirectory", offsetof(MY_RTL_USER_PROCESS_PARAMETERS, CurrentDirectory) + offsetof(MY_CURDIR, DosPath) },
+        };
+        for (auto& f : fields) {
+          napi_value v = strProp(env, argv[1], f.key);
+          napi_valuetype vt;
+          napi_typeof(env, v, &vt);
+          if (vt == napi_string && writeRemoteUnicode(proc, base, f.offset, fromUtf8(env, v))) wrote++;
+        }
+        ok = wrote > 0;
+        err = ok ? 0 : GetLastError();
+      } else {
+        err = GetLastError();
+      }
+      CloseHandle(proc);
+    }
+  }
+
+  napi_value r, okVal, errVal, wroteVal, pidVal;
+  napi_create_object(env, &r);
+  napi_get_boolean(env, ok, &okVal);
+  napi_create_uint32(env, err, &errVal);
+  napi_create_int32(env, wrote, &wroteVal);
+  napi_create_uint32(env, pid, &pidVal);
+  napi_set_named_property(env, r, "ok", okVal);
+  napi_set_named_property(env, r, "error", errVal);
+  napi_set_named_property(env, r, "wrote", wroteVal);
+  napi_set_named_property(env, r, "pid", pidVal);
+  return r;
+}
+
+// Readback of another process's command line / image path through its PEB.
+// Used by the hardening probe to prove the remote write landed; a scanner that
+// opens the child with VM_READ gets the same answer.
+static napi_value RemotePebInfo(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+  uint32_t pid = 0;
+  if (argc >= 1) napi_get_value_uint32(env, argv[0], &pid);
+
+  napi_value r, cmd, img, cwd, okVal, errVal;
+  napi_create_object(env, &r);
+  std::wstring commandLine, imagePath, currentDirectory;
+  DWORD err = ERROR_INVALID_PARAMETER;
+  bool ok = false;
+  if (pid) {
+    HANDLE proc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+    if (proc) {
+      if (!sameArch(proc)) {
+        err = ERROR_NOT_SUPPORTED;
+      } else if (PVOID params = remoteParams(proc)) {
+        auto* base = reinterpret_cast<BYTE*>(params);
+        bool a = readRemoteUnicode(proc, base, offsetof(MY_RTL_USER_PROCESS_PARAMETERS, CommandLine), &commandLine);
+        bool b = readRemoteUnicode(proc, base, offsetof(MY_RTL_USER_PROCESS_PARAMETERS, ImagePathName), &imagePath);
+        bool c = readRemoteUnicode(proc, base,
+                                   offsetof(MY_RTL_USER_PROCESS_PARAMETERS, CurrentDirectory) + offsetof(MY_CURDIR, DosPath),
+                                   &currentDirectory);
+        ok = a && b && c;
+        err = ok ? 0 : GetLastError();
+      } else {
+        err = GetLastError();
+      }
+      CloseHandle(proc);
+    } else {
+      err = GetLastError();
+    }
+  }
+
+  napi_create_string_utf16(env, reinterpret_cast<const char16_t*>(commandLine.c_str()), commandLine.size(), &cmd);
+  napi_create_string_utf16(env, reinterpret_cast<const char16_t*>(imagePath.c_str()), imagePath.size(), &img);
+  napi_create_string_utf16(env, reinterpret_cast<const char16_t*>(currentDirectory.c_str()), currentDirectory.size(), &cwd);
+  napi_get_boolean(env, ok, &okVal);
+  napi_create_uint32(env, err, &errVal);
+  napi_set_named_property(env, r, "ok", okVal);
+  napi_set_named_property(env, r, "error", errVal);
+  napi_set_named_property(env, r, "commandLine", cmd);
+  napi_set_named_property(env, r, "imagePath", img);
+  napi_set_named_property(env, r, "currentDirectory", cwd);
+  return r;
+}
+
 static napi_value PebInfo(napi_env env, napi_callback_info) {
   napi_value r, cmd, img, count;
   napi_create_object(env, &r);
@@ -511,6 +687,8 @@ static napi_value BlendTitles(napi_env env, napi_callback_info info) {
 static napi_value Init(napi_env env, napi_value exports) {
   struct { const char* name; napi_callback fn; } fns[] = {
     { "sanitizePeb", SanitizePeb },
+    { "sanitizeRemotePeb", SanitizeRemotePeb },
+    { "remotePebInfo", RemotePebInfo },
     { "pebInfo", PebInfo },
     { "hideModules", HideModules },
     { "sealProcess", SealProcess },

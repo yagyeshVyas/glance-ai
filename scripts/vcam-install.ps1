@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $vendor = Join-Path $root 'vendor\unitycapture'
-$dest = Join-Path $env:LOCALAPPDATA 'RuntimeBroker\vcam'
+$dest = Join-Path $env:LOCALAPPDATA 'Glance AI\vcam'
 
 $cats = @{
   x64 = '{860BB310-5D01-11D0-BD3B-00A0C911CE86}'

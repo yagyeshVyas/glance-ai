@@ -97,9 +97,13 @@ function main() {
     const before = fs.readFileSync(file, 'utf8');
     if (check) {
       // Repository URLs carry the publishing account, which is public by
-      // definition and has to keep working. Everything outside a URL must not
-      // name a person, so URLs are neutralised before the test.
-      const stripped = before.replace(/https?:\/\/\S*(github|githubusercontent)\S*/gi, '<url>')
+      // definition and has to keep working. The publish `owner` field is the
+      // same account as a bare string (electron-updater reads it), so it is
+      // neutralised with the URLs. Everything outside a coordinate must not
+      // name a person.
+      const stripped = before
+        .replace(/("owner"\s*:\s*")[^"]*(")/g, '$1<publish-owner>$2')
+        .replace(/https?:\/\/\S*(github|githubusercontent)\S*/gi, '<url>')
         .replace(/\b(github\.com|githubusercontent\.com)\S*/gi, '<url>');
       if (scrubText(stripped) !== stripped) hits.push(path.relative(root, file));
       continue;

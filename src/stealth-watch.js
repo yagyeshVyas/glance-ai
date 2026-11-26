@@ -38,6 +38,20 @@ const WATCHED = [
   /^examity/i,
   /^mettl/i,
   /^talview/i,
+  // Native proctoring / secure browsers that read window state. Exact prefixes,
+  // not /exam/ or /guardian/: an unrelated match would drop the flag for no
+  // reason, which is a worse trade than missing a vendor.
+  /^examplify/i, // ExamSoft Examplify
+  /^examsoft/i,
+  /^examus/i,
+  /^onvue/i, // Pearson VUE OnVUE
+  /^kryterion/i, // Kryterion secure browser
+  /^securebrowser\.exe$/i, // Kryterion / vendor-branded secure browser
+  /^bluebook\.exe$/i, // College Board digital SAT
+  /^proctorexam/i,
+  /^proctorfree/i,
+  /^meazure/i, // Meazure Learning (ProctorU's parent)
+  /^caveon/i,
 ];
 
 let native = null;

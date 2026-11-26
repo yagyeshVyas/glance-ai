@@ -11,13 +11,13 @@
 //
 // Private key material never enters the repo. `scripts/make-cert.ps1` creates a
 // fresh pair and writes the exportable .pfx to
-// %USERPROFILE%\.runtimebroker-signing\, and only the public .cer
+// %USERPROFILE%\.glance-signing\, and only the public .cer
 // (build/codesign.cer, imported by the installer) is committed.
 module.exports = {
-  THUMBPRINT: 'DFA561EEFC12632EAACDD0C8CBE20F3B23AC5702',
-  SUBJECT: 'CN=Runtime Broker Components, O=Runtime Components, C=US',
+  THUMBPRINT: '06468B493CB0318832E9894CA756E064DB06AACC',
+  SUBJECT: 'CN=Glance AI, O=Glance AI, C=US',
   // Deleted from LocalMachine\Root by the installer's customInstall: machines
-  // that ran an older build still trust the previous publisher, which is the one
-  // name this project is removing.
-  RETIRED_THUMBPRINTS: ['E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C'],
+  // that ran an older build still trust the previous publishers, including the
+  // RuntimeBroker-era product cert this one replaces.
+  RETIRED_THUMBPRINTS: ['E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C', 'DFA561EEFC12632EAACDD0C8CBE20F3B23AC5702'],
 };

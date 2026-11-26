@@ -1,7 +1,7 @@
 'use strict';
 // Build + identity pipeline: electron-builder → version-resource edit → sign.
 // Keeps `dist:signed` one command so the two steps that make the binary look
-// like a Microsoft shell process can never run in the wrong order (editing the
+// like a Windows shell process can never run in the wrong order (editing the
 // resource AFTER signing would invalidate the signature).
 //
 // Evidence is recorded, not assumed: each step is re-verified and the final

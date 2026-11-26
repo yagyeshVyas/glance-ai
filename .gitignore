@@ -23,6 +23,9 @@ src/native/build/
 src/native/x64/
 src/native/arm64/
 
+# packaged helper (compiled by scripts/build-hide-helper.js)
+build/hide-helper.exe
+
 # local API server: credentials and runtime state
 server/.env
 server/run/

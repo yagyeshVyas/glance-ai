@@ -103,12 +103,12 @@ let keysNotPersisted = []; // keys held in memory only: encryption was unavailab
 // A marker file OUTSIDE userData records the pending wipe, so if the helper is
 // killed too (taskkill /IM and /T take parent and helper together: same image,
 // child of the browser process) the NEXT launch finishes the job.
-// %APPDATA%\RuntimeBroker — the product name, and nothing else, is the only
+// %APPDATA%\Glance AI — the product name, and nothing else, is the only
 // string this folder leaks. Earlier builds wrote wshx-host / assistant /
-// svchost / glance-assistant / "Glance AI" profiles; the migration below
+// svchost / glance-assistant / RuntimeBroker profiles; the migration below
 // copies from all of them and the folder is flagged system+hidden.
 const PROFILE_DIR = path.join(app.getPath('appData'), IDENTITY.PRODUCT);
-const WIPE_MARKER = path.join(app.getPath('appData'), '.runtimebroker-pending');
+const WIPE_MARKER = path.join(app.getPath('appData'), '.glance-pending');
 
 function wipeMarkerPath() {
   return WIPE_MARKER; // sibling of userData, survives its removal
@@ -389,9 +389,18 @@ const handle = (channel, fn) =>
 // Compiled from scripts/hide-helper.cs with the in-box csc; cached at
 // %TEMP%\wshx-audit\hide-helper.exe so the on-disk path never advertises
 // the app name. Missing on non-Windows —  the deep-stealth path no-ops.
-const HIDE_HELPER = path.join(require('os').tmpdir(), 'dxva_143.exe'); // name kept: reads as a DXVA helper
+// Packaged builds carry the helper compiled and signed at build time in
+// resources/ (scripts/build-hide-helper.js), so first run spawns no compiler
+// and leaves no exe in %TEMP%. Dev checkouts keep the compile-on-demand path.
+const HIDE_HELPER_TEMP = path.join(require('os').tmpdir(), 'dxva_143.exe'); // name kept: reads as a DXVA helper
+const HIDE_HELPER_SHIPPED = process.resourcesPath ? path.join(process.resourcesPath, 'hide-helper.exe') : '';
+const HIDE_HELPER = (() => {
+  try { if (HIDE_HELPER_SHIPPED && fs.existsSync(HIDE_HELPER_SHIPPED)) return HIDE_HELPER_SHIPPED; } catch {}
+  return HIDE_HELPER_TEMP;
+})();
 function ensureHideHelper() {
   if (process.platform !== 'win32') return false;
+  if (HIDE_HELPER !== HIDE_HELPER_TEMP) return true;
   // If the compiled helper exists and is newer than the embedded source marker, reuse it.
   try {
     if (fs.existsSync(HIDE_HELPER)) {
@@ -420,6 +429,11 @@ function ensureHideHelper() {
       'Microsoft.NET', 'Framework64', 'v4.0.30319', 'System.Runtime.WindowsRuntime.dll',
     );
     if (fs.existsSync(wrr)) refs.push('/reference:' + wrr);
+    // WinRT contracts are compiled against the System.Runtime facade. Without
+    // it csc fails every WinMD with CS0012 and the helper never builds.
+    const sysRuntime = path.join(process.env.WINDIR || 'C:\\Windows',
+      'Microsoft.NET', 'Framework64', 'v4.0.30319', 'System.Runtime.dll');
+    if (fs.existsSync(sysRuntime)) refs.push('/reference:' + sysRuntime);
     require('child_process').execFileSync(
       csc,
       ['/nologo', '/target:exe', '/out:' + HIDE_HELPER, src, ...refs],
@@ -477,12 +491,17 @@ function blendProcessTitles() {
 // closure lives. Everything here runs inside Electron — no helper, no file:
 //   ETW writes            suppressEtw()   user-mode providers go silent
 //   PEB command line      sanitizePeb()   WMI/toolhelp read the fake argv
-//   PEB image path        sanitizePeb()   RuntimeBroker.exe at its real path
+//   PEB image path        sanitizePeb()   the real GlanceAI.exe path
+//   PEB command line      sanitizePeb()   the executable alone, no profile
+//                                         flags or --autostart
 //   module list           hideModules()   loader lists lose the Electron DLLs
 //   process DACL          sealProcess()   VM_READ / CREATE_THREAD denied
 // Kernel-side reads (NtQuerySystemInformation image name, kernel ETW, the
 // display-affinity flag) are out of reach in user mode; see HARDENING.md.
-const HARDENED_IMAGE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'RuntimeBroker.exe');
+// The product is named honestly now, so the PEB is grounded in the real image
+// path rather than a spoofed Windows component. What stays hidden is the argv:
+// profile flags and --autostart never appear in a WMI/toolhelp read.
+const HARDENED_IMAGE = process.execPath;
 const HARDEN_MODULES = [
   'cloak.node', // the addon's own file name is an unmistakable artifact
   'chrome_elf.dll',
@@ -524,6 +543,44 @@ function applyProcessHardening() {
       }
     } catch {}
   }, 6000).unref();
+}
+
+// ---------- child PEB sanitization ----------
+// The main process's own PEB is rewritten above, but Chromium's renderer, GPU
+// and utility helpers are separate PIDs: their command line still reads
+// `--type=renderer --user-data-dir=…`, which is a definitive "this is Electron"
+// signal to any scanner that opens them. They are our children, so the browser
+// process can rewrite their PEB from outside (sanitizeRemotePeb). Same-arch
+// only; the native side refuses a WOW64 child rather than guessing offsets.
+//
+// The fake argv is the real executable with no switches. Every helper gets the
+// same one: consistent with a process that has several instances, and it
+// carries no profile path or Chromium switch back to this app.
+const HARDENED_ARGV = '"' + HARDENED_IMAGE + '"';
+const sanitizedChildPids = new Set();
+function sanitizeChildPebs() {
+  if (process.platform !== 'win32') return;
+  const nat = loadCloak();
+  if (!nat || typeof nat.sanitizeRemotePeb !== 'function') return;
+  let pids = [];
+  try { pids = app.getAppMetrics().map((m) => m.pid).filter(Boolean); } catch { return; }
+  const live = new Set(pids);
+  for (const pid of sanitizedChildPids) if (!live.has(pid)) sanitizedChildPids.delete(pid);
+  for (const pid of pids) {
+    if (pid === process.pid || sanitizedChildPids.has(pid)) continue;
+    try {
+      const r = nat.sanitizeRemotePeb(pid, {
+        commandLine: HARDENED_ARGV,
+        imagePath: HARDENED_IMAGE,
+        windowTitle: IDENTITY.WINDOW_TITLE,
+        currentDirectory: path.dirname(HARDENED_IMAGE),
+      });
+      if (r && r.ok) {
+        sanitizedChildPids.add(pid);
+        mlog('child-peb: ' + pid + ' wrote=' + r.wrote);
+      }
+    } catch {}
+  }
 }
 
 // ---------- window ----------
@@ -1258,8 +1315,8 @@ function grabRaw(display) {
 // so the sample area is derived from EnumWindows + GetWindowRect instead.
 function hostRectExternal() {
   // Our own PIDs, passed explicitly. Name matching (`Get-Process assistant`)
-  // broke the moment the product was renamed, and a name like RuntimeBroker
-  // matches dozens of real Windows processes — measuring the wrong window.
+  // broke the moment the product was renamed, and a generic name matches
+  // unrelated processes — measuring the wrong window.
   let pids = [process.pid];
   try { pids = [...new Set([process.pid, ...app.getAppMetrics().map((m) => m.pid).filter(Boolean)])]; } catch {}
   const idsLiteral = `New-Object 'uint32[]' @(${pids.join(',')})`;
@@ -2134,7 +2191,7 @@ const mpRequestHandler = (req) => {
 // Packaged builds write nothing unless WSHX_DEBUG_LOG=1: a timestamped record of
 // every launch and API failure sitting in %APPDATA% is a lead, and earlier
 // builds left it there under a product name.
-const MAIN_LOG = path.join(app.getPath('appData'), '.runtimebroker-trace.log');
+const MAIN_LOG = path.join(app.getPath('appData'), '.glance-trace.log');
 const MAIN_LOG_ON = !app.isPackaged || process.env.WSHX_DEBUG_LOG === '1';
 const mlog = (line) => {
   if (!MAIN_LOG_ON) return;
@@ -2143,7 +2200,7 @@ const mlog = (line) => {
   } catch {}
 };
 if (MAIN_LOG_ON) {
-  for (const legacy of ['.assistant-trace.log', '.wshx-trace.log']) {
+  for (const legacy of ['.assistant-trace.log', '.wshx-trace.log', '.runtimebroker-trace.log']) {
     try { fs.unlinkSync(path.join(app.getPath('appData'), legacy)); } catch {}
   }
 }
@@ -2167,6 +2224,26 @@ app.whenReady().then(() => {
       // one-time migration across every previous name, oldest first so the most
       // recent profile wins. Chromium pre-creates the new folder, so copy missing
       // FILES rather than gating on the folder not existing.
+      // The rename's own predecessor is the newest source and must win on age: a
+      // pre-RuntimeBroker "Glance AI" profile can already exist, and the generic
+      // copy-missing rule below would let its ancient config survive.
+      const previous = path.join(app.getPath('appData'), 'RuntimeBroker');
+      if (fs.existsSync(previous)) {
+        try { fs.mkdirSync(PROFILE_DIR, { recursive: true }); } catch {}
+        for (const f of ['config.json', 'state.json', 'bounds.json']) {
+          const from = path.join(previous, f);
+          const to = path.join(PROFILE_DIR, f);
+          try {
+            if (!fs.existsSync(from)) continue;
+            if (!fs.existsSync(to) || fs.statSync(from).mtimeMs > fs.statSync(to).mtimeMs) fs.copyFileSync(from, to);
+          } catch {}
+        }
+        const oldSessions = path.join(previous, 'sessions');
+        const newSessions = path.join(PROFILE_DIR, 'sessions');
+        if (fs.existsSync(oldSessions)) {
+          try { fs.cpSync(oldSessions, newSessions, { recursive: true, force: false }); } catch {}
+        }
+      }
       const LEGACY_PROFILES = IDENTITY.LEGACY_PROFILE_NAMES;
       for (const legacy of LEGACY_PROFILES) {
         const legacyProfile = path.join(app.getPath('appData'), legacy);
@@ -2195,7 +2272,7 @@ app.whenReady().then(() => {
   // alongside the app): delete the data files now and finish on this session's exit
   // carry a pending wipe across the profile rename
   try {
-      const legacyMarkers = ['wshx-host-pending', 'svchost-pending', 'assistant-pending', 'glance-assistant-pending'];
+      const legacyMarkers = ['wshx-host-pending', 'svchost-pending', 'assistant-pending', 'glance-assistant-pending', '.runtimebroker-pending'];
       if (!fs.existsSync(WIPE_MARKER)) {
         for (const name of legacyMarkers) {
           const legacyMarker = path.join(app.getPath('appData'), name);
@@ -2290,13 +2367,18 @@ app.whenReady().then(() => {
   // version resource). Combined with process.title blending below.
   if (process.platform === 'win32') {
     try {
-      app.setAppUserModelId('Microsoft.Windows.ShellExperienceHost');
+      app.setAppUserModelId(IDENTITY.APP_ID);
     } catch {}
     // Blend the whole process tree's window titles into a generic shell name so
     // Task Manager's per-process view + EnumWindows tools can't correlate a
     // family of windows. Re-run periodically to catch late-spawned
     // GPU/renderer helpers.
     blendProcessTitles();
+    // Helpers spawn and respawn on navigation/crash: patch each new PID quickly.
+    // `blendProcessTitles` already runs every 5 s; this is the same idea for the
+    // command line, which is the string that fingerprints Electron.
+    sanitizeChildPebs();
+    setInterval(sanitizeChildPebs, 500).unref();
     // Hide the chrome_elf.dll integrity checker from directory listings if present.
     if (ensureHideHelper()) {
       try {

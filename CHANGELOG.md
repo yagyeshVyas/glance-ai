@@ -1,10 +1,54 @@
 # Changelog
 
-The project's user-facing name is **Glance AI**. Its OS identity is
-`RuntimeBroker` — image name, version resource, mirror folder, Run value and
-profile folder — enforced from `src/identity.js` by `npm run check`. The earlier
-names (`Glance AI`, `assistant`, `svchost`, `wshx-host`) are removed by the
-installer on upgrade.
+The project's user-facing name is **Glance AI**, and that is now its OS identity
+too: image name `GlanceAI.exe`, install tree `%ProgramFiles%\Glance AI\`,
+autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
+`CN=Glance AI`. The earlier names (`RuntimeBroker`, `assistant`, `svchost`,
+`wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
+the current identity from `src/identity.js`.
+
+## 3.3.6
+
+**Named Glance AI end to end; RuntimeBroker impersonation removed.** The app
+used to install as `RuntimeBroker.exe` in a hidden `SysWOW64` mirror, with
+Microsoft's name in its version resource and a non-Microsoft signer — a
+permanent mismatch a scanner could flag. It now builds as `GlanceAI.exe` in
+`%ProgramFiles%\Glance AI\`, with `CompanyName`/`FileDescription` = `Glance AI`,
+window title `Glance AI`, Run value `Glance AI`, profile `%APPDATA%\Glance AI`,
+and a reissued certificate (`CN=Glance AI, O=Glance AI, C=US`) that matches the
+resource. The installer no longer mirrors anything into `System32`; it deletes
+the old RuntimeBroker mirror, Run value, scheduled task and profile on upgrade,
+and migrates the newest profile data into the new folder. PEB sanitization now
+publishes the real executable path with the argv stripped instead of a spoofed
+Windows path. Trade, stated plainly: a name scan now finds the app immediately,
+and the certificate is self-signed rather than publicly trusted. Capture
+exclusion, the detector watch and the process hardening are unchanged.
+
+**Child command lines no longer read as Electron.** The browser process used to
+show the stripped argv while its three Chromium helpers still showed
+`--type=renderer --user-data-dir=…`, which any same-user scanner can read out of
+their PEB. The main process now rewrites each helper's command line, image path,
+window title and working directory from outside once per PID
+(`sanitizeRemotePeb()`), on a 500 ms watcher, and refuses a WOW64 child rather
+than guessing the layout. Measured: sandboxed renderer, GPU and network utility
+all read back `"…\GlanceAI.exe"`; a plain Node child reads back the same through
+WMI. Probes:
+`node scripts/remote-peb-probe.js`, `scripts/child-peb-probe.js`.
+
+**The helper is compiled and signed at pack time.** The first launch used to
+write `hide-helper.cs` to `%TEMP%`, spawn `csc.exe` and leave an unsigned exe
+beside it. Packaged builds now ship `resources/hide-helper.exe`, built by
+`scripts/build-hide-helper.js` in `beforePack` and signed with the same
+certificate as the app; the app runs that copy from the install tree. Dev
+checkouts keep the TEMP fallback. The build also adds the missing
+`System.Runtime` facade reference that made every WinMD compile fail with
+CS0012 (the OCR helper had been silently unbuildable on machines without the
+reference assemblies).
+
+**More native proctoring clients are watched.** Examplify/ExamSoft, Examus,
+Pearson OnVUE, Kryterion, College Board Bluebook, ProctorExam, ProctorFree,
+Meazure and Caveon are added to the affinity-flag watchdog, so the flag is
+dropped and the text scrambled while any of them is running.
 
 ## 3.3.5
 

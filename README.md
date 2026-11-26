@@ -12,8 +12,8 @@ Hear the room, read the screen, get the answer — in a small panel that Zoom, M
 [![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](#requirements)
 [![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/runtimebroker/glance-ai/total?color=success)](#install)
-[![Release](https://img.shields.io/github/v/release/runtimebroker/glance-ai?color=blue)](#install)
+[![Downloads](https://img.shields.io/github/downloads/yagyeshVyas/glance-ai/total?color=success)](#install)
+[![Release](https://img.shields.io/github/v/release/yagyeshVyas/glance-ai?color=blue)](#install)
 
 [**Live website**](https://glance-ai-hazel.vercel.app) · [Install](#install) · [Usage guide](USAGE.md) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
 
@@ -165,7 +165,10 @@ So: hidden from every capture app. Detectable by a purpose-built proctor or EDR 
 
 No overlay is undetectable: a purpose-built proctoring or EDR agent can still find this by other means. It is invisible to a screen share, not to an instrumented machine.
 
-The naming is honest where it matters: the product is **Glance AI**, it installs and runs as `RuntimeBroker`, its certificate names a publisher (`Runtime Broker Components`), and nothing claims to be Microsoft.
+The naming is honest end to end: the product is **Glance AI**, it installs and
+runs as `GlanceAI.exe` from `%ProgramFiles%\Glance AI\`, and its certificate
+names `Glance AI` as the publisher. Nothing claims to be Microsoft or a Windows
+component.
 
 ## How it compares
 

@@ -30,37 +30,36 @@ the moment it matters you are mid-answer and looking at a camera.
 - No window shadow (`hasShadow: false`)
 - `showInactive()` when toggling visible — does not steal focus or flash
 
-## 3. AppUserModelId override (optional, Settings)
-- Calls Electron `app.setAppUserModelId('Microsoft.Windows.ShellExperienceHost')`
-- This is a **shell/taskbar grouping** hint. It does **not** rename the process and does **not** change what Task Manager shows — Task Manager's label comes from the executable's version resource, which for an unpackaged build still reads `Electron` / `GitHub, Inc.` (measured).
+## 3. AppUserModelId (optional, Settings)
+- Calls Electron `app.setAppUserModelId('ai.glance.desktop')` from `src/identity.js`
+- This is a **shell/taskbar grouping** hint. It does **not** rename the process and does **not** change what Task Manager shows — that label comes from the executable's version resource, which now reads `Glance AI` / `GlanceAI.exe` (measured on the packaged build).
 - One-off probe on Windows 11 26300 (not part of the audit): the explicit AUMID is not readable cross-process — `GetApplicationUserModelId` returns `15703` (`APPMODEL_ERROR_NO_APPLICATION`), and the window property store (`PKEY_AppUserModel_ID`) is empty. Treat the setting as cosmetic.
-- **Limitation:** The Electron process tree is still visible via `tasklist`, WMI, and Process Explorer (full image path, parent PID). `blendProcessTitles()` (main.js:354) rewrites the window title of every helper PID to `ShellExperienceHost` every 5 s, which hides the correlation in Task Manager's window column and `EnumWindows` — but the on-disk exe name (`wshx-host.exe`) and version resource (`GitHub, Inc.`) are unchanged.
-- Measured on the packaged build: `wshx-host.exe` carries `FileDescription` = the package.json `description` ("Windows shell host.") and `CompanyName` = `GitHub, Inc.` (inherited from Electron — no `author`/company is set in package.json). That string is the name Task Manager and Explorer's Properties dialog show. Only the exe's version resource can change it, not the AUMID.
+- **Limitation:** the Electron process tree is visible via `tasklist`, WMI, and Process Explorer (full image path, parent PID). `blendProcessTitles()` rewrites the window title of every helper PID to `Glance AI` every 5 s, so all of them show one name in Task Manager's window column and `EnumWindows`. The image name is `GlanceAI.exe` and the resource agrees, so there is nothing left to blend away.
 
 ## 4. Detection vectors NOT yet mitigated
 | Vector | Risk | Mitigation status |
 |--------|------|-------------------|
-| EnumWindows / FindWindow API | Medium | The overlay is reparented under a host window with an innocuous class (`Windows.UI.Core.CoreWindow`), so the Electron window is a child and never enumerates at top level. Title blending rewrites every helper window title to `Settings`. `EnumChildWindows` used to return `Chrome_WidgetWin_1` / `Chrome_RenderWidgetHostHWND`; the build now rewrites those literals inside the packaged executable before signing (`scripts/patch-class-names.js`), so child enumeration returns `Windows.UI.Core._1` / `Windows.UI.Core.RenderHostX`. Verified on the packaged build |
+| EnumWindows / FindWindow API | Medium | The overlay is reparented under a host window with an innocuous class (`Windows.UI.Core.CoreWindow`), so the Electron window is a child and never enumerates at top level. Title blending rewrites every helper window title to `Glance AI`. `EnumChildWindows` used to return `Chrome_WidgetWin_1` / `Chrome_RenderWidgetHostHWND`; the build rewrites those literals inside the packaged executable before signing (`scripts/patch-class-names.js`), so child enumeration returns `Windows.UI.Core._1` / `Windows.UI.Core.RenderHostX`. Verified on the packaged build |
 | `GetWindowDisplayAffinity` | **HIGH** | Returns `0x11` (`WDA_EXCLUDEFROMCAPTURE`) on the host when stealth is on — a direct "this window is hidden from capture" signal. To pass a capture-protected-state detector, turn **scramble** on and **stealth** off: the window is captured normally (affinity `0x0`) and its text is unreadable to any capturer (see §7) |
 | Accessibility APIs (UIA, MSAA) | Medium | Chromium a11y disabled in main (`app.accessibilitySupportEnabled = false`); coverage not measured |
 | GPU overlay inspection | Low | Not hidden (appears in DWM composition chain) |
 | Proctoring tools (Proctorio, Respondus) | **HIGH** | Most detect protected windows or overlays via heuristics — **not safe for exams** |
 | Anti-cheat (game) | High | Similar detection as proctoring tools |
-| Process list scraping | Low-Medium | Visible as `RuntimeBroker.exe` running from `C:\Windows\SysWOW64\RuntimeBroker\` with a Microsoft version resource (§10). That is camouflage, not hiding: a kernel-level enumerator still sees it |
+| Process list scraping | Medium | Visible as `GlanceAI.exe` from `%ProgramFiles%\Glance AI\` with a matching `Glance AI` version resource and signer (§10). The name is honest now, so a name scan finds it: hiding the process is a kernel-only problem |
 
 Measured on this machine (packaged build, Windows 11 26300) — the numbers a detector gets:
 
 ```
 window class      Windows.UI.Core.CoreWindow (host; the Chromium window is a child
                   and never enumerates at top level)
-window title      host is untitled; every helper window blends to "Settings"
+window title      host is untitled; every helper window blends to "Glance AI"
 ex-style          TOPMOST | TOOLWINDOW | LAYERED  (no taskbar, no Alt+Tab)
 display affinity  17 = WDA_EXCLUDEFROMCAPTURE
-process           RuntimeBroker.exe — four processes (browser + renderer/GPU helpers),
+process           GlanceAI.exe — four processes (browser + renderer/GPU helpers),
                   all the same name and resource; full path + parent PID via Toolhelp
-version resource  FileDescription=Runtime Broker   CompanyName=Microsoft Corporation
-                  OriginalFilename=RuntimeBroker.exe
-signature         Valid, signer CN=Runtime Broker Components  ← the remaining identity tell
+version resource  FileDescription=Glance AI   CompanyName=Glance AI
+                  OriginalFilename=GlanceAI.exe
+signature         Valid, signer CN=Glance AI, O=Glance AI, C=US (self-signed root)
 ```
 
 The `0x11` cannot be removed. `DWMWA_EXCLUDED_FROM_CAPTURE` looks like the way out —
@@ -97,7 +96,10 @@ Glance AI is invisible to *most casual screen capture* and *most screen-sharing 
 - **Caveat:** scramble hides *content*, so it still photographs badly on purpose — a human watching the share sees moving noise, which looks deliberate. It also redraws the answer pane constantly, so it is not the mode to pick if you are reading long code on camera.
 
 ## 9. Native stealth helper (`hide-helper.cs`)
-Compiled at runtime via in-box `csc.exe` to `%TEMP%\dxva_143.exe` (neutral filename). The source is embedded in `src/embed-helpers.js` so it ships inside the asar. Handles:
+Compiled at pack time into `resources\hide-helper.exe` (`scripts/build-hide-helper.js`,
+signed with the app certificate when one is available) and run from the install
+tree. A dev checkout falls back to compiling `scripts/hide-helper.cs` with the
+in-box `csc.exe` to `%TEMP%\dxva_143.exe` (neutral filename). Handles:
 - **DWM cloak / uncloak** — `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on the BrowserWindow hwnd + child surfaces; off-screen positioning; `WS_EX_TOOLWINDOW` + `WS_EX_NOACTIVATE` exstyles
 - **Window title blending** — `set-title <pid> <name>` via `SetWindowTextW` on the target process's main window
 - **chrome_elf.dll hiding** — sets `ATTR_HIDDEN` on `chrome_elf.dll` in the install directory so it doesn't appear in directory listings
@@ -110,8 +112,8 @@ Compiled at runtime via in-box `csc.exe` to `%TEMP%\dxva_143.exe` (neutral filen
 scanned 14 visible top-level windows, flagged 2 (native probe 23 ms)
 
 PID     PROCESS           AFFINITY                EX-STYLE              TITLE                   VERDICT
-2768    electron.exe      WDA_EXCLUDEFROMCAPTURE  TOPMOST|LAYERED       ShellExperienceHost     capture-excluded, overlay-shaped
-17568   wshx-host.exe     WDA_EXCLUDEFROMCAPTURE  TOPMOST|LAYERED       ShellExperienceHost     capture-excluded, overlay-shaped
+2768    electron.exe      WDA_EXCLUDEFROMCAPTURE  TOPMOST|LAYERED       Glance AI               capture-excluded, overlay-shaped
+17568   GlanceAI.exe      WDA_EXCLUDEFROMCAPTURE  TOPMOST|LAYERED       Glance AI               capture-excluded, overlay-shaped
 ```
 
 - `--all` — every visible top-level window, not only flagged ones
@@ -125,7 +127,7 @@ PID     PROCESS           AFFINITY                EX-STYLE              TITLE   
 Verdicts:
 - `capture-excluded` — `GetWindowDisplayAffinity` returned `0x11`. This is direct evidence, no heuristic.
 - `capture-monitored` — returned `0x1` (`WDA_MONITOR`).
-- `overlay-shaped` — frameless (no `WS_CAPTION`, no `WS_THICKFRAME`, not `WS_CHILD`) **and** `WS_EX_TOPMOST` **and** layered or click-through **and** covers ≥5% of the screen. Shell classes (`Shell_TrayWnd`, `Progman`, `WorkerW`, taskbar overflow, IME) are excluded. Does not need `WS_EX_TOOLWINDOW` — wshx-host does not set that bit.
+- `overlay-shaped` — frameless (no `WS_CAPTION`, no `WS_THICKFRAME`, not `WS_CHILD`) **and** `WS_EX_TOPMOST` **and** layered or click-through **and** covers ≥5% of the screen. Shell classes (`Shell_TrayWnd`, `Progman`, `WorkerW`, taskbar overflow, IME) are excluded. Does not need `WS_EX_TOOLWINDOW` — the host does not set that bit.
 
 Cost — measured on Windows 11 26300: **probe 20–28 ms.** `./audit` (POSIX shim) and `audit.cmd` ≈ 0.24–0.30 s; `node scripts/detect-audit.js` ≈ 0.25 s; `npm run audit` ≈ 0.8–1.3 s because npm's launcher alone costs ~0.5–1 s on Windows and no flag (`--silent`, `NO_UPDATE_NOTIFIER`) changes that. Use a shim for the fast path.
 
@@ -154,52 +156,40 @@ scanner looks: the image name, the PE version resource, the install tree, the Ru
 value, the scheduled task name, the profile folder, the window title. Earlier
 builds disagreed with themselves — package.json said `Glance AI`, the installer
 mirrored into `C:\Windows\SysWOW64\Glance AI\`, the PE resource said `assistant`,
-and the profile folder was `glance-assistant`. Any one of those identifies the app.
+and the profile folder was `glance-assistant`. The RuntimeBroker build solved that
+by impersonating a Windows component; this build solves it with the product's own
+name.
 
-`src/identity.js` is now the only source. `package.json`, `build/installer.nsh`
-and `scripts/resedit.js` copy from it, and `npm run check` fails if they drift.
+`src/identity.js` is the only source. `package.json`, `build/installer.nsh`,
+`scripts/resedit.js` and `scripts/check.js` copy from it or verify against it.
 
 | Surface | Value |
 |---|---|
-| image name | `RuntimeBroker.exe` |
-| version resource | CompanyName `Microsoft Corporation`, FileDescription `Runtime Broker`, InternalName/OriginalFilename `RuntimeBroker.exe` |
-| running image path | `C:\Windows\SysWOW64\RuntimeBroker\RuntimeBroker.exe` (mirror, system+hidden) |
-| install tree | `%ProgramFiles%\RuntimeBroker\` |
-| autostart | HKLM Run value `RuntimeBroker` → mirror exe `--autostart` |
-| profile | `%APPDATA%\RuntimeBroker\` (system+hidden) |
-| window title | `Settings` |
+| image name | `GlanceAI.exe` |
+| version resource | CompanyName `Glance AI`, FileDescription `Glance AI`, InternalName/OriginalFilename `GlanceAI.exe` |
+| running image path | `%ProgramFiles%\Glance AI\GlanceAI.exe` (no System32 mirror) |
+| install tree | `%ProgramFiles%\Glance AI\` |
+| autostart | HKLM Run value `Glance AI` → install exe `--autostart` |
+| profile | `%APPDATA%\Glance AI\` (system+hidden) |
+| window title | `Glance AI` |
+| signature | signer `CN=Glance AI, O=Glance AI, C=US`, matching the resource |
 | Apps & features | no entry (installer deletes the uninstall key) |
 
-Measured readback of the resource edit on a copy of the 3.0.1 payload
-(`node scripts/resedit.js <exe>`):
-
-```
-CompanyName      : Microsoft Corporation
-FileDescription  : Runtime Broker
-ProductName      : RuntimeBroker
-OriginalFilename : RuntimeBroker.exe
-InternalName     : RuntimeBroker.exe
-LegalCopyright   : © Microsoft Corporation. All rights reserved.
-LegalTrademarks  :
-```
-
-Measured after a packaged build and a launch on this machine:
-
-```
-process            RuntimeBroker.exe x4, all D:\...\dist\win-unpacked\RuntimeBroker.exe
-version resource   Runtime Broker / Microsoft Corporation / RuntimeBroker.exe
-signature          Valid, signer CN=Runtime Broker Components
-window             WDA_EXCLUDEFROMCAPTURE, TOPMOST|TOOLWINDOW|LAYERED, untitled host
-```
+The RuntimeBroker identity is retired and is now a legacy name the installer
+removes, together with its SysWOW64 mirror, Run value and profile. The trade is
+explicit: an image named `GlanceAI.exe` under `%ProgramFiles%` is found by a name
+scan, so the product no longer hides behind a Windows component name. Capture
+exclusion, the detector watch and the process hardening are unchanged; only the
+name is honest.
 
 What this does not do:
 
-- it does not change the signature (the local `CN=Runtime Broker Components` cert; a
-  detector that verifies publisher identity sees a mismatch — that is the
-  residual);
-- it does not rename files already installed under an old name: the new installer
-  removes every legacy mirror tree, Run value and scheduled task on the way in,
-  so an upgrade ends with one identity on disk, not two;
+- the certificate is self-signed. Resource and signer now agree, so a
+  consistency check passes, but a detector that requires a publicly trusted
+  publisher sees an unknown root (the installer trusts it per machine);
+- it does not rename files already installed under an old name: the installer
+  removes every legacy mirror tree, Run value, scheduled task and profile on the
+  way in, so an upgrade ends with one identity on disk, not two;
 - it does not hide the process from a kernel-level enumerator (§11).
 
 ## 11. The exclusion flag: measured ceiling

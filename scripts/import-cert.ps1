@@ -1,5 +1,5 @@
 # Imports the code-signing certificate into the current user's trust stores so
-# installers signed on the build machine verify as "Runtime Broker Components" instead of
+# installers signed on the build machine verify as "Glance AI" instead of
 # "Unknown publisher". Run on each machine that should trust the signatures
 # (no admin required):
 #   powershell -ExecutionPolicy Bypass -File scripts\import-cert.ps1

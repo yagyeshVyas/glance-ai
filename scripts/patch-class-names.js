@@ -17,9 +17,10 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
+const IDENTITY = require('../src/identity');
 const args = process.argv.slice(2);
 const check = args.includes('--check');
-const EXE = args.find((a) => !a.startsWith('--')) || path.join(ROOT, 'dist', 'win-unpacked', 'RuntimeBroker.exe');
+const EXE = args.find((a) => !a.startsWith('--')) || path.join(ROOT, 'dist', 'win-unpacked', IDENTITY.EXE);
 
 const PAIRS = [
   // 17 chars -> 17 chars

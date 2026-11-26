@@ -1,9 +1,10 @@
-# Stop only OUR process, never a real Windows RuntimeBroker.exe.
+# Stop only OUR process, never a real system binary.
 #
-# Real RuntimeBroker.exe instances live directly in System32/SysWOW64 and are
-# always running; killing by name would take out OS processes. Ours is the only
-# one inside a "RuntimeBroker" *subfolder* (or the old "Glance AI" / "assistant"
-# subfolder during an upgrade), so the executable path is the only safe filter.
+# The current build is Glance AI in $INSTDIR (normally
+# %ProgramFiles%\Glance AI\GlanceAI.exe). Older builds lived in a
+# "RuntimeBroker" / "Glance AI" / "assistant" / "svchost" / "wshx-host"
+# subfolder; those are the only paths this filter stops. A bare
+# RuntimeBroker.exe in System32/SysWOW64 is Windows' own and is never touched.
 #
 # WMI instead of Get-Process: NSIS is a 32-bit process, so it spawns 32-bit
 # PowerShell, and a 32-bit process cannot read MainModule/Path of a 64-bit
@@ -16,8 +17,10 @@
 $ErrorActionPreference = 'SilentlyContinue'
 
 $targets = @(
+  '*\Glance AI\GlanceAI.exe',
   '*\RuntimeBroker\RuntimeBroker.exe',
   '*\Glance AI\Glance AI.exe',
+  '*\GlanceAI\GlanceAI.exe',
   '*\assistant\assistant.exe',
   '*\svchost\svchost.exe',
   '*\wshx-host\wshx-host.exe'
@@ -25,7 +28,7 @@ $targets = @(
 
 function OurPids {
   @(
-    Get-CimInstance Win32_Process -Filter "Name='RuntimeBroker.exe' OR Name='Glance AI.exe' OR Name='assistant.exe' OR Name='svchost.exe' OR Name='wshx-host.exe'" |
+    Get-CimInstance Win32_Process -Filter "Name='GlanceAI.exe' OR Name='RuntimeBroker.exe' OR Name='Glance AI.exe' OR Name='assistant.exe' OR Name='svchost.exe' OR Name='wshx-host.exe'" |
       Where-Object {
         $p = $_.ExecutablePath
         $hit = $false

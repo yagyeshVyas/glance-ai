@@ -35,12 +35,13 @@ const { ensureProbe } = require('./build-probe');
 const IDENTITY = require('../src/identity');
 
 // Our process identity, as a detector scrapes it. A name match alone is not
-// enough for RuntimeBroker: real Windows processes carry that name, so ours is
-// the one whose image path is inside a RuntimeBroker subfolder (the mirror).
-// electron.exe stays for a dev checkout; the legacy exe names catch an upgrade.
+// enough: electron.exe stays for a dev checkout, the GlanceAI.exe image name is
+// exact, and the legacy exe names catch an upgrade. The path check pins the
+// image to the product's own install tree.
 const isOurImage = (p) =>
   /wshx-host|electron/i.test(p.name || '') ||
-  /\\RuntimeBroker\\RuntimeBroker\.exe$/i.test(p.path || '') ||
+  String(p.name || '').toLowerCase() === IDENTITY.EXE.toLowerCase() ||
+  /\\Glance AI\\GlanceAI\.exe$/i.test(p.path || '') ||
   IDENTITY.LEGACY_EXES.some((e) => String(p.name || '').toLowerCase() === e.toLowerCase());
 
 const argv = process.argv.slice(2);
@@ -283,7 +284,7 @@ if ($snap -ne [IntPtr]::Zero -and $snap.ToInt64() -ne -1) {
         [void][W]::CloseHandle($h)
       }
       # UNC paths would make FileVersionInfo do outbound SMB; never read their version resource
-      if ($path -and -not $path.StartsWith('\\\\') -and ($winPids.Contains($procId) -or $name -match 'wshx-host|electron|node' -or $path -like '*\RuntimeBroker\RuntimeBroker.exe')) {
+      if ($path -and -not $path.StartsWith('\\\\') -and ($winPids.Contains($procId) -or $name -match 'wshx-host|electron|node' -or $name -eq 'GlanceAI.exe' -or $path -like '*\Glance AI\GlanceAI.exe')) {
         try {
           $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path)
           $desc = $vi.FileDescription

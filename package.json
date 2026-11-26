@@ -1,9 +1,9 @@
 {
-  "name": "runtime-broker",
-  "version": "3.3.5",
-  "productName": "RuntimeBroker",
-  "description": "Windows Runtime Broker",
-  "author": "Microsoft Corporation",
+  "name": "glance-ai",
+  "version": "3.3.6",
+  "productName": "Glance AI",
+  "description": "Glance AI desktop assistant",
+  "author": "Glance AI",
   "main": "src/main.js",
   "scripts": {
     "start": "node scripts/start.js",
@@ -32,9 +32,9 @@
     "resedit": "^3.1.0"
   },
   "build": {
-    "appId": "com.microsoft.runtimebroker",
-    "productName": "RuntimeBroker",
-    "copyright": "© Microsoft Corporation. All rights reserved.",
+    "appId": "ai.glance.desktop",
+    "productName": "Glance AI",
+    "copyright": "© Glance AI. All rights reserved.",
     "files": [
       "src/**/*",
       "package.json",
@@ -66,13 +66,13 @@
         ],
         "rfc3161TimeStampServer": "http://timestamp.digicert.com"
       },
-      "executableName": "RuntimeBroker",
-      "artifactName": "RuntimeBroker-${version}-${arch}.${ext}"
+      "executableName": "GlanceAI",
+      "artifactName": "GlanceAI-${version}-${arch}.${ext}"
     },
     "publish": [
       {
         "provider": "github",
-        "owner": "runtimebroker",
+        "owner": "yagyeshVyas",
         "repo": "glance-ai",
         "releaseType": "release"
       }
@@ -86,7 +86,7 @@
       "createDesktopShortcut": false,
       "createStartMenuShortcut": false,
       "menuCategory": false,
-      "shortcutName": "RuntimeBroker",
+      "shortcutName": "Glance AI",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
@@ -95,6 +95,12 @@
     "asarUnpack": [
       "src/native/*/cloak.node",
       "src/native/build/Release/*.node"
+    ],
+    "extraResources": [
+      {
+        "from": "build/hide-helper.exe",
+        "to": "hide-helper.exe"
+      }
     ],
     "beforePack": "scripts/before-pack.js"
   },

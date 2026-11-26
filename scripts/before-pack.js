@@ -58,4 +58,13 @@ exports.default = async function beforePack(context) {
   fs.mkdirSync(outDir, { recursive: true });
   fs.copyFileSync(release, built);
   console.log(`  • beforePack: cloak addon ready for ${arch} (0x${machine.toString(16)})`);
+
+  // Ship the native helper compiled and (when a cert is present) signed, so the
+  // first run never spawns csc.exe and never writes an unsigned exe to %TEMP%.
+  try {
+    const helper = require('./build-hide-helper').build({ force: true });
+    console.log('  • beforePack: stealth helper ready (' + path.basename(helper) + ')');
+  } catch (e) {
+    console.warn('  • beforePack: stealth helper not built (' + e.message + ') — runtime fallback stays');
+  }
 };

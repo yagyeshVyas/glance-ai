@@ -126,9 +126,9 @@ Glance's `nvidiaEyeContact` setting turns the effect on at start and whenever th
 - **Capture exclusion** — `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`: the panel is absent from screen capture, screen share and recording. Measured against WGC and against a separate-process GDI BitBlt: 0 pixels either way.
 - **Window shim** — the Electron window is reparented under a host with a plain class; `EnumWindows` returns only the host.
 - **Window-class rename** — Chromium's `Chrome_WidgetWin_*` / `Chrome_RenderWidgetHostHWND` literals are rewritten in the packaged executable before signing, so `EnumChildWindows` sees `Windows.UI.Core._1` / `Windows.UI.Core.RenderHostX` instead of Electron's classes.
-- **Identity** — the packaged binary is `RuntimeBroker.exe` with a Microsoft version resource, mirrored into the system tree; the installer removes every legacy name.
+- **Identity** — the packaged binary is `GlanceAI.exe` from `%ProgramFiles%\Glance AI\`, with a matching `Glance AI` version resource and certificate subject; the installer removes every legacy name, including the old RuntimeBroker mirror.
 - **Detector-aware mode** — while a known window inspector or proctoring client runs, the capture flag is dropped and the text is scrambled instead.
-- **What cannot be hidden** — the `0x11` affinity flag while exclusion is on (user mode cannot move it; detector-aware mode drops it for known inspectors), the Authenticode signer, the overlay's geometry to shape heuristics, and any kernel-level enumerator. See `STEALTH.md` for the measurements.
+- **What cannot be hidden** — the `0x11` affinity flag while exclusion is on (user mode cannot move it; detector-aware mode drops it for known inspectors), the image name and path in a process list, the overlay's geometry to shape heuristics, and any kernel-level enumerator. See `STEALTH.md` for the measurements.
 
 ---
 

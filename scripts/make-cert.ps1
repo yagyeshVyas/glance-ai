@@ -9,7 +9,7 @@
 #
 # What it writes:
 #   build\codesign.cer                       public cert, committed, imported by the installer
-#   %USERPROFILE%\.runtimebroker-signing\    the .pfx and its password, never committed
+#   %USERPROFILE%\.glance-signing\    the .pfx and its password, never committed
 #
 # The thumbprint is printed at the end. Paste it (and the subject) into
 # src/signing.js — that module is the only place the build reads it from, and
@@ -22,10 +22,10 @@
 
 $ErrorActionPreference = 'Stop'
 
-$subject = 'CN=Runtime Broker Components, O=Runtime Components, C=US'
+$subject = 'CN=Glance AI, O=Glance AI, C=US'
 $root = Split-Path -Parent $PSScriptRoot
 $cerPath = Join-Path $root 'build\codesign.cer'
-$secretDir = Join-Path $env:USERPROFILE '.runtimebroker-signing'
+$secretDir = Join-Path $env:USERPROFILE '.glance-signing'
 $pfxPath = Join-Path $secretDir 'codesign.pfx'
 $passPath = Join-Path $secretDir 'codesign.pfx.pass'
 

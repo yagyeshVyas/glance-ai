@@ -67,7 +67,7 @@ foreach ($k in $seen.Keys) { "value=$k" }
 
 function traceLog() {
   const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-  return path.join(appData, '.runtimebroker-trace.log');
+  return path.join(appData, '.glance-trace.log');
 }
 
 function readTrace() {

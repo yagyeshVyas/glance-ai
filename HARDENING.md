@@ -5,8 +5,10 @@ half: the complete list of reads a detector on the same machine can make, what
 this build answers to each, and which ones **cannot** be closed without kernel
 code. The rule underneath it:
 
-- **user-mode detector, same user** → everything below is closed or timed out
-  except the two structural leases (§3)
+- **user-mode detector, same user** → argv, module list, DACL, window title and
+  child cmdlines are closed or timed out; the process image name/path, the
+  window shape and the display-affinity bit remain readable (structural — see §3
+  and vector #8)
 - **kernel driver / elevated scanner with `SeDebugPrivilege`** → nothing in user
   mode hides a process image name, a kernel ETW event, or a display-affinity bit
 
@@ -18,19 +20,20 @@ one file, no new process, no new artifact on disk.
 | Surface | Read by | Before | Now | Where |
 |---|---|---|---|---|
 | user-mode ETW writes | any ETW consumer (`EtwEventWrite*`) | emitted | `xor eax,eax; ret` in `ntdll` (5 writers) | `suppressEtw()` |
-| PEB command line | WMI `Win32_Process`, `NtQueryInformationProcess`, toolhelp | real argv incl. `--autostart` | `"C:\Windows\System32\RuntimeBroker.exe"` | `sanitizePeb()` |
-| PEB image path | same | `…\SysWOW64\RuntimeBroker\RuntimeBroker.exe` | `C:\Windows\System32\RuntimeBroker.exe` | `sanitizePeb()` |
-| PEB window title | WMI / console reads | product string | `Settings` | `sanitizePeb()` |
+| PEB command line | WMI `Win32_Process`, `NtQueryInformationProcess`, toolhelp | real argv incl. `--autostart` | `"…\GlanceAI.exe"` (executable only) | `sanitizePeb()` |
+| PEB image path | same | image path with profile flags | real `GlanceAI.exe` path | `sanitizePeb()` |
+| PEB window title | WMI / console reads | product string | `Glance AI` | `sanitizePeb()` |
 | loaded modules | `EnumProcessModules`, PEB `InLoadOrderModuleList` | `chrome_elf.dll`, `ffmpeg.dll`, `cloak.node` | unlinked from all three loader lists, name buffers zeroed | `hideModules()` |
 | process access | `OpenProcess(PROCESS_VM_READ)` | allowed | denied to every caller except SYSTEM; terminate still allowed | `sealProcess()` |
 | inspector poll | — | `tasklist.exe` child every 4 s | in-process Toolhelp, **7.6 ms**/tick, 300 ms period | `listProcesses()` |
+| child command lines | WMI / Process Explorer remote PEB read | `--type=renderer --user-data-dir=…` on every helper PID | rewritten from the browser process to the real GlanceAI.exe path with no switches, 500 ms watcher | `sanitizeRemotePeb()` |
 | title blending | `EnumWindows` + `GetWindowText` | 2 helper spawns per PID per 5 s | in-process `SetWindowTextW`, helper only once per new PID | `blendTitles()` |
 
 Measured on this machine (Windows 11 26300, Node 24.14, MSVC 2019):
 
 ```
 PEB before        "C:\Program Files\nodejs\node.exe" <script>   modules 37
-PEB after         "C:\Windows\System32\RuntimeBroker.exe"       modules 37
+PEB after         "…\GlanceAI.exe"                               modules 37
 WMI CommandLine   (empty — the provider is denied VM_READ)
 PowerShell        proc.Modules.Count = 0
 taskkill /F       SUCCESS (PROCESS_TERMINATE deliberately granted)
@@ -54,19 +57,19 @@ readable only in a narrow window; **open** = a same-user detector reads it now.
 | 5 | DWM cloak | `DwmGetWindowAttribute(DWMWA_CLOAK)` | timed | only cloaked while hidden; a visible panel cannot be cloaked |
 | 6 | Window shape | ex-style bits, rect | **open** | `TOPMOST|TOOLWINDOW`, frameless ≥5% screen = "overlay-shaped" by our own audit |
 | 7 | Accessibility tree | UIA, MSAA | closed | Chromium a11y disabled; host has no provider |
-| 8 | Process name/path | `NtQuerySystemInformation`, toolhelp | **open (structural)** | `RuntimeBroker.exe`, but the path is the SysWOW64 mirror, not `System32` |
-| 9 | Authenticode | `WinVerifyTrust` + signer subject | **open (structural)** | valid chain, signer `CN=Runtime Broker Components` vs `CompanyName=Microsoft Corporation` |
-| 10 | Version resource | `GetFileVersionInfo` | closed as text | spoofed to Microsoft's fields; only the signature disagrees |
+| 8 | Process name/path | `NtQuerySystemInformation`, toolhelp | **open (structural)** | `GlanceAI.exe` under `%ProgramFiles%\Glance AI\`; no impersonation left to contradict it |
+| 9 | Authenticode | `WinVerifyTrust` + signer subject | **open (structural)** | self-signed cert, signer and `CompanyName` both `Glance AI`; only a publicly trusted chain is missing |
+| 10 | Version resource | `GetFileVersionInfo` | closed as text | resource agrees with the certificate; nothing is spoofed |
 | 11 | Command line | PEB, WMI | closed | rewritten; sealed DACL also blocks the remote read |
 | 12 | Module list | `EnumProcessModules`, PEB | closed (main) | second copy of the addon is not re-mapped after unlink |
 | 13 | Process DACL | `OpenProcess(VM_READ)` | closed (main) | deny ACE + protected DACL; `SeDebugPrivilege` bypasses it |
 | 14 | User-mode ETW | any provider consumer | closed (main) | each Chromium child is its own process and still emits |
 | 15 | Kernel ETW | `Microsoft-Windows-Kernel-Process` (image/process events) | **open (kernel)** | events are written by the kernel, not by us |
-| 16 | Process image name | `NtQuerySystemInformation` | **open (kernel)** | PID + `RuntimeBroker.exe` regardless of PEB edits |
-| 17 | On-disk tree | filesystem scan | **open** | `%ProgramFiles%\RuntimeBroker\resources\app.asar`, SysWOW64 mirror, `%APPDATA%` |
+| 16 | Process image name | `NtQuerySystemInformation` | **open (kernel)** | PID + `GlanceAI.exe` regardless of PEB edits |
+| 17 | On-disk tree | filesystem scan | **open** | `%ProgramFiles%\Glance AI\resources\app.asar`, `%APPDATA%\Glance AI` |
 | 18 | Autostart | Run key / `schtasks` | **open** | install-time artifact, no runtime fix |
-| 19 | Child cmdlines | remote PEB read | **open** | `--type=renderer`, `--user-data-dir=…` in 3 helper PIDs |
-| 20 | Temp helper | `%TEMP%\dxva_143.exe` | **open** | compiled by `csc.exe` on first run, unsigned |
+| 19 | Child cmdlines | remote PEB read | closed (user-mode) | every helper PID's command line, image path, window title and cwd rewritten from the browser process; a WOW64 child is refused rather than corrupted. The kernel's process-creation ETW event still carried the real argv at launch (#15) |
+| 20 | Temp helper | `%TEMP%\dxva_143.exe` | closed (packaged) | compiled and signed at pack time into `resources\hide-helper.exe`; the first run spawns no compiler. A dev checkout keeps the `%TEMP%` fallback |
 | 21 | Capture pixels | WGC / DXGI / GDI | closed while flag on | the flag is the mechanism; see #4 for the trade |
 | 22 | GPU composition | DWM inspector | low | no user-mode enumeration API; a DWM-internal reader is out of scope |
 | 23 | Network | TLS SNI / proxy logs | **open** | direct calls to the configured API base URL |
@@ -90,46 +93,47 @@ What this build adds is **time**: 300 ms instead of 4 s between an inspector
 appearing and the flag dropping, with the content scrambled in that window.
 
 **The signature.** Authenticode is a signature over the file, not a string.
-A self-signed cert whose subject says `Microsoft Corporation` fails chain
-validation; keeping the real signer succeeds but leaves a signer that is not
-Microsoft. The three honest options:
+The RuntimeBroker build carried one permanent tell: `CompanyName=Microsoft
+Corporation` next to a certificate whose subject was not Microsoft. This build
+removes the mismatch instead of hiding it: the signer is
+`CN=Glance AI, O=Glance AI, C=US`, and the version resource says `Glance AI`.
+A resource/signer consistency check now passes.
 
-1. **Coherent identity** — set `CompanyName`/`LegalCopyright` to the actual
-   signer (or its company), so version resource and certificate agree. Nothing
-   passes a "signed by Microsoft" check, but a resource/signer consistency check
-   stops flagging a mismatch. Trade: the process no longer blends into
-   Microsoft-named lists.
-2. **Borrowed signature** — run the payload inside a genuinely signed
-   Microsoft binary (load/inject into a copy of `RuntimeBroker.exe` from
-   `System32`). Signature and path then verify; this is a different
-   architecture (native renderer, no Electron process tree) and is the only
-   user-mode route to a passing `WinVerifyTrust` with a Microsoft leaf.
-3. **Accept the lease** — assume detectors that check signatures; use the app
-   only where the signature is not read.
+What remains is trust, not naming: the certificate is self-signed, so a detector
+that requires a publicly trusted CA or a Microsoft leaf still fails it. The only
+user-mode route to a Microsoft-signed leaf is running the payload inside a
+genuinely signed Microsoft binary (load/inject into a copy of a signed Windows
+executable), which is a different architecture — a native overlay, not an
+Electron process tree — and is not what this build is.
 
-Anything that claims otherwise is a chart drawn over another chart.
+Anything that claims a self-signed certificate passes a public-CA check is a
+chart drawn over another chart.
 
 ## 4. Ordered by detection value, what is worth doing next
 
-1. **Child command lines (#19).** The three helper PIDs carry
-   `--type=renderer --user-data-dir=…`. The main process cannot patch a child's
-   PEB without code inside it. Options: a Chromium `--renderer-cmd-prefix`-style
-   wrapper that re-execs with a short command line, or a native launcher that
-   creates the process suspended and rewrites its PEB before resume. Both are
-   real work; the current state is a clear "this is Electron" signal.
-2. **Identity coherence (#9/#10).** Decide between §3's options 1 and 2 before
-   another release. 3.3.0 removed the person's name from the signature (it is now
-   a publisher subject), so what remains is the mismatch itself: Microsoft's name
-   on the resource, a non-Microsoft signer on the certificate.
-3. **Temp helper (#20).** Compile once at install, sign with the same
-   certificate, place it under the install tree instead of `%TEMP%`, and delete
-   the `.cs` source. A `csc.exe` spawn on first launch is a process-creation
-   event and an unsigned exe on disk.
-4. **Mirror path (#8).** `C:\Windows\SysWOW64\RuntimeBroker\` is where no
-   genuine Microsoft binary lives. If impersonation is kept, the only
-   consistent location is `System32\RuntimeBroker.exe`, which is occupied by
-   the real component — that is the argument for option 1 or 2 above, not a
-   folder rename.
+1. ~~**Child command lines (#19).**~~ Closed: `stealth.cpp::sanitizeRemotePeb()` writes
+   the fake argv into each helper's PEB from the browser process, and
+   `sanitizeChildPebs()` in `main.js` patches every new PID within 500 ms. The
+   child is our own process, so no injection is needed — only `VM_READ|VM_WRITE|
+   VM_OPERATION` on a handle the parent can already open. Measured against the
+   sandboxed renderer, GPU and network-utility PIDs (see
+   `scripts/child-peb-probe.js`), and against a plain Node child read back
+   through WMI (`scripts/remote-peb-probe.js`).
+2. ~~**Identity coherence (#9/#10).**~~ Closed by the Glance AI rename: image
+   name, install tree, Run value, profile folder, version resource and
+   certificate subject all say `Glance AI`. The self-signed trust root remains
+   (see §3), but the Microsoft-resource/non-Microsoft-signer mismatch is gone.
+3. ~~**Temp helper (#20).**~~ Closed for packaged builds: `scripts/build-hide-helper.js`
+   compiles the C# helper during `beforePack`, signs it with the same certificate
+   as the app (`build/hide-helper.exe`, `extraResources` → `resources/hide-helper.exe`),
+   and `main.js` runs it from the install tree. No `csc.exe` child on first run,
+   no unsigned exe in `%TEMP%`. The runtime TEMP path remains only as the dev
+   checkout fallback. The compile also needed the `System.Runtime` facade
+   reference — without it every WinMD reference failed with CS0012 and the
+   helper was never built at all.
+4. ~~**Mirror path (#8).**~~ Closed by removing the impersonation: there is no
+   `SysWOW64` mirror any more, and the installer deletes the old one on upgrade.
+   The image lives in its normal `%ProgramFiles%\Glance AI\` tree.
 5. **Window shape (#6).** The host is topmost, frameless and large: exactly the
    overlay heuristic. A caption or a non-topmost window removes the heuristic
    and the product feature at the same time. Worth measuring before changing.
@@ -141,6 +145,8 @@ Anything that claims otherwise is a chart drawn over another chart.
 ```
 npm run build:native          # builds cloak.node with stealth.cpp included
 node scripts/build-native.js x64   # strips clang-only gyp flags, publishes to src/native/x64/
+node scripts/remote-peb-probe.js   # remote PEB write, read back through WMI
+node_modules/electron/dist/electron.exe scripts/child-peb-probe.js  # sandboxed renderer/GPU/utility PIDs
 npm run test:main             # 25 tests through the real whenReady path
 node scripts/test.js          # 20 helper tests
 node scripts/check.js         # identity / package drift
