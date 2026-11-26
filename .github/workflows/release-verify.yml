@@ -11,6 +11,9 @@ name: Release verification
 #
 # The update job is the real published-update path: it uses the release's
 # latest.yml and the app's own electron-updater, not a local feed.
+#
+# The install folder is named after executableName (GlanceAI), not productName
+# (Glance AI), so paths are resolved from a candidate list rather than assumed.
 
 on:
   workflow_dispatch:
@@ -65,46 +68,39 @@ jobs:
           # installer, so Status is expected to be UnknownError. The signer
           # identity above is the check that matters on a clean machine.
 
-      - name: Install silently and locate the install
+      - name: Install silently
         shell: pwsh
         run: |
           $exe = Get-ChildItem installers -Filter *-x64.exe | Select-Object -First 1
-          $sw = [Diagnostics.Stopwatch]::StartNew()
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -Wait -PassThru
-          $sw.Stop()
-          "installer exit=$($p.ExitCode) elapsed=$([int]$sw.Elapsed.TotalSeconds)s"
-          "ProgramFiles=$env:ProgramFiles"
-          Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Directory -ErrorAction SilentlyContinue |
-            Where-Object Name -like '*Glance*' | ForEach-Object { "dir: $($_.FullName)" }
-          Get-ChildItem 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
-                        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
-                        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
-            ForEach-Object {
-              $v = Get-ItemProperty $_.PSPath
-              if ($v.DisplayName -like '*Glance*') {
-                "uninstall: $($v.DisplayName) ver=$($v.DisplayVersion) loc=$($v.InstallLocation)"
-              }
-            }
-          $procs = Get-Process GlanceAI -ErrorAction SilentlyContinue
-          if ($procs) { $procs | ForEach-Object { "process: $($_.Id) $($_.Path)" } } else { 'process: none' }
-          $found = Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Recurse -Filter GlanceAI.exe -ErrorAction SilentlyContinue |
-            Select-Object -First 5
-          if ($found) { $found | ForEach-Object { "exe: $($_.FullName) $($_.VersionInfo.ProductVersion)" } } else { 'exe: not found' }
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+
+      - name: Resolve the install and verify the version
+        shell: pwsh
+        run: |
+          $candidates = @(
+            (Join-Path $env:ProgramFiles 'GlanceAI\GlanceAI.exe'),
+            (Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'GlanceAI\GlanceAI.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\GlanceAI\GlanceAI.exe')
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          $exe = $candidates | Select-Object -First 1
+          if (-not $exe) { throw "installed executable not found under $env:ProgramFiles" }
+          $v = (Get-Item $exe).VersionInfo.ProductVersion
+          "installed: $exe ($v)"
+          if ($v -notlike "$env:VERSION*") { throw "installed version $v is not $env:VERSION" }
+          "GLANCE_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Launch the installed app
         shell: pwsh
         run: |
           Get-Process -Name GlanceAI -ErrorAction SilentlyContinue | Stop-Process -Force
-          $installed = Get-ChildItem 'C:\Program Files','C:\Program Files (x86)' -Recurse -Filter GlanceAI.exe -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-          if (-not $installed) { throw 'installed executable not found' }
-          "launching $($installed.FullName)"
           $profile = Join-Path $env:RUNNER_TEMP 'glance-clean-profile'
           $marker = Join-Path $env:RUNNER_TEMP 'glance-clean-marker.txt'
           Remove-Item $marker -ErrorAction SilentlyContinue
           $env:RB_PROFILE_DIR = $profile
           $env:RB_SMOKE_FILE = $marker
-          $p = Start-Process -FilePath $installed -ArgumentList '--smoke-test' -PassThru
+          $p = Start-Process -FilePath $env:GLANCE_EXE -ArgumentList '--smoke-test' -PassThru
           $deadline = (Get-Date).AddSeconds(30)
           while ((Get-Date) -lt $deadline -and -not (Test-Path $marker)) { Start-Sleep -Milliseconds 250 }
           if (-not (Test-Path $marker)) { throw 'installed app did not write its smoke marker' }
@@ -117,7 +113,8 @@ jobs:
         shell: pwsh
         run: |
           Get-Process -Name GlanceAI -ErrorAction SilentlyContinue | Stop-Process -Force
-          $dir = Join-Path $env:ProgramFiles 'Glance AI'
+          if (-not $env:GLANCE_EXE) { return }
+          $dir = Split-Path $env:GLANCE_EXE
           $u = Get-ChildItem $dir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($u) { Start-Process -FilePath $u.FullName -ArgumentList '/S' -Wait }
 
@@ -151,25 +148,39 @@ jobs:
           Unblock-File $exe.FullName
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "previous installer exited $($p.ExitCode)" }
-          $installed = Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'
-          if (-not (Test-Path $installed)) { throw 'previous version did not install' }
-          "previous version: $((Get-Item $installed).VersionInfo.ProductVersion)"
+
+      - name: Resolve the previous install
+        shell: pwsh
+        run: |
+          $candidates = @(
+            (Join-Path $env:ProgramFiles 'GlanceAI\GlanceAI.exe'),
+            (Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'),
+            (Join-Path ${env:ProgramFiles(x86)} 'GlanceAI\GlanceAI.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\GlanceAI\GlanceAI.exe')
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          $exe = $candidates | Select-Object -First 1
+          if (-not $exe) { throw "previous executable not found under $env:ProgramFiles" }
+          $v = (Get-Item $exe).VersionInfo.ProductVersion
+          "previous installed: $exe ($v)"
+          if ($v -notlike "$env:PREVIOUS*") { throw "previous version $v is not $env:PREVIOUS" }
+          "GLANCE_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Start the previous version with CDP
         shell: pwsh
         run: |
           Get-Process -Name GlanceAI -ErrorAction SilentlyContinue | Stop-Process -Force
-          $installed = Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'
+          Start-Sleep -Seconds 3
           $profile = Join-Path $env:RUNNER_TEMP 'glance-update-profile'
           $env:RB_PROFILE_DIR = $profile
-          $p = Start-Process -FilePath $installed -ArgumentList '--remote-debugging-port=9333', '--disable-gpu' -PassThru
-          $deadline = (Get-Date).AddSeconds(45)
-          do {
+          $p = Start-Process -FilePath $env:GLANCE_EXE -ArgumentList '--remote-debugging-port=9333', '--disable-gpu' -PassThru
+          $deadline = (Get-Date).AddSeconds(60)
+          $ready = $false
+          while ((Get-Date) -lt $deadline) {
             node scripts/cdp-eval.js --port 9333 "document.readyState" 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 1
-          } until ((Get-Date) -gt $deadline)
-          if ($LASTEXITCODE -ne 0) { throw 'previous version did not expose CDP' }
+            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $ready) { throw 'previous version did not expose CDP' }
           "started pid $($p.Id)"
 
       - name: Let the updater find and download the new release
@@ -180,10 +191,10 @@ jobs:
           $ready = $false
           while ((Get-Date) -lt $deadline) {
             $status = node scripts/cdp-eval.js --port 9333 "document.getElementById('status').textContent" 2>$null
-            if ($LASTEXITCODE -ne 0) { Start-Sleep -Seconds 2; continue }
+            if ($LASTEXITCODE -ne 0) { Start-Sleep -Seconds 3; continue }
             "status: $status"
             if ($status -match 'ready') { $ready = $true; break }
-            if ($status -match 'failed|error') { throw "updater reported: $status" }
+            if ($status -match 'failed|error|unavailable') { throw "updater reported: $status" }
             Start-Sleep -Seconds 5
           }
           if (-not $ready) { throw 'updater did not reach the ready state' }
@@ -192,30 +203,31 @@ jobs:
         shell: pwsh
         run: |
           node scripts/cdp-eval.js --port 9333 "window.glance.updateInstall()" 2>$null | Out-Null
-          $installed = Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'
           $deadline = (Get-Date).AddMinutes(8)
           $v = ''
           while ((Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 5
-            if (Test-Path $installed) {
-              $v = (Get-Item $installed).VersionInfo.ProductVersion
-              if ($v -like "$env:VERSION*") { break }
-            }
+            try { $v = (Get-Item $env:GLANCE_EXE).VersionInfo.ProductVersion } catch { continue }
+            if ($v -like "$env:VERSION*") { break }
           }
           "updated version: $v"
           if ($v -notlike "$env:VERSION*") { throw "update did not install $env:VERSION (found $v)" }
+          $yml = Join-Path (Split-Path $env:GLANCE_EXE) 'resources\app-update.yml'
+          if (-not (Test-Path $yml)) { throw 'updated app-update.yml is missing' }
+          $pinned = Select-String -Path $yml -Pattern 'CN=Glance AI' -Quiet
+          if (-not $pinned) { throw 'updated app-update.yml does not pin the publisher' }
+          'updated app-update.yml pins the publisher'
 
       - name: Launch the updated app
         shell: pwsh
         run: |
           Get-Process -Name GlanceAI -ErrorAction SilentlyContinue | Stop-Process -Force
-          $installed = Join-Path $env:ProgramFiles 'Glance AI\GlanceAI.exe'
           $profile = Join-Path $env:RUNNER_TEMP 'glance-updated-profile'
           $marker = Join-Path $env:RUNNER_TEMP 'glance-updated-marker.txt'
           Remove-Item $marker -ErrorAction SilentlyContinue
           $env:RB_PROFILE_DIR = $profile
           $env:RB_SMOKE_FILE = $marker
-          $p = Start-Process -FilePath $installed -ArgumentList '--smoke-test' -PassThru
+          $p = Start-Process -FilePath $env:GLANCE_EXE -ArgumentList '--smoke-test' -PassThru
           $deadline = (Get-Date).AddSeconds(30)
           while ((Get-Date) -lt $deadline -and -not (Test-Path $marker)) { Start-Sleep -Milliseconds 250 }
           if (-not (Test-Path $marker)) { throw 'updated app did not write its smoke marker' }
@@ -228,6 +240,7 @@ jobs:
         shell: pwsh
         run: |
           Get-Process -Name GlanceAI -ErrorAction SilentlyContinue | Stop-Process -Force
-          $dir = Join-Path $env:ProgramFiles 'Glance AI'
+          if (-not $env:GLANCE_EXE) { return }
+          $dir = Split-Path $env:GLANCE_EXE
           $u = Get-ChildItem $dir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($u) { Start-Process -FilePath $u.FullName -ArgumentList '/S' -Wait }
