@@ -49,6 +49,32 @@ body.click-through #panel { outline: 2px dashed rgba(255, 200, 80, 0.55); outlin
 .status:empty { display: none; }
 .status.err { color: #ffb3b3; background: rgba(220, 90, 90, 0.14); border-color: rgba(255, 130, 130, 0.35); }
 
+/* capture indicator: always visible while a microphone or loopback stream is open */
+.rec {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
+  color: #ffd7d2; padding: 2px 8px; border-radius: 999px;
+  background: rgba(220, 70, 60, 0.18); border: 1px solid rgba(255, 110, 95, 0.5);
+  white-space: nowrap;
+}
+.rec i {
+  width: 7px; height: 7px; border-radius: 50%; background: #ff6b5e;
+  box-shadow: 0 0 0 2px rgba(255, 107, 94, 0.2); animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .rec i { animation: none; } }
+
+/* consent notice: blocks the first audio capture until the user agrees */
+.consent {
+  flex: 0 0 auto; padding: 8px 10px; border-radius: 10px;
+  border: 1px solid rgba(255, 184, 92, 0.5); background: rgba(255, 184, 92, 0.1);
+  font-size: 11px; line-height: 1.45;
+}
+.consent b { display: block; margin-bottom: 2px; color: #ffd9a3; }
+.consent p { margin: 0 0 7px; color: #e8d5b0; }
+.consent .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.consent button { font-size: 11px; padding: 4px 9px; }
+
 /* controls */
 button, select, input, textarea {
   font: inherit; color: inherit;

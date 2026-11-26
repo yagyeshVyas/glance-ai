@@ -18,10 +18,9 @@ contextBridge.exposeInMainWorld('glance', {
   minimize: () => ipcRenderer.invoke('window:minimize'),
   quit: () => ipcRenderer.invoke('window:quit'),
   updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
   updateInstall: () => ipcRenderer.invoke('update:install'),
   stealthApply: (on) => ipcRenderer.invoke('stealth:apply', on),
-  ghostCheck: () => ipcRenderer.invoke('ghost:check'),
-  stealthReport: () => ipcRenderer.invoke('stealth:report'),
   broadcastStatus: () => ipcRenderer.invoke('broadcast:status'),
   setBroadcastEyeContact: (on) => ipcRenderer.invoke('broadcast:eye-contact', Boolean(on)),
   windowShown: () => ipcRenderer.invoke('window:shown'),
@@ -42,6 +41,5 @@ contextBridge.exposeInMainWorld('glance', {
   onShot: on('shot'),
   onTrigger: on('trigger'),
   onClickThrough: on('click-through'),
-  onFlagless: on('stealth:flagless'),
 });
 

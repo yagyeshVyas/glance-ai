@@ -18,13 +18,8 @@ desktop.ini
 .vscode/
 .idea/
 
-# native addon build output (rebuilt by postinstall/afterPack)
-src/native/build/
-src/native/x64/
-src/native/arm64/
-
-# packaged helper (compiled by scripts/build-hide-helper.js)
-build/hide-helper.exe
+# packaged OCR helper (compiled by scripts/build-ocr-helper.js)
+build/ocr-helper.exe
 
 # local API server: credentials and runtime state
 server/.env

@@ -1,0 +1,52 @@
+name: ARM64
+
+# The x64 CI job can cross-build the arm64 payload but cannot run it. This
+# workflow runs on a real Windows on ARM runner: it builds the arm64 app, reads
+# the fuses and PE machine type back from the executable, then starts the
+# packaged app and waits for its smoke marker.
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-arm64:
+    name: package-arm64
+    runs-on: windows-11-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # CI has no release key. The release pipeline sets REQUIRE_SIGNING=1,
+      # which ignores this skip and fails closed. A full target build is used
+      # (not --dir) because app-update.yml is only written for installer
+      # targets, and the verifier checks its publisher pin.
+      - name: Build arm64 payload and installer
+        shell: pwsh
+        run: |
+          $env:SKIP_SIGNING = '1'
+          npx electron-builder --win --arm64
+
+      - name: Verify arm64 fuses, architecture and packaged launch
+        run: npm run verify:build -- --arch=arm64 --launch
+
+      - name: Upload arm64 payload on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm64-unpacked
+          path: dist/win-arm64-unpacked
+          retention-days: 7

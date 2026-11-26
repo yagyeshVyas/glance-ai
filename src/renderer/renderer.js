@@ -5,6 +5,9 @@ const el = {
   panel: $('panel'),
   status: $('status'), transcript: $('transcript'), answer: $('answer'), shot: $('shot'),
   question: $('question'), stop: $('stop'), listen: $('listen'),   source: $('source'),
+  recState: $('recState'), recLabel: $('recLabel'),
+  consent: $('consent'), consentAccept: $('consentAccept'), consentCancel: $('consentCancel'),
+  transcriptSaveState: $('transcriptSaveState'),
   settings: $('settings'), exportMd: $('exportMd'),
   eyeBtn: $('eyeBtn'),
   eyeHud: $('eyeHud'),
@@ -31,8 +34,22 @@ function persistState() {
   if (wiped) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    api.setState({ history, transcript: transcriptText, transcriptLog: transcriptLog.slice(-500), memory: memory.slice(-200) });
+    const payload = { history, memory: memory.slice(-200) };
+    // The transcript is opt-in. Main enforces the same rule, so a stale renderer
+    // cannot turn this into a disk write by sending the fields anyway.
+    if (appCfg.persistTranscript === true) {
+      payload.transcript = transcriptText;
+      payload.transcriptLog = transcriptLog.slice(-500);
+    }
+    api.setState(payload);
   }, 1000);
+}
+
+function paintTranscriptSaveState() {
+  if (!el.transcriptSaveState) return;
+  el.transcriptSaveState.textContent = appCfg.persistTranscript === true
+    ? 'saved on this device'
+    : 'not saved — cleared on quit';
 }
 
 // ---------- shot pile: capture screenshots first, ask afterwards ----------
@@ -294,11 +311,15 @@ api.onChunk(({ id, text }) => {
 api.onDone(({ id }) => id === activeReq && finish(true, id));
 api.onNotice(({ level, message }) => {
   setStatus(message, level === 'error');
-  // an update that finished downloading is actionable: clicking the status bar
-  // restarts into it instead of making the user hunt for Settings
-  const ready = /ready — restart to apply/.test(message || '');
-  el.status.style.cursor = ready ? 'pointer' : '';
-  el.status.onclick = ready ? () => api.updateInstall() : null;
+  // Updates are two explicit clicks: one to download, one to install. Nothing
+  // downloads or installs on its own, so the status bar is the whole flow.
+  const msg = message || '';
+  const ready = /ready - restart to apply/.test(msg);
+  const available = /available - click to download/.test(msg);
+  el.status.style.cursor = ready || available ? 'pointer' : '';
+  el.status.onclick = ready ? () => api.updateInstall()
+    : available ? () => api.updateDownload()
+    : null;
 });
 api.onError(({ id, message }) => {
   if (id !== activeReq) return;
@@ -562,6 +583,62 @@ function stopAllStreams() {
   streams.clear();
 }
 
+// ---------- capture consent + visible indicator ----------
+// A red pill is shown for as long as a microphone or loopback stream is open.
+// The consent notice is blocking: no stream is opened until the user agrees, and
+// the agreement is stored (with a timestamp) so it can be withdrawn in Settings.
+let consentPromise = null;
+
+function paintListeningIndicator() {
+  if (!el.recState) return;
+  el.recState.hidden = !listening;
+  if (!listening) return;
+  const source = el.source.value;
+  el.recLabel.textContent =
+    source === 'both' ? 'Listening — mic + speakers' : source === 'system' ? 'Listening — speakers' : 'Listening — mic';
+}
+
+function ensureAudioConsent() {
+  if (appCfg.audioConsent === true) return Promise.resolve(true);
+  if (consentPromise) return consentPromise;
+  el.consent.hidden = false;
+  el.consentAccept.focus();
+  consentPromise = new Promise((resolve) => {
+    const finish = (ok) => {
+      el.consent.hidden = true;
+      el.consentAccept.removeEventListener('click', onAccept);
+      el.consentCancel.removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKey, true);
+      consentPromise = null;
+      if (ok) el.listen.focus();
+      resolve(ok);
+    };
+    const onAccept = async () => {
+      try {
+        const c = await api.setConfig({ audioConsent: true, audioConsentAt: new Date().toISOString() });
+        if (c && c.audioConsent === true) {
+          appCfg = c;
+          finish(true);
+          return;
+        }
+      } catch {}
+      setStatus('Could not save audio consent — try again', true);
+      finish(false);
+    };
+    const onCancel = () => finish(false);
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(false);
+      }
+    };
+    el.consentAccept.addEventListener('click', onAccept);
+    el.consentCancel.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKey, true);
+  });
+  return consentPromise;
+}
+
 async function toggleListen() {
   if (listening) {
     listening = false;
@@ -569,10 +646,14 @@ async function toggleListen() {
     el.listen.classList.remove('on');
     el.listen.textContent = 'Listen';
     el.listen.disabled = false;
+    paintListeningIndicator();
     setStatus('');
     if (practiceLive) runPracticeDebrief();
     return;
   }
+  // Blocking, explicit consent before the first microphone or loopback stream.
+  // A user who cancels stays exactly where they were: nothing is opened.
+  if (!(await ensureAudioConsent())) return;
   el.listen.disabled = true;
   const source = el.source.value;
   // which loops to start. "both" hears the interviewer and you at once.
@@ -589,6 +670,7 @@ async function toggleListen() {
   }
   if (!streams.size) {
     el.listen.disabled = false;
+    paintListeningIndicator();
     return setStatus('Audio: ' + failed.join('; '), true);
   }
   if (failed.length) setStatus('Partial audio — ' + failed.join('; '), true);
@@ -597,6 +679,7 @@ async function toggleListen() {
   el.listen.classList.add('on');
   el.listen.textContent = 'Stop';
   el.listen.disabled = false;
+  paintListeningIndicator();
   if (appCfg.practiceMode) {
     // practice session: record and transcribe, but no live answers
     practiceLive = true;
@@ -613,6 +696,7 @@ async function toggleListen() {
   }
 }
 el.listen.addEventListener('click', toggleListen);
+el.source.addEventListener('change', paintListeningIndicator);
 
 // ---------- hotkey triggers from main ----------
 api.onTrigger((what) => {
@@ -633,28 +717,8 @@ const hasFlag = {
   apiKey: 'hasKey', transcribeApiKey: 'hasTranscribeKey',
   ttsApiKey: 'hasTtsKey', fallbackApiKey: 'hasFallbackKey',
 };
-const boolFields = ['stealth', 'stealthProcess', 'smartMode', 'practiceMode', 'stealthDeep', 'stealthMaster', 'ocr', 'scramble', 'nvidiaEyeContact'];
-// Master-stealth sub-toggles it force-on when enabled. Saved here at the moment
-// the user switches master ON so "un-check master" can restore them.
-const MASTER_SUB_TOGGLES = ['stealth', 'stealthProcess', 'stealthDeep'];
-let masterSnapshot = null;
-function paintKeyPlaceholders(c) {
-  for (const f of keyFields) {
-    $('s_' + f).placeholder = c[hasFlag[f]] ? '•••••• (saved — leave blank to keep)' : '';
-  }
-}
-// Full privacy = strongest of every privacy control. The eye tracker is
-// already offline-by-default (vendored MediaPipe), so master only has to flip
-// the capture/process/cloak boxes. Not full invisibility — see STEALTH.md.
-function applyMasterStealth(enabled) {
-  if (enabled) {
-    masterSnapshot = {};
-    for (const f of MASTER_SUB_TOGGLES) masterSnapshot[f] = $('s_' + f).checked;
-    for (const f of MASTER_SUB_TOGGLES) $('s_' + f).checked = true;
-  } else if (masterSnapshot) {
-    for (const f of MASTER_SUB_TOGGLES) $('s_' + f).checked = Boolean(masterSnapshot[f]);
-  }
-}
+﻿const boolFields = ['stealth', 'smartMode', 'practiceMode', 'ocr', 'nvidiaEyeContact', 'persistTranscript'];
+
 async function openSettings() {
   const c = await api.getConfig();
   fields.forEach((f) => ($('s_' + f).value = c[f] || ''));
@@ -748,8 +812,8 @@ $('s_update').addEventListener('click', async () => {
       : 'Check failed: ' + r.error;
     return;
   }
-  // download runs in the background; 'notice' events drive the status
-  msg.textContent = 'Check requested — progress appears in the status bar';
+  // download is user-triggered: the notice offers a click, it does not start
+  msg.textContent = 'Check requested — a download prompt appears in the status bar';
 });
 $('s_wipe').addEventListener('click', async () => {
   if (!confirm('Delete saved API key, conversation history, transcript and window position? This cannot be undone.')) return;
@@ -776,131 +840,23 @@ $('s_panelOpacity').addEventListener('input', () => {
   $('opacityVal').textContent = Math.round($('s_panelOpacity').value * 100) + '%';
   applyOpacity($('s_panelOpacity').value);
 });
-$('s_stealthMaster').addEventListener('change', (e) => {
-  applyMasterStealth(e.target.checked);
-});
-// ---------- scramble: unreadable in a capture, readable to you ----------
-// The exclusion flag is itself a detection signal. With stealth off and this on,
-// the window is captured perfectly normally (affinity 0, no "deliberately hidden"
-// evidence) and the *content* carries the stealth instead: every visible string is
-// replaced by same-length noise several times a second. A capture, a recording or
-// an OCR pass gets a wall of the right shape and nothing legible. Copy and read-
-// aloud use answerRaw, which is never touched, so the real text is still there to
-// take away. See STEALTH.md §7.
-const SCRAMBLE_GLYPHS = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
-const SCRAMBLE_PUNCT = '################$%&@+=*?!';
-let scrambleTimer = null;
-function scrambleString(s) {
-  let out = '';
-  for (const ch of s) {
-    if (/[A-Za-z0-9]/.test(ch)) out += SCRAMBLE_GLYPHS[(Math.random() * SCRAMBLE_GLYPHS.length) | 0];
-    else if (/\s/.test(ch)) out += ch;
-    else out += SCRAMBLE_PUNCT[(Math.random() * SCRAMBLE_PUNCT.length) | 0];
-  }
-  return out;
-}
-function scrambleWalk(node) {
-  for (const n of node.childNodes) {
-    if (n.nodeType === 3) {
-      // a value that differs from what we last wrote is new text from a render or
-      // a stream append: take it as the new real value before faking over it
-      if (n.nodeValue !== n.__fake) n.__real = n.nodeValue;
-      if (!n.__real) continue;
-      const fake = scrambleString(n.__real);
-      n.__fake = fake;
-      n.nodeValue = fake;
-    } else if (n.nodeType === 1) scrambleWalk(n);
-  }
-}
-function restoreWalk(node) {
-  for (const n of node.childNodes) {
-    if (n.nodeType === 3) {
-      if (n.__real !== undefined) n.nodeValue = n.__real;
-      delete n.__fake;
-    } else if (n.nodeType === 1) restoreWalk(n);
-  }
-}
-function setScramble(on) {
-  clearInterval(scrambleTimer);
-  scrambleTimer = null;
-  if (!on) {
-    restoreWalk(el.answer);
-    restoreWalk(el.transcript);
-    return;
-  }
-  const tick = () => { scrambleWalk(el.answer); scrambleWalk(el.transcript); };
-  tick();
-  scrambleTimer = setInterval(tick, 120);
-}
-$('s_scramble').addEventListener('change', (e) => setScramble(e.target.checked));
-
-// ---------- detector-aware mode: no capture flag, scramble instead ----------
-// A window inspector (Process Explorer, a proctoring client) reads
-// GetWindowDisplayAffinity, which reports 0x11 while the panel is excluded.
-// The main process drops the flag while one is running; this makes the text
-// unreadable instead. The user's own scramble choice is restored when it goes.
-let scrambleBeforeDetector = null;
-if (window.glance.onFlagless) {
-  window.glance.onFlagless((payload) => {
-    const on = Boolean(payload && payload.on);
-    if (on) {
-      if (scrambleBeforeDetector === null) scrambleBeforeDetector = Boolean(appCfg.scramble);
-      setScramble(true);
-      setStatus('Window inspector detected' + (payload.name ? ' (' + payload.name + ')' : '') + ' — capture flag off, text scrambled');
-    } else {
-      setScramble(scrambleBeforeDetector === null ? false : scrambleBeforeDetector);
-      scrambleBeforeDetector = null;
-      setStatus('Window inspector gone — capture protection restored');
-    }
-  });
-}
-
-// Stealth report: an actual measurement of every tell on this machine, not a
-// restated claim. Rows are rendered from what the main process read back.
-$('s_ghostCheck').addEventListener('click', async () => {
-  const msg = $('s_ghostMsg');
-  const box = $('s_report');
-  const btn = $('s_ghostCheck');
-  btn.disabled = true;
-  msg.className = 'muted small';
-  msg.textContent = 'Capturing the panel, then capturing again with it gone…';
-  box.hidden = true;
-  try {
-    const r = await api.stealthReport();
-    if (r.reason && !r.tells) {
-      msg.className = 'small err';
-      msg.textContent = 'Report unavailable: ' + r.reason;
-      return;
-    }
-    msg.className = 'small ' + (r.ok ? 'ok' : 'err');
-    msg.textContent = r.verdict;
-    box.innerHTML = r.tells
-      .map(
-        (t) =>
-          `<div class="tell ${escapeHtml(t.status)}"><span class="dot"></span>` +
-          `<div><b>${escapeHtml(t.label)}</b><div class="muted small">${escapeHtml(t.detail)}</div></div></div>`,
-      )
-      .join('');
-    box.hidden = false;
-  } catch (e) {
-    msg.className = 'small err';
-    msg.textContent = 'Report failed: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
+﻿
 $('s_save').addEventListener('click', async () => {
   const next = { panelOpacity: parseFloat($('s_panelOpacity').value) };
   keyFields.forEach((f) => (next[f] = $('s_' + f).value.trim()));
   fields.forEach((f) => (next[f] = $('s_' + f).value.trim()));
   boolFields.forEach((f) => (next[f] = $('s_' + f).checked));
   const c = await api.setConfig(next);
+  if (!c || c.error) {
+    setMsg('Not saved: ' + ((c && c.error) || 'invalid settings'), 'err');
+    return;
+  }
   appCfg = c; // practiceMode etc. take effect immediately
-  setScramble(c.scramble);
+  paintTranscriptSaveState();
   if (api.setBroadcastEyeContact) {
     try { await api.setBroadcastEyeContact(Boolean(next.nvidiaEyeContact)); } catch {}
   }
-  api.stealthApply?.(Boolean(c.stealthDeep));
+  api.stealthApply?.(Boolean(c.stealth));
   $('opacityVal').textContent = Math.round((c.panelOpacity ?? 0.78) * 100) + '%';
   paintKeyPlaceholders(c); // show •••••• so the saved state is visible right away
   if (c.keysNotPersisted?.length) {
@@ -949,6 +905,12 @@ $('s_deleteKeys').addEventListener('click', async () => {
   paintKeyPlaceholders(c);
   setMsg('Keys deleted.');
 });
+$('s_resetConsent').addEventListener('click', async () => {
+  const c = await api.setConfig({ audioConsent: false, audioConsentAt: '' });
+  appCfg = c;
+  setMsg('Audio consent withdrawn — Listen will ask again.');
+});
+
 $('min').addEventListener('click', () => api.minimize());
 $('hide').addEventListener('click', () => api.hide());
 $('close').addEventListener('click', () => api.quit());
@@ -1185,6 +1147,16 @@ function paintCaptions() {
 }
 
 async function setCaptions(on, { persist = true } = {}) {
+  if (on && !(await ensureAudioConsent())) {
+    // No consent, no auto-start. Turn the persisted mode off too, or the next
+    // launch would ask again without the user touching anything.
+    captionMode = false;
+    applyTiming();
+    paintCaptions();
+    try { await api.setConfig({ captionMode: false }); } catch {}
+    setStatus('Captions need audio consent — press Listen to review', true);
+    return;
+  }
   captionMode = Boolean(on);
   applyTiming();
   paintCaptions();
@@ -1238,7 +1210,8 @@ $('speak').addEventListener('click', async () => {
   // exactly what the loopback records — without this the transcript would contain
   // Glance reading its own answers back.
   speaking = true;
-  const done = () => { speaking = false; };
+  if (listening) el.recLabel.textContent = 'Speaking — listening paused';
+  const done = () => { speaking = false; paintListeningIndicator(); };
   player.onended = done;
   player.onerror = done;
   player.play().catch(done);
@@ -1265,23 +1238,15 @@ async function refreshDisplays() {
   }
   const c = await api.getConfig();
   appCfg = c; // snapshot of practiceMode and friends
-  // Blend mode runs an opaque window (a reparented Chromium surface is never
-  // composed when it is layered) and the window colour does not reach a frameless
-  // opaque window reliably, so the page paints the backdrop and the panel's alpha
-  // blends over it — otherwise the overlay reads as a black box.
-  document.body.style.background = c.blendWindow ? '#aeb8ca' : 'transparent';
+  document.body.style.background = 'transparent';
   const brandEl = document.querySelector('.brand');
   if (brandEl) brandEl.textContent = 'Glance AI';
   applyOpacity(c.panelOpacity);
-  setScramble(c.scramble);
-  // Apply deep stealth with a small delay to let the window fully initialize,
-  // then retry once if the first attempt didn't stick (race with window creation).
-  const applyDeep = () => api.stealthApply?.(Boolean(c.stealthDeep));
-  applyDeep();
-  setTimeout(applyDeep, 1500);
-  // If master stealth was left on, re-assert the strongest sub-settings so the
-  // UI and saved state stay consistent across restarts.
-  if (c.stealthMaster) applyMasterStealth(true);
+  // Re-assert capture exclusion once the window exists, then once more after it
+  // settles. This is the same documented call the settings toggle makes.
+  const applyStealth = () => api.stealthApply?.(Boolean(c.stealth));
+  applyStealth();
+  setTimeout(applyStealth, 1500);
   const keep = sel.value && sel.value !== 'auto' ? sel.value : c.captureDisplay;
   sel.innerHTML =
     '<option value="auto">Auto screen</option>' +
@@ -1354,11 +1319,15 @@ document.getElementById('copyAnswer').addEventListener('click', () => {
 
 // first-run hint
 api.getConfig().then((c) => {
+  appCfg = c;
+  paintTranscriptSaveState();
+  paintListeningIndicator();
   if (!c.hasKey) {
     el.answer.innerHTML = '<span class="muted">No API key yet. Click ⚙ and add any OpenAI-compatible key + base URL.</span>';
   }
-  // Captions mode resumes by itself: the app starts listening with no click,
-  // which is what makes it usable as a background subtitle layer.
+  // Captions mode resumes by itself only after consent. If consent is missing,
+  // setCaptions shows the same blocking notice Listen uses and leaves the mode
+  // off if the user cancels.
   if (c.captionMode) setTimeout(() => setCaptions(true, { persist: false }).catch(() => {}), 1200);
   // the chunk length depends on the configured model, which is only known now
   applyTiming();

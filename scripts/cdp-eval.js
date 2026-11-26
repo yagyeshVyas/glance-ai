@@ -9,7 +9,7 @@
 //   node -e "process.stdout.write(require('electron'))"   # path
 //   <path> . --remote-debugging-port=9333
 //
-// Used by the probes (self-capture, stealth report, browser proof) and handy on
+// Used by the probes (self-capture, capture exclusion, browser proof) and handy on
 // its own when the question is "what does the renderer think right now".
 
 const http = require('http');

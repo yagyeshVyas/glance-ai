@@ -6,16 +6,16 @@
 
 **An AI interview assistant for Windows that stays out of your screen share.**
 
-Hear the room, read the screen, get the answer — in a small panel that Zoom, Meet, Teams, Webex, OBS and Discord never capture.
+Hear the room, read the screen, get the answer — in a small panel that Zoom, Meet, Teams, Webex, OBS and Discord leave out of a screen share.
 
 [![Website](https://img.shields.io/badge/website-live-6c8cff?logo=vercel&logoColor=white)](https://glance-ai-hazel.vercel.app)
 [![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4?logo=windows&logoColor=white)](#requirements)
-[![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
+[![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/yagyeshVyas/glance-ai/total?color=success)](#install)
 [![Release](https://img.shields.io/github/v/release/yagyeshVyas/glance-ai?color=blue)](#install)
 
-[**Live website**](https://glance-ai-hazel.vercel.app) · [Install](#install) · [Usage guide](USAGE.md) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Stealth](#stealth-and-its-honest-limits) · [Compare](#how-it-compares) · [Build](#build-from-source)
+[**Live website**](https://glance-ai-hazel.vercel.app) · [Install](#install) · [Usage guide](USAGE.md) · [How it works](#how-it-works) · [Hotkeys](#hotkeys) · [Capture exclusion](#hidden-from-screen-share) · [Compare](#how-it-compares) · [Build](#build-from-source)
 
 </div>
 
@@ -32,14 +32,14 @@ Download the installer for your machine from the [latest release](../../releases
 
 | Arch | File |
 |---|---|
-| x64 | `assistant-<version>-x64.exe` |
-| arm64 | `assistant-<version>-arm64.exe` |
+| x64 | `GlanceAI-<version>-x64.exe` |
+| arm64 | `GlanceAI-<version>-arm64.exe` |
 
-The installer is signed with a bundled certificate and imports it on install, so Windows trusts it machine-wide. It installs per-machine to `C:\Program Files\assistant` and needs an administrator prompt once.
+The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\Glance AI` and needs an administrator prompt once.
 
 Then open ⚙ and add an API key — or point the base URL at any OpenAI-compatible endpoint, including a local one.
 
-> **Updating:** installed builds check GitHub Releases automatically, download in the background, and apply on restart. No silent restarts — a panel that reloads mid-call is worse than being a version behind.
+> **Updating:** installed builds check GitHub Releases. When you accept an update it downloads in the background and applies on restart. No silent restarts and no automatic download — a panel that reloads mid-call is worse than being a version behind.
 
 ---
 
@@ -48,10 +48,11 @@ Then open ⚙ and add an API key — or point the base URL at any OpenAI-compati
 Built for live interviews: it listens to the interviewer, reads the question on screen, and gives you something to say.
 
 - **Transparent, always-on-top overlay** with a hotkey for every action
-- **Hidden from software screen share** — nothing you see here appears in a capture
-- **Stealth report** — a per-tell measurement of what a detector can see on *this* machine
+- **Excluded from screen capture** — Windows' own capture-exclusion flag keeps the panel out of a screen share
 - **Panic hide** on `Ctrl+Alt+X` — the panel is gone before the call reacts
 - **Live transcription** from mic, system loopback, or **both at once** with You/Them labels — **one model for audio and chat**: leave the transcribe model blank and it uses the chat model, same URL, same key
+- **Explicit audio consent** — a blocking notice before the first stream, and a red listening pill for as long as a microphone or loopback stream is open
+- **Transcript off by default** — it stays in memory and is erased on quit unless you tick *Save the live transcript across restarts*
 - **Screen Q&A** — capture up to five frames, ask once, get a streamed answer
 - **Local OCR** on every captured frame, so code, forms and error text reach the model as exact characters rather than pixels
 - **Offline knowledge base** — paste notes; only the entries matching the question ride along, scored on-device
@@ -64,7 +65,7 @@ Built for live interviews: it listens to the interviewer, reads the question on 
 - Personalisation: target role, pasted résumé, forced answer language
 - **Eye morph** — offline face landmarks for gaze and attention, with the webcam left free for other apps
 
-Everything is local except your own API calls. Keys are DPAPI-encrypted, as are history, transcript and settings.
+Everything is local except your own API calls. Keys are DPAPI-encrypted, as are history and settings. The transcript is only written to disk after you opt in.
 
 ---
 
@@ -78,6 +79,24 @@ display or window ─────┘                                     ├─�
 ```
 
 Nothing is uploaded until there is something to send, and the screenshot only rides the newest turn.
+
+## Audio consent and the transcript
+
+Before the first microphone or loopback stream opens, Glance shows a blocking
+notice that names the audio sources, says the chunks go to your configured
+transcription provider, and asks you to confirm that everyone in the conversation
+consents. Cancel leaves every stream closed. The agreement is stored with a
+timestamp and can be withdrawn in **Settings → Withdraw audio consent**. While a
+stream is open, a red **Listening** pill is always visible in the header, including
+when the panel is in captions mode.
+
+The transcript is **not saved by default**. It lives in memory, is used for
+answers, and is erased when Glance quits. **Settings → Save the live transcript
+across restarts** is the only way it reaches `state.json`, where it is encrypted
+with DPAPI like history. Turning the option off deletes any stored transcript
+immediately; a pre-3.3.7 profile that still contains one is scrubbed on the first
+launch without the opt-in. Practice-mode sessions are a separate, explicit save
+that only happens when you press Stop and request the debrief.
 
 ## Hotkeys
 
@@ -109,66 +128,28 @@ The step-by-step camera selection for every browser and meeting app is in [USAGE
 
 ## Hidden from screen share
 
-This is the point of the project, so it is worth being precise about the words.
+The panel calls Electron's `win.setContentProtection(true)`, which sets
+`SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on the top-level window. Every
+capture path that honours that flag — Zoom, Meet, Teams, Webex, OBS, Discord,
+Snipping Tool, and a browser tab using `getDisplayMedia` — receives the desktop
+without the panel's pixels. That is the whole mechanism.
 
-**Nothing that captures your screen sees the panel.** Not Zoom, Meet, Teams, Webex, OBS, Discord, Snipping Tool, or a browser tab doing `getDisplayMedia`. Their capture comes back without these pixels, so the person on the other end sees your slides and your editor as if the overlay were not installed.
+There is no native addon, no DWM cloak, no window-class rename, no host
+reparenting, no detector watch, and no scramble mode. Those were removed in
+3.3.7: they existed to defeat inspection rather than to keep the panel out of a
+screen share, and they made the app misrepresent what it was.
 
-Four independent layers, all applied to every window of every helper process:
+**Where the line is.** A tool that enumerates top-level windows can call
+`GetWindowDisplayAffinity` and see `0x11`. That flag *is* the mechanism, so
+clearing it would remove the feature. The window class is `Chrome_WidgetWin_1`,
+so the platform is visible once the window is found. A purpose-built proctoring
+tool or EDR agent can find the app. It is hidden from a screen share, not from an
+instrumented machine — and not from a phone pointed at the monitor.
 
-- `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` — pixels absent from capture. Falls back to `WDA_MONITOR` before Windows 10 2004, where `0x11` is unsupported.
-- **DWM cloak** (`DWMWA_CLOAK`) when the panel is hidden — DWM stops composing the window entirely, so it drops out of window enumeration. A native addon applies it in-process because DWM refuses a foreign caller.
-- **Window shim** — the window is reparented under a host with a plain WinUI class, so `EnumWindows` returns only the host: `WinUIDesktopWin32WindowClass`, with `Chrome_WidgetWin_1` nowhere in the list.
-- **Never lifted for the app’s own screenshots** — the flag used to come off for
-  100–400 ms on every capture, which is exactly the window a browser screen
-  share samples. The panel is composited back from the renderer instead, so the
-  flag never moves. Measured: `0x11` in all 260 samples across two captures.
-- `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, no taskbar button, blanked titles.
+**Verify it yourself.** `npm run capture-probe` captures the panel and reports
+whether the capture contains its pixels. `npm run audit` lists what an
+enumerating detector can see.
 
-Measured, not claimed — these are this repo's own audit tools:
-
-```
-$ npm run audit
-PID    PROCESS       AFFINITY                TITLE      VERDICT
-4820   assistant.exe  WDA_EXCLUDEFROMCAPTURE  assistant  capture-excluded, overlay-shaped
-
-$ npx electron scripts/capture-probe.js
-"wshxListed": false
-```
-
-**Proof, per capture path.** Each mechanism was measured by capturing the panel's interior twice — once shown, once with the panel gone — and hashing the pixels. Identical hashes mean that path cannot see the overlay. Run `node scripts/capture-ab.js` to reproduce.
-
-| Capture path | Used by | Shown vs gone | Result |
-|---|---|---|
-| GDI / BitBlt | screen recorders, Snipping Tool, legacy OBS | identical | excluded |
-| WGC (Windows Graphics Capture) | OBS WGC mode, Win11 capture, PowerToys | identical | excluded |
-| `getDisplayMedia` in real Chrome | Meet, Teams Web, Webex Web, any browser tab share | identical | excluded |
-
-A browser sharing your screen therefore receives no evidence the panel exists.
-
-**Prove it here, not in the README.** Settings → *Run stealth report* does the
-same A/B against the live panel on the machine you are sitting at, then reads
-back the class, ex-style, title, child windows, accessibility state and DevTools
-port — one row each, green/amber/red. Capture behaviour depends on the Windows
-build, the compositor and the capturer, so "it is hidden" is worth a button that
-can come back red where you actually work. Ghost mode is on from first run and is
-enforced in the main process, not just by the Settings checkboxes.
-
-**Where the line is.** Screen share is solved. A *proctoring tool* is a different problem: it can call `GetWindowDisplayAffinity` on every top-level window and will see that something answers `0x11`. It still has to find the window first, and the shim means it no longer looks like an Electron app — but the flag itself cannot be removed, because it *is* the mechanism. `DWMWA_EXCLUDED_FROM_CAPTURE` looks like it should remove it and does not: on Windows 11 26300 DWM accepts the attribute and still hands the pixels to GDI and WGC captures, and no neighbouring DWMWA id does better (`node scripts/dwm-exclude-probe.js`).
-
-So: hidden from every capture app. Detectable by a purpose-built proctor or EDR agent. Not hidden from a phone pointed at your monitor either.
-
-**What this does not do.** Three limits remain, all structural:
-
-1. **`GetWindowDisplayAffinity` still reports `0x11`** to anyone who asks. That flag *is* the mechanism, so clearing it defeats the point — but a detector has to find the window first, and a DWM-cloaked window no longer appears in `EnumWindows` or a visible-window scan.
-2. **The window class stays `Chrome_WidgetWin_1`**, so the platform is obvious once found.
-3. **`DWMWA_CLOAKED` cannot be read from another process** — a foreign caller gets `E_INVALIDARG`/`E_ACCESSDENIED`. That is why the cloak is applied by an in-process native addon instead of the helper.
-
-No overlay is undetectable: a purpose-built proctoring or EDR agent can still find this by other means. It is invisible to a screen share, not to an instrumented machine.
-
-The naming is honest end to end: the product is **Glance AI**, it installs and
-runs as `GlanceAI.exe` from `%ProgramFiles%\Glance AI\`, and its certificate
-names `Glance AI` as the publisher. Nothing claims to be Microsoft or a Windows
-component.
 
 ## How it compares
 
@@ -183,9 +164,7 @@ feature as publicly shipped, not a claim about how well it works.
 |---|---|---|---|---|
 | Platform | Windows | Windows, macOS beta | **macOS only** | Windows |
 | Free, no account | ✅ | ✅ | ✅ | ✅ |
-| Hidden from screen capture | ✅ + class shim | ✅ flag only | ✅ native AppKit | varies |
-| In-app proof of hiding | ✅ per-tell report | — | — | — |
-| Capturable-but-scrambled mode | ✅ | — | — | — |
+| Hidden from screen capture | ✅ standard flag | ✅ flag only | ✅ native AppKit | varies |
 | Offline OCR of the screen | ✅ | — | — | — |
 | Offline knowledge base | ✅ | ✅ local RAG (files) | — | — |
 | Dual-stream You/Them labels | ✅ | ✅ 11 STT engines | — | — |
@@ -212,7 +191,7 @@ open-source project does not.
 
 ## API compatibility
 
-Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama with a compatible shim. The chat model needs vision for screen questions; transcription needs a Whisper-compatible endpoint. Keys never reach the renderer, and the IPC bridge is an explicit 27-method allowlist.
+Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama with a compatible shim. The chat model needs vision for screen questions; transcription needs a Whisper-compatible endpoint. Keys never reach the renderer, and the IPC bridge is an explicit allowlist of 25 invoke channels and 9 event listeners.
 
 ## Local API server
 
@@ -245,24 +224,38 @@ key-free test of the proxy) are in [server/README.md](server/README.md).
 ```bash
 npm install
 npm start           # not `electron .` — the wrapper clears a hostile NODE_OPTIONS
-npm run check       # syntax + asset check
-npm test            # 20 helper + 25 main-process tests
+npm run check       # syntax, identity, installer and Electron-support checks
+npm test            # 20 helper + 36 main-process + 9 eye-probe assertions
 npm run dist:signed # signed installers, x64 + arm64
-#                        run scripts\import-cert.ps1 once first, so the build's own
-#                        signature check can verify the new root against a trusted chain
+npm run verify:build -- --all --launch  # read fuses/arch back, then start the app
 ```
 
-The cloak addon is native. `npm run build:native` builds it for the host arch; it
-runs configure → strip two clang-only flags Node 26 puts on the generated project
-→ build → verify the PE machine type, because a plain `node-gyp rebuild` dies at
-link on a VS2019 toolchain. `dist` runs the same script per arch through
-`beforePack`.
+`npm run verify:build` is not a build log check: it reads the Electron fuse wire
+and PE machine type from `dist/win-unpacked` and `dist/win-arm64-unpacked`,
+confirms only `app.asar` is loadable, confirms the OCR helper shipped, and checks
+that `app-update.yml` pins the same publisher the installer is signed with.
+`--launch` starts the packaged app with an isolated profile and waits for its
+smoke marker; it runs only on the matching host architecture. Because
+`app-update.yml` is written only for installer targets, verify a full build
+(`npm run dist` or `npm run dist:signed`), not an `electron-builder --dir` build.
+
+CI (`.github/workflows/ci.yml`) runs the check, tests, security grep and audit,
+then builds the x64 payload and runs the same verification. A separate
+`.github/workflows/arm64.yml` runs on a Windows on ARM runner and performs the
+arm64 build **and packaged launch**. `master` takes changes through a pull
+request, requires the `verify` and `package-x64` checks, and blocks force pushes
+and deletions.
+
+`npm run ocr-helper` compiles `scripts/ocr-helper.cs` into
+`build/ocr-helper.exe` with the in-box `csc.exe`. The helper has one command,
+`ocr <path>`, which calls the Windows OCR engine; `dist` builds it through
+`beforePack`. No other native component is compiled or shipped.
 
 `npm run audit` shows exactly what a detector sees while the app runs.
 
 ## Requirements
 
-Windows 10 2004+ or Windows 11. x64 or arm64. The capture-exclusion flag needs the 2004 build; older versions fall back to a black rectangle instead of a hidden window.
+Windows 10 2004+ or Windows 11. x64 or arm64. The capture-exclusion flag needs the 2004 build; on older versions it is unsupported and the panel is capturable.
 
 ## Limitations
 
@@ -270,23 +263,23 @@ Windows 10 2004+ or Windows 11. x64 or arm64. The capture-exclusion flag needs t
 - The camera is never opened, so eye morph needs your video visible **on screen**. It targets the largest face shown.
 - Screen analysis reads one display or one window; no multi-monitor stitch.
 - TTS needs a real TTS model configured; a sensible default is not assumed.
-- Updates download in the background but never restart on their own — you apply them.
-- The certificate is self-signed, so a fresh download shows an unknown publisher until the installer imports it.
+- Updates download only after you accept one, and never restart on their own — you apply them.
+- The certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store. The installer does not add it for you.
 
 ## Layout
 
 ```
-src/main.js            windows, stealth, capture, streaming, transcription, config
+src/main.js            windows, capture exclusion, streaming, transcription, config
 src/preload.js         contextBridge, allowlisted IPC only
 src/renderer/          UI, audio, shot pile, eye.js (screen morph)
 src/shared.js          pure helpers, unit-tested
-src/embed-helpers.js   generated C# helper (cloak, affinity, OCR)
-src/native/            in-process addon: DWM cloak, host shim, affinity
-scripts/               start, check, tests, audits, signing, installer, addon build
-build/installer.nsh    cert trust, System32 mirror, autostart
+scripts/               start, check, tests, audits, signing, installer, OCR build
+scripts/ocr-helper.cs  the only native helper: Windows OCR on an image path
+build/installer.nsh    legacy cleanup and autostart; never touches the trust store
 ```
 
-`src/embed-helpers.js` is generated — after editing `scripts/hide-helper.cs`, re-run the embed step or the shipped helper will be stale.
+`build/ocr-helper.exe` is compiled from `scripts/ocr-helper.cs` at pack time and
+shipped in `resources/`. It accepts one command and one argument: `ocr <path>`.
 
 ## Version history
 
@@ -296,6 +289,8 @@ renders the same list.
 
 | Version | Date | What changed |
 |---|---|---|
+| 3.3.7 (RC) | 26 Nov 2026 | Concealment subsystem and root-certificate install removed; IPC boundary and all 25 channel schemas hardened; Electron 45; audio consent and visible capture indicator; transcript opt-in; packaged-build fuse/arch/launch verification; CI and branch protection. Built and signed locally; publication pending. |
+| 3.3.6 | 26 Nov 2026 | Named Glance AI end to end; RuntimeBroker impersonation removed; child PEB sanitization; proctoring watch expanded. |
 | [3.3.5](../../releases/tag/v3.3.5) | 16 Nov 2026 | Chunks end at a pause instead of a stopwatch, so boundaries fall between words; chunk length follows the model (3 s for small/medium/large); a chunk that does not finish a sentence continues the previous line. |
 | [3.3.4](../../releases/tag/v3.3.4) | 16 Nov 2026 | Read-aloud is no longer captioned back into the transcript, and Whisper's invented lines on music and silence are dropped by no-speech probability and confidence. |
 | [3.3.3](../../releases/tag/v3.3.3) | 16 Nov 2026 | Live captions: listening starts on launch with 1.5 s chunks and resumes by itself; the local worker collapses repeated-sentence loops. |
