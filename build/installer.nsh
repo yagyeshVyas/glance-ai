@@ -1,6 +1,6 @@
 ; Per-machine install helpers.
 ;
-; Identity: one name on every surface — Glance AI in %ProgramFiles%\Glance AI\,
+; Identity: one name on every surface — Glance AI in %ProgramFiles%\GlanceAI\,
 ; GlanceAI.exe, one Run value ("Glance AI"), one version resource
 ; (scripts/after-sign.js + src/identity.js), one profile folder. The old build
 ; mirrored itself into SysWOW64 as RuntimeBroker.exe to read as a Windows
