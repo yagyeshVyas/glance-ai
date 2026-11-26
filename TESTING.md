@@ -142,13 +142,22 @@ Run against `dist/win-unpacked/GlanceAI.exe` after `npm run dist`:
 - [x] Fuses read back from the executable — `npm run verify:build -- --all` checks RunAsNode / NODE_OPTIONS / inspect **off**, asar integrity + only-load-from-asar **on**, and the PE machine type (0x8664 / 0xAA64)
 - [x] Packaged launch — `npm run verify:build -- --arch=x64 --launch` starts the app with an isolated profile, waits for its smoke marker, and exits (verified 2026-11-26, 3.4 s)
 - [x] `app-update.yml` pins `CN=Glance AI, O=Glance AI, C=US` in both the x64 and arm64 payloads
-- [x] Signed installer pipeline — `REQUIRE_SIGNING=1 npm run dist:signed` produced the 3.3.7 RC x64, arm64 and combined installers, signed and verified each with `signtool verify /pa /all`, and re-stamped `latest.yml` from the signed bytes
+- [x] Signed installer pipeline - `REQUIRE_SIGNING=1 npm run dist:signed` produced the 3.3.7 x64, arm64 and combined installers, signed and verified each with `signtool verify /pa /all`, and re-stamped `latest.yml` from the signed bytes
 - [x] `--inspect=9333` opens no port
 - [x] `ELECTRON_RUN_AS_NODE=1 GlanceAI.exe -e "console.log(1)"` prints nothing (runs the app instead)
 - [x] `NODE_OPTIONS=--require <script>` is ignored, no injected output
 - [x] One flipped byte inside `src/main.js` in `app.asar` → `ASAR Integrity Violation: got a hash mismatch`, exit 1, no window
 - [ ] Appending bytes to the end of `app.asar` does **not** trip it (the app boots) — inert data, not a bypass
 - [x] `npm run dist:signed` after electron-builder 26 — re-verified 2026-11-26: payload metadata ok, all three installers signed and `signtool verify /pa` ok, `latest.yml` re-stamped
+
+## 10b. Published release (fresh Windows VMs)
+`.github/workflows/release-verify.yml`, run against the published `v3.3.7`:
+- [x] Clean install of `GlanceAI-3.3.7-x64.exe` on a fresh `windows-latest` VM: installed to `C:\Program Files\GlanceAI`, ProductVersion `3.3.7.0`, signer `CN=Glance AI` (thumbprint `06468B49…AACC`)
+- [x] Installed app launches and writes its smoke marker
+- [x] 3.3.6 installed, its own updater found the published 3.3.7, downloaded it, and reported `Update 3.3.7 ready — restart to apply`
+- [x] Update applied: installed ProductVersion becomes `3.3.7.0`, and the updated `resources\app-update.yml` pins `CN=Glance AI`
+- [x] Updated app launches and writes its smoke marker
+- [x] arm64 packaged build launched on a `windows-11-arm` runner (smoke marker in 2.1 s)
 
 ## 11. Known limitations
 - Proctoring tools (Proctorio, Respondus, Honorlock) **will detect** the overlay or the protection flag. Do not use in proctored exams.

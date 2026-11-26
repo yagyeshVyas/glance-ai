@@ -7,10 +7,12 @@ autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
 
-## 3.3.7 (release candidate)
+## 3.3.7
 
-Built and signed locally; not yet published. The clean-VM install and the
-3.3.6 → 3.3.7 update check still have to run against the published release.
+Published 26 Nov 2026. The clean install of the signed installer and the
+3.3.6 → 3.3.7 update were verified against the published release on fresh
+Windows VMs (`release-verify` workflow), and the arm64 packaged build was
+launched on a Windows on ARM runner.
 
 **The concealment subsystem is removed.** The native addon (`cloak.node`), the C#
 `hide-helper.exe`, the detector watch, PEB and command-line rewriting, ETW

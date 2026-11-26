@@ -289,7 +289,7 @@ renders the same list.
 
 | Version | Date | What changed |
 |---|---|---|
-| 3.3.7 (RC) | 26 Nov 2026 | Concealment subsystem and root-certificate install removed; IPC boundary and all 25 channel schemas hardened; Electron 45; audio consent and visible capture indicator; transcript opt-in; packaged-build fuse/arch/launch verification; CI and branch protection. Built and signed locally; publication pending. |
+| [3.3.7](../../releases/tag/v3.3.7) | 26 Nov 2026 | Concealment subsystem and root-certificate install removed; IPC boundary and all 25 channel schemas hardened; Electron 45; audio consent and visible capture indicator; transcript opt-in; packaged-build fuse/arch/launch verification; CI and branch protection. Published and verified: the clean install and the 3.3.6 → 3.3.7 update ran against the release on fresh Windows VMs. |
 | 3.3.6 | 26 Nov 2026 | Named Glance AI end to end; RuntimeBroker impersonation removed; child PEB sanitization; proctoring watch expanded. |
 | [3.3.5](../../releases/tag/v3.3.5) | 16 Nov 2026 | Chunks end at a pause instead of a stopwatch, so boundaries fall between words; chunk length follows the model (3 s for small/medium/large); a chunk that does not finish a sentence continues the previous line. |
 | [3.3.4](../../releases/tag/v3.3.4) | 16 Nov 2026 | Read-aloud is no longer captioned back into the transcript, and Whisper's invented lines on music and silence are dropped by no-speech probability and confidence. |
