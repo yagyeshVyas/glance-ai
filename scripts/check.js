@@ -8,7 +8,6 @@ const files = [
   'src/renderer/renderer.js',
   'src/shared.js',
   'src/identity.js',
-  'src/stealth-watch.js',
   'src/broadcast.js',
   'src/renderer/drag.js',
   'scripts/detect-audit.js',
@@ -24,19 +23,17 @@ const files = [
   'server/glance-api.js',
   'scripts/cdp-eval.js',
   'scripts/capture-frame.js',
-  'scripts/affinity-reparent-probe.js',
   'scripts/eye-probe.js',
   'scripts/broadcast-gateway-probe.js',
   'scripts/resedit.js',
   'scripts/sign-build.js',
+  'scripts/sign-file.js',
   'scripts/after-sign.js',
-  'scripts/patch-class-names.js',
   'scripts/pe-imports.js',
-  'scripts/build-hide-helper.js',
+  'scripts/build-ocr-helper.js',
   'scripts/before-pack.js',
-  'scripts/remote-peb-probe.js',
-  'scripts/child-peb-probe.js',
   'scripts/check.js',
+  'scripts/verify-build.js',
 ];
 let bad = 0;
 for (const f of files) {
@@ -64,6 +61,53 @@ if (probe.ok) {
 const IDENTITY = require('../src/identity');
 const pkg = require('../package.json');
 const nsh = fs.readFileSync(path.join(__dirname, '..', 'build', 'installer.nsh'), 'utf8');
+
+// Electron supports the latest three stable majors. An EOL major means an
+// unpatched Chromium in the app, so this fails instead of warning. Update the
+// range and the dependency together; the build has no other EOL gate.
+const SUPPORTED_ELECTRON_MAJORS = [43, 44, 45];
+const electronRange = (pkg.devDependencies && pkg.devDependencies.electron) || '';
+const electronMajor = Number((/\d+/.exec(electronRange) || [0])[0]);
+if (!SUPPORTED_ELECTRON_MAJORS.includes(electronMajor)) {
+  bad++;
+  console.error(
+    'FAIL electron: ' + (electronRange || '(missing)') +
+    ' is outside the supported majors ' + SUPPORTED_ELECTRON_MAJORS.join(', '),
+  );
+} else {
+  console.log('ok   electron (' + electronMajor + ', supported major)');
+}
+
+// The anti-inspection subsystem was removed in 3.3.7. These paths are the
+// components that made the app harder to inspect, not easier to use; a build
+// that re-adds one should fail here rather than ship quietly.
+for (const rel of [
+  'src/native',
+  'src/embed-helpers.js',
+  'scripts/embed-helpers.js',
+  'scripts/hide-helper.cs',
+  'scripts/build-hide-helper.js',
+  'scripts/build-native.js',
+  'scripts/after-pack.js',
+]) {
+  if (fs.existsSync(path.join(__dirname, '..', rel))) {
+    bad++;
+    console.error('FAIL removed-subsystem: ' + rel + ' is back');
+  }
+}
+
+// The installer must not add trust. Removing the legacy certificates is
+// allowed; importing one (certutil -addstore Root, Import-Certificate) is not.
+let installerOk = true;
+if (/-addstore|Import-Certificate/i.test(nsh)) {
+  bad++; installerOk = false;
+  console.error('FAIL installer: build/installer.nsh imports a certificate into a trust store');
+}
+if (/taskkill/i.test(nsh)) {
+  bad++; installerOk = false;
+  console.error('FAIL installer: build/installer.nsh kills processes by image name');
+}
+if (installerOk) console.log('ok   installer (no trust-store import, no taskkill)');
 const identityChecks = [
   ['package.json name', pkg.name, 'glance-ai'],
   ['package.json productName', pkg.productName, IDENTITY.PRODUCT],
@@ -104,10 +148,10 @@ try {
 }
 
 // A thumbprint is a selector, not a signature: a wrong one produces an unsigned
-// build and an installer that trusts nothing, both silently. The committed .cer
-// is the certificate the installer imports, so its SHA-1 *is* the thumbprint the
-// build must select — comparing them catches a re-issued cert that was exported
-// without updating the module.
+// build, silently. The committed .cer is the public half of the certificate the
+// build signs with, so its SHA-1 *is* the thumbprint the build must select —
+// comparing them catches a re-issued cert that was exported without updating
+// the module.
 const SIGNING = require('../src/signing');
 if (!/^[0-9A-F]{40}$/.test(SIGNING.THUMBPRINT || '')) {
   bad++; console.error('FAIL signing: thumbprint is not a 40-hex SHA-1');

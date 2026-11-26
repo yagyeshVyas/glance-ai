@@ -7,6 +7,87 @@ autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
 
+## 3.3.7 (release candidate)
+
+Built and signed locally; not yet published. The clean-VM install and the
+3.3.6 → 3.3.7 update check still have to run against the published release.
+
+**The concealment subsystem is removed.** The native addon (`cloak.node`), the C#
+`hide-helper.exe`, the detector watch, PEB and command-line rewriting, ETW
+suppression, module unlinking, DACL sealing, DWM cloaking, host reparenting, the
+window-class literal patch and the scramble mode are all gone. They existed to
+defeat inspection, not to keep the panel out of a screen share, and they made the
+app misrepresent what it was. What remains is `win.setContentProtection(true)`:
+Windows' documented capture-exclusion flag. OCR is now a small purpose-built
+helper (`scripts/ocr-helper.cs`) that accepts an image path and returns recognised
+lines — it has no window commands. `npm run check` fails if any removed component
+reappears.
+
+**The installer no longer grants machine-wide trust.** It used to run
+`certutil -addstore Root` on a self-signed certificate, which made every user on
+the machine trust a private key held on a build machine. That import is removed,
+along with the System32/SysWOW64 cleanup, the PowerShell `-ExecutionPolicy Bypass`
+script, and the kill-by-image-name block. The installer removes the legacy
+certificate and the old identities; it adds nothing to a trust store. Existing
+machines can run `scripts/remove-trust.ps1` (elevated, supports `-DryRun`).
+Authenticode now reports **Unknown publisher**, which is the honest state for a
+self-signed build.
+
+**The update chain verifies what it installs.** `publisherName` is pinned to the
+certificate subject, `autoDownload` and `autoInstallOnAppQuit` are off, downgrades
+are refused, and the download/install steps are explicit user actions. Release
+signing fails closed when `REQUIRE_SIGNING=1` and `signtool` is missing, and every
+signed PE is re-verified with `signtool verify /pa /all` after the post-sign
+resource edit.
+
+**The IPC boundary is the app's own page, not any `file://` page.** Handlers now
+require the exact app URL, the main frame, and the app's own `webContents`.
+Navigation away, window.open, webview attachment and non-app redirects are denied
+globally. Permissions are granted only to the app origin, `clipboard-read` is
+gone, and display capture checks the requesting frame. Provider URLs must be HTTPS
+or loopback HTTP; keys are bound to the origin they were entered for; `config:set`
+and `state:set` validate shape and size.
+
+**All 25 invoke channels have a payload schema.** The sender check proves who is
+calling; the schema proves what arrived. Unknown channels, unknown config keys,
+wrong types, non-finite numbers, over-long strings, oversized state and malformed
+audio/ask/memory/image payloads are rejected before a handler runs, with a stable
+`invalid payload for <channel>` error. The tables live next to `handle()` in
+`src/main.js`, and `scripts/test-main.js` exercises the malformed cases.
+
+**Audio capture requires explicit consent, and the indicator cannot be missed.**
+The first Listen (including a hotkey or resumed captions) shows a blocking notice
+that names the sources, the transcription provider, and the need for everyone's
+consent. Nothing is opened until the user agrees; the agreement is timestamped and
+can be withdrawn in Settings. A red **Listening** pill is shown for as long as a
+microphone or loopback stream is open.
+
+**The transcript is opt-in and off by default.** It stays in memory and is erased
+on quit unless *Save the live transcript across restarts* is enabled. Main enforces
+the same rule: `state:set` drops transcript fields unless `persistTranscript` is
+true, and turning it off rewrites the stored state without them. A pre-3.3.7
+profile that still contains a transcript is scrubbed on first launch. This closes
+the default-persistence gap (MEM-03).
+
+**Electron 45.** The runtime moves from 33 (end-of-life) to 45, with the fuses
+configuration retained. `npm run check` fails when the Electron major leaves the
+supported 43–45 window, so the next bump cannot be forgotten silently.
+
+**The packaged build is verified, not assumed.** `npm run verify:build` reads the
+fuse wire and PE machine type back from the shipped executable, checks that only
+`app.asar` is loadable, confirms the OCR helper shipped, checks the
+`app-update.yml` publisher pin against `win.signtoolOptions.publisherName`, and
+optionally starts the packaged app and waits for its smoke marker. CI builds the
+x64 payload and runs it; a Windows on ARM workflow does the same for arm64,
+including the launch.
+
+**CI and branch protection.** `.github/workflows/ci.yml` runs the check script,
+the test suite, a security grep for the removed patterns, `npm audit`, and the
+packaged-build verification. The default branch takes changes through a pull
+request, requires the `verify` and `package-x64` checks, blocks force pushes and
+deletions, and requires conversation resolution. CI-only builds set `SKIP_SIGNING=1`; a release build with
+`REQUIRE_SIGNING=1` ignores that skip and fails closed.
+
 ## 3.3.6
 
 **Named Glance AI end to end; RuntimeBroker impersonation removed.** The app
@@ -228,7 +309,7 @@ denied); `EnumProcessModules` returns 0; `taskkill /F` still succeeds.
 Remaining, and not user-mode: the `0x11` affinity read (needs a signed kernel
 driver or scramble mode), the Authenticode signer, child `--type=renderer`
 command lines, the unsigned `%TEMP%` helper and the SysWOW64 mirror path. Full
-map in [HARDENING.md](HARDENING.md).
+map in HARDENING.md (removed in 3.3.7).
 
 ## 3.1.1
 

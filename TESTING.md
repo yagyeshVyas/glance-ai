@@ -1,6 +1,6 @@
 # Testing checklist
 
-Before using wshx-host in any environment, verify these behaviors:
+Before using Glance AI in any environment, verify these behaviors:
 
 ## 1. Basic functionality
 - [ ] `npm start` launches the overlay
@@ -19,15 +19,19 @@ Before using wshx-host in any environment, verify these behaviors:
 - [x] Answer describes what's on the screen — verified 2026-10-24 over CDP (clicked "Analyze screen" programmatically), NeuralWatt `deepseek-v4.1-flash`, answered in ~2 s and matched the visible app. The global hotkey path is still unchecked
 - [ ] Follow-up questions remember the conversation
 
-## 3. Audio transcription
+## 3. Audio transcription and consent
+- [ ] Fresh profile: click Listen — the consent notice appears and no stream opens until you accept
+- [ ] Press Cancel — the notice closes, Listen stays off, no microphone indicator appears in Windows
+- [ ] Accept — the red **Listening** pill appears in the header and names the source
 - [ ] Select "Mic" source
-- [ ] Click Listen (or Ctrl+Shift+L)
 - [ ] Speak into mic
 - [ ] Transcript appears within 7 seconds
-- [ ] Click Stop, transcript stops updating
+- [ ] Click Stop — the transcript stops updating and the red pill disappears
 - [ ] Select "System audio", click Listen
 - [ ] Play a YouTube video or music
 - [ ] System audio is transcribed (if supported by your audio driver)
+- [ ] Settings → Withdraw audio consent → Listen asks again
+- [ ] Enable captions, restart with consent already given — captions resume without a click; with consent withdrawn, the notice blocks the auto-start and the mode turns itself off
 
 ## 4. Hotkeys
 
@@ -41,7 +45,7 @@ npm run hotkeys -- --json    # for a harness
 
 Exit codes: `0` ownership proven (toggle flipped the window) · `1` a binding is free · `3` all held but unproven · `2` bad args / no target / probe failed.
 
-`1409` (`ERROR_HOTKEY_ALREADY_REGISTERED`) is global: it says *some* process owns the accelerator, not which one. Only the toggle proves wshx-host owns it, and only `--toggle` can exit 0.
+`1409` (`ERROR_HOTKEY_ALREADY_REGISTERED`) is global: it says *some* process owns the accelerator, not which one. Only the toggle proves Glance AI owns it, and only `--toggle` can exit 0.
 
 - [x] Ctrl+Shift+H hides and shows the overlay — verified end-to-end 2026-10-25 (`true → false → true`, restored)
 - [x] All 11 accelerators registered — verified 2026-10-25, `held=11 free=0`, owner `electron.exe` pid 2768; the earlier "needs your overlay closed" blocker is gone
@@ -50,51 +54,39 @@ Exit codes: `0` ownership proven (toggle flipped the window) · `1` a binding is
 - [ ] Ctrl+Alt+Arrows move the window
 - [ ] Ctrl+Alt+Q quits the app
 
-## 5. Stealth verification
+## 5. Capture exclusion
 
-Fastest path — in the app, not in this file: Settings → *Run stealth report*. It
-captures the panel region, hides the panel, captures again, then reads back the
-class, ex-style, title, child windows, accessibility state and DevTools port. Each
-row is green/amber/red; any red means do not rely on it on this machine.
+The only concealment mechanism is Windows' capture-exclusion flag. There is no
+native addon, no window reparenting, no class rename, no DWM cloak, no detector
+watch and no scramble mode; `npm run check` fails if one comes back.
 
 ```bash
-node scripts/capture-ab.js            # same A/B, exit 1 on failure
-node scripts/dwm-exclude-probe.js     # does the DWM no-affinity route exclude here?
-npm run audit -- --pid <pid>          # affinity + ex-style + verdict for the window
+npm run capture-probe                  # capture the panel, report whether its pixels are present
+node scripts/capture-ab.js             # same A/B with the setting on and off, exit 1 on failure
+npm run audit -- --pid <pid>           # affinity + ex-style + verdict for the window
 ```
 
-What Windows reports, without starting a call (measured 2026-10-25, Windows 11, dev build, running app):
+What Windows reports, without starting a call (Windows 11, dev build, running app):
 - [x] `stealth: true` → `GetWindowDisplayAffinity` = `0x11` (`WDA_EXCLUDEFROMCAPTURE`), verdict `capture-excluded`
 - [x] `stealth: false` → the same window reports affinity `none`, verdict `overlay-shaped` only; the switch is wired (`npm run test:main` asserts `setContentProtection`)
 - [x] Process identity is visible either way: `electron.exe`, full image path, `Electron / GitHub, Inc.`
-- [x] WinRT capture (`scripts/capture-probe.js`, the Windows.Graphics.Capture family Chrome `getDisplayMedia` / Meet / Teams-web use): `stealth: true` → the wshx-host window source returns an **empty 0×0 frame** and WGC logs `GetFrame failed`; `stealth: false` → 728×600, 39% lit. Same window, same probe.
+- [x] WinRT capture (`scripts/capture-probe.js`, the Windows.Graphics.Capture family Chrome `getDisplayMedia` / Meet / Teams-web use): `stealth: true` → the window source returns an **empty 0×0 frame** and WGC logs `GetFrame failed`; `stealth: false` → 728×600, 39% lit. Same window, same probe.
 - [x] GDI capture (`scripts/printwindow-probe.ps1`, the `BitBlt`/`PrintWindow` family Zoom links): `stealth: true` → pure black (meanLuma 0.00, 0% lit); `stealth: false` → meanLuma 20.05, 99.96% lit.
-- [x] Client capture paths (`scripts/pe-imports.js`, PE import tables + marker strings): Zoom `zVideoUI.dll` links `BitBlt`, `StretchBlt`, `PrintWindow`, `GetWindowDC`, `EnumWindows`, `GetWindowDisplayAffinity`, `SetWindowDisplayAffinity`; Chrome 156 `chrome.dll` references `Windows.Graphics.Capture`, `GraphicsCaptureItem`, `GraphicsCaptureSession`, `IDXGIOutputDuplication`. Teams desktop is not installed on this machine; Meet runs inside Chrome.
+- [x] Client capture paths (`scripts/pe-imports.js`, PE import tables + marker strings): Zoom `zVideoUI.dll` links `BitBlt`, `StretchBlt`, `PrintWindow`, `GetWindowDC`, `EnumWindows`, `GetWindowDisplayAffinity`, `SetWindowDisplayAffinity`; Chrome 156 `chrome.dll` references `Windows.Graphics.Capture`, `GraphicsCaptureItem`, `GraphicsCaptureSession`, `IDXGIOutputDuplication`.
 - [x] **Exclusion hides pixels, not existence.** Any process can still enumerate the window (`ShellExperienceHost`, `Chrome_WidgetWin_1`, `TOPMOST|LAYERED`, affinity `0x11`) and see `electron.exe` — and Zoom links `GetWindowDisplayAffinity`, so it can read that flag.
 - [ ] Start a Zoom/Meet call, share your screen
 - [ ] Have the overlay visible on your monitor
 - [ ] Record the shared screen or check the preview
-- [ ] **If the overlay is visible in the recording, stealth is NOT working.** Check Windows version (needs 10 2004+ or 11), toggle the setting, restart the app.
-- [ ] Open Task Manager, look for "assistant" or "electron.exe"
-- [ ] With the AppUserModelId override on, Task Manager still shows `assistant.exe` / `electron.exe` — the setting is a shell/taskbar grouping hint only (see `STEALTH.md` §3)
+- [ ] **If the overlay is visible in the recording, exclusion is NOT working.** Check Windows version (needs 10 2004+ or 11), toggle the setting, restart the app.
+- [ ] Open Task Manager and confirm the process is `GlanceAI.exe` (installed build) or `electron.exe` (dev)
 
-### 5b. New in 2.0.0
-Drivable without clicking, against a running app with `--remote-debugging-port=9333`:
+### 5b. Post-removal regression checks
 
-```bash
-node scripts/ghost-check-probe.js   # the ghost check result, exit 1 on fail
-node scripts/settings-probe.js      # saves a style + backup key through the real form
-node scripts/scramble-probe.js      # text mutates and restores; copy path untouched
-```
-
-- [ ] Ghost mode is checked on a fresh profile (Settings → the first checkbox) and survives a restart
-- [ ] Un-checking Ghost mode restores the individual toggles instead of leaving them on
-- [ ] *Run stealth report* returns no red rows, and every row reads as a measurement rather than a restatement
-- [ ] With Ghost mode off and stealth off, the report shows the capture row red
-- [ ] Scramble on + stealth off: the answer pane's text visibly changes ~8×/s, keeps its word count, and Copy still produces the real text
-- [ ] Scramble off restores the exact original text
-- [ ] Scramble does not fight streaming: start a long answer with it on and confirm the pane keeps updating
+- [ ] A profile written by an older build opens without ghost-mode keys reappearing in Settings
+- [ ] Settings shows only **Hide overlay from screen capture** and **OCR on capture** under capture/privacy
 - [ ] `Ctrl+Alt+X` hides the panel from any state, including click-through
+- [ ] `npm run check` reports `installer (no trust-store import, no taskkill)` and no `removed-subsystem` failure
+- [ ] `npm test` passes 20 helper + 36 main-process + 9 eye-probe assertions
 
 ### 5d. New in 3.0.0 — answers
 
@@ -114,7 +106,9 @@ node scripts/scramble-probe.js      # text mutates and restores; copy path untou
 - [ ] Ask a question with no API key set — should show "No API key" error
 - [ ] Resize the window, restart — position and size are remembered
 - [ ] Long conversation (20+ turns) — history is kept, no memory leak
-- [ ] Restart the app — previous conversation and transcript are restored
+- [ ] Restart the app — previous conversation is restored; the transcript is restored **only** when *Save the live transcript across restarts* is on
+- [ ] With transcript saving off, quit and inspect `state.json` — no transcript text is present
+- [ ] Turn transcript saving on, talk, restart — the transcript returns; turn it off — the stored copy is deleted immediately
 - [ ] Error appears — a "Retry" button shows next to it; click it to re-send
 - [ ] Waiting for answer — skeleton shimmer animation shows, not a bare "…"
 - [ ] Stay silent while listening — silent chunks are skipped locally, no API calls
@@ -133,25 +127,28 @@ If transcription fails, check that the provider supports `/audio/transcriptions`
 ## 8. Security
 - [ ] API key is never shown in the UI after saving (only •••••• placeholder)
 - [ ] API key is not in any log file (`npm start` output)
-- [ ] Config file is in `%APPDATA%\wshx-host\config.json` (user-only permissions)
+- [ ] Config file is in `%APPDATA%\Glance AI\config.json` (user-only permissions)
 
 ## 9. Wipe + export (0.2.1)
-- [ ] Settings → *Wipe all data* → confirm → quit via Ctrl+Alt+Q → `%APPDATA%\wshx-host` is gone after ~10 s
+- [ ] Settings → *Wipe all data* → confirm → quit via Ctrl+Alt+Q → `%APPDATA%\Glance AI` is gone after ~10 s
 - [ ] Hard-kill by PID: wipe, then `taskkill /F /PID <main-pid>` → directory still removed once the process tree exits
-- [ ] Helper-killed variant: wipe, then `taskkill /F /IM wshx-host.exe` (kills app **and** helper) → relaunch the app, quit → directory removed on that session's exit (pending-wipe marker drives it)
+- [ ] Forced-kill variant: wipe, then `taskkill /F /IM GlanceAI.exe` → relaunch the app, quit → directory removed on that session's exit (pending-wipe marker drives it)
 - [ ] Helper survives bad `NODE_OPTIONS`: launch the app from a shell with `NODE_OPTIONS=--openssl-legacy-provider` set, wipe, quit → wipe still completes
 - [ ] Practice mode: record a session, Stop, Export via the save dialog → `.md` file written
 - [ ] Programmatic export: `window.glance.practiceExport({ markdown, filePath })` with a `.md` path **under the OS temp dir** writes the file without a dialog; paths outside temp or without `.md` return an error
 
 ## 10. Tamper resistance (packaged build)
-Run against `dist/win-unpacked/wshx-host.exe` after `npm run dist`:
-- [x] Fuses on — REA `inspect_electron_fuses`: RunAsNode / NODE_OPTIONS / inspect **off**, asar integrity + only-load-from-asar **on** (verified 2026-10-25 on sha256 `2d3a4619…`)
+Run against `dist/win-unpacked/GlanceAI.exe` after `npm run dist`:
+- [x] Fuses read back from the executable — `npm run verify:build -- --all` checks RunAsNode / NODE_OPTIONS / inspect **off**, asar integrity + only-load-from-asar **on**, and the PE machine type (0x8664 / 0xAA64)
+- [x] Packaged launch — `npm run verify:build -- --arch=x64 --launch` starts the app with an isolated profile, waits for its smoke marker, and exits (verified 2026-11-26, 3.4 s)
+- [x] `app-update.yml` pins `CN=Glance AI, O=Glance AI, C=US` in both the x64 and arm64 payloads
+- [x] Signed installer pipeline — `REQUIRE_SIGNING=1 npm run dist:signed` produced the 3.3.7 RC x64, arm64 and combined installers, signed and verified each with `signtool verify /pa /all`, and re-stamped `latest.yml` from the signed bytes
 - [x] `--inspect=9333` opens no port
-- [x] `ELECTRON_RUN_AS_NODE=1 wshx-host.exe -e "console.log(1)"` prints nothing (runs the app instead)
+- [x] `ELECTRON_RUN_AS_NODE=1 GlanceAI.exe -e "console.log(1)"` prints nothing (runs the app instead)
 - [x] `NODE_OPTIONS=--require <script>` is ignored, no injected output
 - [x] One flipped byte inside `src/main.js` in `app.asar` → `ASAR Integrity Violation: got a hash mismatch`, exit 1, no window
 - [ ] Appending bytes to the end of `app.asar` does **not** trip it (the app boots) — inert data, not a bypass
-- [ ] `npm run dist:signed` after electron-builder 26 — not yet re-verified
+- [x] `npm run dist:signed` after electron-builder 26 — re-verified 2026-11-26: payload metadata ok, all three installers signed and `signtool verify /pa` ok, `latest.yml` re-stamped
 
 ## 11. Known limitations
 - Proctoring tools (Proctorio, Respondus, Honorlock) **will detect** the overlay or the protection flag. Do not use in proctored exams.

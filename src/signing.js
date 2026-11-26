@@ -12,10 +12,15 @@
 // Private key material never enters the repo. `scripts/make-cert.ps1` creates a
 // fresh pair and writes the exportable .pfx to
 // %USERPROFILE%\.glance-signing\, and only the public .cer
-// (build/codesign.cer, imported by the installer) is committed.
+// (build/codesign.cer) is committed. The installer no longer imports that .cer
+// into any trust store; it exists so `npm run check` can prove the thumbprint
+// selector still names the certificate the build signs with.
 module.exports = {
   THUMBPRINT: '06468B493CB0318832E9894CA756E064DB06AACC',
   SUBJECT: 'CN=Glance AI, O=Glance AI, C=US',
+  // The exact string electron-updater compares against the downloaded
+  // installer's Authenticode subject. Keep it identical to `SUBJECT`.
+  PUBLISHER_NAME: 'CN=Glance AI, O=Glance AI, C=US',
   // Deleted from LocalMachine\Root by the installer's customInstall: machines
   // that ran an older build still trust the previous publishers, including the
   // RuntimeBroker-era product cert this one replaces.

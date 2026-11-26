@@ -1,70 +1,21 @@
 'use strict';
 // electron-builder beforePack hook.
 //
-// The DWM cloak is a native addon, so it must be compiled for the arch being
-// packaged. This must run in beforePack, not afterPack: afterPack fires once the
-// app directory and its asar are already written, so a file created there never
-// makes it into the package (measured — both installers shipped a stale addon).
+// The only native piece left is the OCR helper: Electron has no OCR API, so the
+// app calls the in-box Windows engine through a small executable. Build it at
+// package time so the shipped app never spawns a compiler and never writes an
+// executable to %TEMP% on first run.
 //
-// Builds for the requested arch and keeps an arch-named copy the loader probes:
-//   src/native/<arch>/cloak.node   ← preferred
-//   src/native/build/Release/...   ← plain `npm install` fallback
+// The DWM-cloak addon, the window-class patcher and the C# stealth helper were
+// removed in 3.3.7. Nothing in this hook compiles or ships them.
 
-const { execFileSync } = require('child_process');
-const fs = require('fs');
 const path = require('path');
 
 exports.default = async function beforePack(context) {
   if (context.electronPlatformName !== 'win32') return;
 
-  // context.arch is electron-builder's Arch enum (0=ia32, 1=x64, 3=arm64), not
-  // a string; accept either shape so a tool upgrade cannot silently mis-map.
-  const byEnum = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64' };
-  const arch = typeof context.arch === 'number' ? (byEnum[context.arch] || 'x64') : (context.arch || 'x64');
-
-  const release = path.join(__dirname, '..', 'src', 'native', 'build', 'Release', 'cloak.node');
-  const outDir = path.join(__dirname, '..', 'src', 'native', arch);
-  const built = path.join(outDir, 'cloak.node');
-
-  console.log(`  • beforePack: building cloak addon for ${arch}`);
-  try {
-    // the script owns configure → strip clang-only flags → build → arch check,
-    // because `node-gyp rebuild` alone dies at link on this toolchain
-    execFileSync(process.execPath, [path.join(__dirname, 'build-native.js'), arch], {
-      cwd: path.join(__dirname, '..'),
-      stdio: 'inherit',
-      env: { ...process.env, NODE_OPTIONS: '' },
-    });
-  } catch (e) {
-    console.warn('  • beforePack: addon build failed for ' + arch + ' — no cloak in this build');
-    return;
-  }
-
-  // verify machine code before trusting it; a wrong-arch .node fails at dlopen
-  let machine = 0;
-  try {
-    const buf = fs.readFileSync(release);
-    machine = buf.readUInt16LE(buf.readUInt32LE(0x3c) + 4);
-  } catch (e) {
-    console.warn('  • beforePack: cannot read built addon: ' + e.message);
-    return;
-  }
-  const want = { x64: 0x8664, arm64: 0xaa64, ia32: 0x14c }[arch];
-  if (want && machine !== want) {
-    console.warn(`  • beforePack: addon is 0x${machine.toString(16)} but arch is ${arch} — not shipping it`);
-    return;
-  }
-
-  fs.mkdirSync(outDir, { recursive: true });
-  fs.copyFileSync(release, built);
-  console.log(`  • beforePack: cloak addon ready for ${arch} (0x${machine.toString(16)})`);
-
-  // Ship the native helper compiled and (when a cert is present) signed, so the
-  // first run never spawns csc.exe and never writes an unsigned exe to %TEMP%.
-  try {
-    const helper = require('./build-hide-helper').build({ force: true });
-    console.log('  • beforePack: stealth helper ready (' + path.basename(helper) + ')');
-  } catch (e) {
-    console.warn('  • beforePack: stealth helper not built (' + e.message + ') — runtime fallback stays');
-  }
+  // Fail the pack instead of shipping an installer whose extraResources entry
+  // points at a file that was never built. The error names the real cause.
+  const helper = require('./build-ocr-helper').build({ force: true });
+  console.log('  • beforePack: OCR helper ready (' + path.basename(helper) + ')');
 };

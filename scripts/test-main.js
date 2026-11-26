@@ -33,18 +33,29 @@ const userData = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'gl
 const handlers = new Map();
 let sent = []; // what main sent to the renderer
 const protection = []; // setContentProtection calls: proves the stealth switch reaches the window
+// The IPC boundary is an identity check now: the sender must be this exact
+// window's webContents and the frame URL must be the app's own index.html.
+const APP_URL = require('url').pathToFileURL(
+  path.join(__dirname, '..', 'src', 'renderer', 'index.html'),
+).href;
+const sharedWebContents = {
+  send: (ch, payload) => sent.push({ ch, payload }),
+  isDestroyed: () => false,
+  isLoading: () => false,
+  once: () => {},
+};
 const fakeEvent = {
-  senderFrame: { url: 'file:///app/src/renderer/index.html' },
-  sender: { isDestroyed: () => false, send: (ch, payload) => sent.push({ ch, payload }) },
+  senderFrame: { url: APP_URL },
+  sender: sharedWebContents,
 };
 const untrustedEvent = {
   senderFrame: { url: 'https://evil.test/' },
-  sender: { isDestroyed: () => false, send: () => {} },
+  sender: sharedWebContents,
 };
 
 function makeWindow() {
   const w = {
-    webContents: { send: (ch, payload) => sent.push({ ch, payload }), isLoading: () => false, once: () => {} },
+    webContents: sharedWebContents,
     isDestroyed: () => false,
     isVisible: () => true,
     loadFile: () => {},
@@ -61,7 +72,6 @@ function makeWindow() {
     showInactive: () => {},
     focus: () => {},
     setIgnoreMouseEvents: () => {},
-    getNativeWindowHandle: () => Buffer.from([0,0,0x28,0x0b]),
   };
   return w;
 }
@@ -116,7 +126,8 @@ const mainExports = require(path.join(__dirname, '..', 'src', 'main.js')); // bo
 const { spawnSync } = require('child_process');
 
 // ---------- helpers ----------
-const call = (channel, event, payload) => handlers.get(channel)(event, payload);
+const call = (channel, event, payload) =>
+  payload === undefined ? handlers.get(channel)(event) : handlers.get(channel)(event, payload);
 const authOf = (opts) => (opts && opts.headers ? opts.headers.Authorization : undefined);
 
 function sse(obj) {
@@ -129,16 +140,9 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
 
   await okAsync('the app registers its IPC handlers', async () => {
     for (const ch of ['ask', 'transcribe', 'speak', 'models:list', 'config:get', 'config:set',
-      'capture:one', 'update:check', 'update:install', 'ghost:check']) {
+      'capture:one', 'update:check', 'update:download', 'update:install']) {
       assert.ok(handlers.has(ch), `missing handler ${ch}`);
     }
-  });
-
-  await okAsync('ghost:check reports a reason instead of throwing', async () => {
-    // the stub has no attached host window and desktopCapturer returns no sources
-    const r = await handlers.get('ghost:check')(fakeEvent);
-    assert.strictEqual(r.ok, false);
-    assert.ok(typeof r.reason === 'string' && r.reason.length, 'no reason given');
   });
 
   await okAsync('update:check refuses a dev checkout instead of throwing', async () => {
@@ -412,8 +416,18 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
     assert.match(await sysPromptOf('code'), /code block/i);
   });
 
-  await okAsync('an unknown style falls back to smart instead of an empty instruction', async () => {
-    assert.match(await sysPromptOf('nonsense'), /live call, not a chatbot/i);
+  await okAsync('an unknown style is rejected at the IPC boundary', async () => {
+    const before = await call('config:get', fakeEvent);
+    const r = await call('config:set', fakeEvent, { answerStyle: 'nonsense' });
+    assert.match(r.error, /invalid payload for config:set/);
+    const after = await call('config:get', fakeEvent);
+    assert.strictEqual(after.answerStyle, before.answerStyle);
+  });
+
+  await okAsync('an unknown stored style falls back to smart instead of an empty instruction', () => {
+    // A hand-edited config.json can still contain any string; the prompt builder
+    // must not emit an empty instruction for it.
+    assert.match(mainExports.styleInstruction('nonsense'), /live call, not a chatbot/i);
   });
 
   // ---------- local knowledge injection ----------
@@ -449,6 +463,83 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
     assert.deepStrictEqual(Object.keys(onDisk), ['enc']);
     const r = await call('state:get', fakeEvent);
     assert.strictEqual(r.history[0].content, 'secret turn');
+  });
+
+  await okAsync('the transcript is not written to disk without the opt-in', async () => {
+    await call('config:set', fakeEvent, { persistTranscript: false });
+    await call('state:set', fakeEvent, {
+      history: [{ role: 'user', content: 'turn' }],
+      transcript: 'secret meeting words',
+      transcriptLog: [{ at: '2026-01-01T00:00:00Z', text: 'secret meeting words' }],
+      memory: [{ at: '2026-01-01T00:00:00Z', kind: 'note', text: 'kept' }],
+    });
+    const r = await call('state:get', fakeEvent);
+    assert.strictEqual(r.transcript, '');
+    assert.deepStrictEqual(r.transcriptLog, []);
+    assert.strictEqual(r.memory[0].text, 'kept');
+  });
+
+  await okAsync('the transcript round-trips once the user opts in', async () => {
+    await call('config:set', fakeEvent, { persistTranscript: true });
+    await call('state:set', fakeEvent, {
+      history: [],
+      transcript: 'opted-in transcript',
+      transcriptLog: [{ at: '2026-01-01T00:00:00Z', text: 'opted-in transcript', who: 'you' }],
+    });
+    const r = await call('state:get', fakeEvent);
+    assert.strictEqual(r.transcript, 'opted-in transcript');
+    assert.strictEqual(r.transcriptLog[0].text, 'opted-in transcript');
+  });
+
+  await okAsync('turning the transcript opt-in off deletes the stored copy', async () => {
+    await call('config:set', fakeEvent, { persistTranscript: false });
+    const r = await call('state:get', fakeEvent);
+    assert.strictEqual(r.transcript, '');
+    assert.deepStrictEqual(r.transcriptLog, []);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(userData, 'state.json'), 'utf8'));
+    const decrypted = JSON.parse(require('electron').safeStorage.decryptString(Buffer.from(onDisk.enc, 'base64')));
+    assert.ok(!JSON.stringify(decrypted).includes('opted-in transcript'));
+  });
+
+  // ---------- IPC payload schemas ----------
+  await okAsync('config:set rejects an unknown key', async () => {
+    const r = await call('config:set', fakeEvent, { notASetting: true });
+    assert.match(r.error, /invalid payload for config:set/);
+  });
+
+  await okAsync('config:set rejects a wrong type', async () => {
+    const r = await call('config:set', fakeEvent, { stealth: 'yes' });
+    assert.match(r.error, /invalid payload for config:set/);
+  });
+
+  await okAsync('ask rejects a non-array messages payload', async () => {
+    const r = await call('ask', fakeEvent, { id: 1, messages: 'hello', withScreen: false });
+    assert.match(r.error, /invalid payload for ask/);
+  });
+
+  await okAsync('ask rejects a message with an unknown role', async () => {
+    const r = await call('ask', fakeEvent, { id: 1, messages: [{ role: 'root', content: 'x' }], withScreen: false });
+    assert.match(r.error, /invalid payload for ask/);
+  });
+
+  await okAsync('transcribe rejects a string where audio bytes are required', async () => {
+    const r = await call('transcribe', fakeEvent, { data: 'not-bytes', mime: 'audio/webm' });
+    assert.match(r.error, /invalid payload for transcribe/);
+  });
+
+  await okAsync('window:move rejects a non-finite offset', async () => {
+    const r = await call('window:move', fakeEvent, { dx: Number.NaN, dy: 0 });
+    assert.match(r.error, /invalid payload for window:move/);
+  });
+
+  await okAsync('state:set rejects an array instead of an object', async () => {
+    const r = await call('state:set', fakeEvent, []);
+    assert.match(r.error, /invalid payload for state:set/);
+  });
+
+  await okAsync('practice:export rejects an over-long path', async () => {
+    const r = await call('practice:export', fakeEvent, { markdown: 'x', filePath: 'a'.repeat(501) });
+    assert.match(r.error, /invalid payload for practice:export/);
   });
 
   // ---------- wipe helper: the marker is the authority ----------

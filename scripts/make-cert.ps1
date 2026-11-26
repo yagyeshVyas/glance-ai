@@ -8,7 +8,8 @@
 # be forged, so the fix is to own a neutral one.
 #
 # What it writes:
-#   build\codesign.cer                       public cert, committed, imported by the installer
+#   build\codesign.cer                       public cert, committed so `npm run check`
+#                                            can verify the thumbprint selector
 #   %USERPROFILE%\.glance-signing\    the .pfx and its password, never committed
 #
 # The thumbprint is printed at the end. Paste it (and the subject) into
@@ -16,9 +17,10 @@
 # `npm run check` fails while the committed .cer and the thumbprint disagree.
 #
 # Existing certificates are left alone: signtool selects by thumbprint, so an old
-# one in the store is harmless, and the installer removes the retired root on
+# one in the store is harmless, and the installer removes the retired roots on
 # upgrade. Nothing here needs administrator rights; the signer's key lives in the
-# current user's store.
+# current user's store. This script never adds the certificate to a trust store:
+# a self-signed publisher shows as "Unknown publisher" by design.
 
 $ErrorActionPreference = 'Stop'
 

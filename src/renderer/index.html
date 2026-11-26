@@ -10,6 +10,7 @@
   <div id="panel">
     <header id="bar">
       <span class="brand"></span>
+      <span id="recState" class="rec" role="status" aria-live="polite" hidden><i aria-hidden="true"></i><span id="recLabel">Listening</span></span>
       <span id="status" class="status"></span>
       <div class="spacer"></div>
       <button id="gear" title="Settings">⚙</button>
@@ -45,8 +46,17 @@
       <button id="clearShots" class="tiny">Clear shots</button>
     </div>
 
+    <div id="consent" class="consent" role="dialog" aria-labelledby="consentTitle" aria-describedby="consentBody" hidden>
+      <b id="consentTitle">Before Glance listens</b>
+      <p id="consentBody">Glance will capture microphone and/or meeting audio and send short chunks to the transcription provider you configured. Audio chunks are not saved locally. Only continue if you have everyone's consent to record this conversation.</p>
+      <div class="row">
+        <button id="consentAccept" class="primary" type="button">I have consent — start listening</button>
+        <button id="consentCancel" type="button">Cancel</button>
+      </div>
+    </div>
+
     <section id="transcriptWrap">
-      <div class="label">Live transcript</div>
+      <div class="label">Live transcript <span id="transcriptSaveState" class="muted small">not saved</span></div>
       <div id="transcript" class="scroll muted">Press Listen to start capturing audio.</div>
     </section>
 
@@ -106,14 +116,16 @@
           <option value="detail">Detailed — answer, reasoning, trade-offs</option>
         </select>
       </label>
-      <h4>Master stealth</h4>
-      <label class="row"><input id="s_stealthMaster" type="checkbox" /> Ghost mode — every privacy control at its strongest, on by default (capture-hide, process-blend, deep cloak, offline eye-tracking)</label>
-      <p class="muted small">When on, this overrides the individual toggles below with their strongest setting and keeps the MediaPipe eye model local (no network). Un-checking it restores the per-feature checkboxes as they were. It is invisibility to capture, not to an instrumented machine — see STEALTH.md.</p>
+      <h4>Capture and privacy</h4>
+      <p class="muted small">Capture exclusion is Windows' own privacy flag: screen shares that honour it leave the panel out. It is not a proctoring bypass, and it does not hide the process or the window from an enumerating tool.</p>
+      <label class="row"><input id="s_stealth" type="checkbox" /> Hide overlay from screen capture / screen share</label>
+      <label class="row"><input id="s_ocr" type="checkbox" /> OCR on capture — read text locally from every screenshot and attach it to the question</label>
+      <label class="row"><input id="s_persistTranscript" type="checkbox" /> Save the live transcript across restarts (encrypted on this device)</label>
+      <p class="muted small">Off by default. When off, transcript text stays in memory and is erased when Glance quits. Conversation history and long-term notes are stored separately.</p>
       <div class="row">
-        <button id="s_ghostCheck" type="button" title="Measure, on this machine, every way the panel could be noticed">Run stealth report</button>
-        <span id="s_ghostMsg" class="muted small">Tests the real capture path here and every other tell a detector reads.</span>
+        <button id="s_resetConsent" type="button">Withdraw audio consent</button>
+        <span class="muted small">Listen will show the consent notice again.</span>
       </div>
-      <div id="s_report" hidden></div>
       <h4>Backup chat provider (optional — used only when the main one fails)</h4>
       <label>Backup base URL <input id="s_fallbackBaseUrl" placeholder="(none)" /></label>
       <label>Backup API key <input id="s_fallbackApiKey" type="password" /></label>
@@ -127,14 +139,9 @@
       <label>TTS voice <input id="s_ttsVoice" placeholder="alloy" /></label>
       <label>TTS model <input id="s_ttsModel" list="ttsModels" placeholder="tts-1" /></label>
       <datalist id="ttsModels"></datalist>
-      <label class="row"><input id="s_stealth" type="checkbox" /> Hide overlay from screen capture / screen share</label>
-      <label class="row"><input id="s_stealthProcess" type="checkbox" /> Shell AppUserModelID hint (does not rename the process — see STEALTH.md)</label>
-      <label class="row"><input id="s_ocr" type="checkbox" /> OCR on capture - read text locally from every screenshot and attach it to the question</label>
-<label class="row"><input id="s_smartMode" type="checkbox" /> Smart mode (short, spoken-style answers for live calls)</label>
+      <label class="row"><input id="s_smartMode" type="checkbox" /> Smart mode (short, spoken-style answers for live calls)</label>
       <label class="row"><input id="s_practiceMode" type="checkbox" /> Practice mode (rehearse; answers hidden until you stop, then a scored debrief)</label>
-      <label class="row"><input id="s_stealthDeep" type="checkbox" /> Deep stealth (DWM-cloak window + pull layered flags — hides from EnumWindows/UIA; requires Windows)</label>
       <label class="row"><input id="s_nvidiaEyeContact" type="checkbox" /> NVIDIA eye contact (drives the Broadcast app's effect; any app selecting “Camera (NVIDIA Broadcast)” gets it) <span id="s_nvidiaMsg" class="muted small"></span></label>
-      <label class="row"><input id="s_scramble" type="checkbox" /> Scramble text — keep the window capturable (affinity 0, no "hidden" flag) and shuffle the glyphs instead</label>
       <label>Overlay transparency <input id="s_panelOpacity" type="range" min="0.3" max="0.98" step="0.02" /><span id="opacityVal"></span></label>
       <div class="row">
         <button id="s_save">Save</button>

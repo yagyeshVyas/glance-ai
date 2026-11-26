@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Syntax, identity copies, installer trust rules, Electron support window,
+      # and a guard that the removed anti-inspection subsystem stays removed.
+      - name: Check
+        run: npm run check
+
+      - name: Tests
+        run: npm test
+
+      # A second, independent pass over the source. The check script knows the
+      # removed paths by name; this catches the behaviour coming back under a
+      # different name (an unsafe Electron flag, a trust-store import, a kill by
+      # image name, PEB/DWM manipulation).
+      - name: Security grep
+        shell: pwsh
+        run: |
+          $patterns = @(
+            'certutil\s+(-addstore|/addstore)',
+            'Import-Certificate',
+            'taskkill',
+            'nodeIntegration\s*:\s*true',
+            'contextIsolation\s*:\s*false',
+            'sandbox\s*:\s*false',
+            'webSecurity\s*:\s*false',
+            'allowRunningInsecureContent\s*:\s*true',
+            'hide-helper',
+            'cloak\.node',
+            'DWMWA_CLOAK',
+            'sanitizeRemotePeb',
+            'stealthDeep\s*[:=]',
+            'stealthMaster\s*[:=]',
+            'stealthProcess\s*[:=]',
+            'blendWindow\s*[:=]',
+            'scrambleString'
+          )
+          $files = Get-ChildItem -Recurse -File -Include *.js,*.json,*.nsh,*.cs,*.ps1 |
+            Where-Object {
+              $_.FullName -notmatch '\\node_modules\\|\\vendor\\|\\.git\\' -and
+              $_.Name -ne 'check.js'
+            }
+          $hits = $files | Select-String -Pattern $patterns
+          if ($hits) {
+            $hits | ForEach-Object { Write-Error "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }
+            exit 1
+          }
+          Write-Output 'security grep: clean'
+
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+  # Build the real payload and prove it, not just the source. This is where the
+  # fuse states and the app-update.yml publisher pin are read back from the
+  # shipped executable. SKIP_SIGNING=1 is CI-only: no release key exists here,
+  # and a release build (REQUIRE_SIGNING=1) ignores the skip.
+  package-x64:
+    name: package-x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # A full target build, not --dir: app-update.yml (and therefore the
+      # publisher pin the updater checks) is only written for installer
+      # targets. The installer itself stays unsigned because CI has no key.
+      - name: Build x64 payload and installer
+        shell: pwsh
+        run: |
+          $env:SKIP_SIGNING = '1'
+          npx electron-builder --win --x64
+
+      - name: Verify fuses, architecture, asar and update publisher
+        run: npm run verify:build -- --arch=x64 --launch

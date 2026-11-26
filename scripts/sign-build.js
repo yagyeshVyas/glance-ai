@@ -16,6 +16,7 @@ const IDENTITY = require('../src/identity');
 const EXE = path.join(ROOT, 'dist', 'win-unpacked', IDENTITY.EXE);
 const { THUMBPRINT } = require('../src/signing');
 const CERT_THUMB = process.env.WSHX_CERT_THUMB || THUMBPRINT;
+const REQUIRE_SIGNING = process.env.REQUIRE_SIGNING === '1';
 
 function signtool() {
   const kits = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
@@ -87,18 +88,25 @@ function thumbExists(thumb) {
     }
     return v;
   });
-  // The window-class rename happens in afterSign; a build that skipped signing
-  // would ship Electron's class names. Fail the pipeline instead of the field.
-  run('window-class literals', () => {
-    execFileSync(process.execPath, [path.join(__dirname, 'patch-class-names.js'), EXE, '--check'], { stdio: 'pipe' });
-    return 'no Chrome_* window class in payload';
-  });
+  // The window-class rename used to be verified here. It was removed with the
+  // patch itself: renaming Chromium's Aura classes in the shipped binary exists
+  // only to defeat window inspection and is not part of a releasable build.
 
   const st = signtool();
   if (!st) {
-    console.log('3/4 signtool not found — binaries stay unsigned');
+    if (REQUIRE_SIGNING) {
+      steps.push(['signing', 'FAIL', 'signtool not found and REQUIRE_SIGNING=1']);
+      console.log('3/4 signtool not found — release build refuses to ship unsigned');
+    } else {
+      console.log('3/4 signtool not found — binaries stay unsigned (dev build)');
+    }
   } else if (!thumbExists(CERT_THUMB)) {
-    console.log('3/4 certificate ' + CERT_THUMB + ' not in the user store — unsigned');
+    if (REQUIRE_SIGNING) {
+      steps.push(['signing', 'FAIL', 'certificate ' + CERT_THUMB + ' not in the user store']);
+      console.log('3/4 certificate ' + CERT_THUMB + ' not in the user store — release build refuses to ship unsigned');
+    } else {
+      console.log('3/4 certificate ' + CERT_THUMB + ' not in the user store — unsigned (dev build)');
+    }
   } else {
     // app payload was signed in afterPack; the installer + uninstaller are
     // separate executables signed now that NSIS has produced them
@@ -146,6 +154,9 @@ function thumbExists(thumb) {
   for (const [label, status, detail] of steps) {
     console.log(status.padEnd(4) + '  ' + label + (status === 'FAIL' ? '  ' + detail : ''));
   }
+  // A printed FAIL used to exit 0, so a release could ship after a verification
+  // step had already failed. The pipeline result is now the process result.
+  if (steps.some(([, status]) => status === 'FAIL')) process.exitCode = 1;
 
   // final metadata readback, straight from the file
   if (fs.existsSync(EXE)) {

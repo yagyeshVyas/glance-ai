@@ -1,25 +1,19 @@
 const { app, BrowserWindow, dialog, globalShortcut, ipcMain, desktopCapturer, screen, session, safeStorage, nativeImage, protocol } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const fs = require('fs');
 const crypto = require('crypto');
 const { estimateTokens, fitContext, visionTokens, fitFrames, rankNotes } = require('./shared');
-const HIDE_HELPER_CS = require('./embed-helpers');
 const IDENTITY = require('./identity');
-const { startDetectorWatch } = require('./stealth-watch');
 const broadcast = require('./broadcast');
 
-// Chromium registers its Aura window classes from string literals inside the
-// browser binary; a detector walking EnumChildWindows reads "Chrome_WidgetWin_1"
-// and identifies Electron even when the top-level window is shimmed. Rewrite
-// those literals in this process's memory before the first window is created so
-// the class registers under an innocuous name. In-process only; the signed file
-// on disk is untouched.
-if (process.platform === 'win32') {
-  try {
-    const nativeMod = require(path.join(__dirname, 'native', process.arch, 'cloak.node'));
-    if (nativeMod && typeof nativeMod.maskWindowClasses === 'function') nativeMod.maskWindowClasses();
-  } catch {}
-}
+// The only page this process will ever load. IPC trust is decided against this
+// exact URL, not against "anything that starts with file://".
+const APP_INDEX = path.join(__dirname, 'renderer', 'index.html');
+const APP_URL = pathToFileURL(APP_INDEX).href;
+// Packaged-build smoke test: start, prove the window was created, write a marker
+// and quit. Used by scripts/verify-build.js and CI; a normal launch never sets it.
+const SMOKE_TEST = process.argv.includes('--smoke-test');
 
 const DEFAULTS = {
   baseUrl: 'https://api.openai.com/v1',
@@ -29,19 +23,21 @@ const DEFAULTS = {
   // model it chats with needs no second name, and no second key. Set it only when
   // the audio model is genuinely a different one (a dedicated whisper endpoint).
   transcribeModel: '',
-  stealth: true, // hide overlay from screen capture / screen share
-  stealthProcess: true, // AUMID hint for shell/taskbar grouping (does not rename the exe)
-  stealthDeep: true, // DWM-cloak + off-screen by default
-  stealthMaster: true, // ghost mode: every privacy control at its strongest, on from first run
+  stealth: true, // exclude the overlay from screen capture (a privacy setting, not evasion)
   captureDisplay: 'auto', // 'auto' | display id | 'window:<source id>'
   ocr: true, // extract text locally from every captured frame and attach it
   updates: true, // check GitHub Releases for a new version in the background
-  blendWindow: true, // reparent under an innocuous host: the only window other apps
-  // can enumerate is the fake one — the Chromium windows become children of it
-  scramble: false, // leave the window capturable (affinity 0) and scramble the text instead
   // Live-captions mode: start listening on launch and cut audio into 1.5 s
-  // chunks. Persisted so a restart resumes without a click.
+  // chunks. Persisted so a restart resumes without a click. It still requires
+  // audioConsent below before a microphone or loopback stream is opened.
   captionMode: false,
+  // Explicit, revocable consent before any audio capture. The renderer shows a
+  // blocking notice the first time Listen (or captions) would open a stream.
+  audioConsent: false,
+  audioConsentAt: '',
+  // Off by default: the live transcript stays in memory and is gone on quit.
+  // Turning this on is the only way transcript text is written to state.json.
+  persistTranscript: false,
   // NVIDIA Broadcast ships an eye-contact effect and a loopback MCP gateway.
   // Glance drives that gateway (set_effects -> eye_contact) instead of copying
   // NVIDIA's Maxine model, which is licensed and not redistributable. When the
@@ -94,15 +90,16 @@ const KEY_FIELDS = ['apiKey', 'transcribeApiKey', 'ttsApiKey', 'fallbackApiKey']
 let keysNotPersisted = []; // keys held in memory only: encryption was unavailable when they were saved
 
 // Detached cleanup for `wipe all data`: spawned the moment a wipe is requested,
-// not at quit time, so a crash or a PID-targeted taskkill can't skip it. The
+// not at quit time, so a crash or a PID-targeted kill can't skip it. The
 // helper is a detached PowerShell process — it used to re-run this binary as
 // plain Node (`ELECTRON_RUN_AS_NODE=1`), which the RunAsNode fuse turns off. It
 // watches our PID and removes the whole userData dir once the process tree is
 // gone: Chromium's children hold profile locks past will-quit, which is why
 // removal must outlive the app.
 // A marker file OUTSIDE userData records the pending wipe, so if the helper is
-// killed too (taskkill /IM and /T take parent and helper together: same image,
-// child of the browser process) the NEXT launch finishes the job.
+// killed too (a forced kill of the image and its children takes parent and
+// helper together: same image, child of the browser process) the NEXT launch
+// finishes the job.
 // %APPDATA%\Glance AI — the product name, and nothing else, is the only
 // string this folder leaks. Earlier builds wrote wshx-host / assistant /
 // svchost / glance-assistant / RuntimeBroker profiles; the migration below
@@ -279,15 +276,14 @@ function loadConfig() {
   // saved settings win over env so the Settings panel is authoritative once used
   cfg = { ...DEFAULTS, ...fromEnv, ...saved };
   envValues = { ...fromEnv };
-  // Ghost mode is authoritative, and enforced here rather than only in the
-  // Settings checkboxes: a profile saved before the mode existed can carry
-  // stealth=false, and turning the mode on has to win over that.
-  if (cfg.stealthMaster) {
-    cfg.stealth = true;
-    cfg.stealthProcess = true;
-    cfg.stealthDeep = true;
-    cfg.blendWindow = true;
-  }
+  // A profile written by an older build can still carry the removed ghost-mode
+  // keys. They are dropped here so Settings cannot present a control that no
+  // longer has an implementation behind it.
+  delete cfg.stealthProcess;
+  delete cfg.stealthDeep;
+  delete cfg.stealthMaster;
+  delete cfg.blendWindow;
+  delete cfg.scramble;
 }
 
 // A crash mid-write truncates the file and takes the DPAPI blobs with it. Write to
@@ -370,218 +366,321 @@ function publicConfig() {
 }
 
 // ---------- IPC trust ----------
-// Every handler below is reachable from the renderer. Only the app's own file://
-// window may call them — there is no remote content today, and this keeps it that
-// way if one is ever loaded.
-function isTrustedSender(event) {
+// Every handler below is reachable from the renderer. Only the app's own page,
+// in its own top-level frame, in the app's own webContents, may call them.
+//
+// The previous check was /^file:\/\//i, which accepts ANY local file — a
+// downloaded HTML file, a compromised extension page, a second window. The
+// exact-path comparison is what makes the boundary a boundary.
+function isAppUrl(raw) {
   try {
-    return /^file:\/\//i.test(event.senderFrame?.url || '');
+    const u = new URL(raw);
+    const expected = new URL(APP_URL);
+    return u.protocol === 'file:' && u.host === expected.host && u.pathname === expected.pathname;
   } catch {
     return false;
   }
 }
-const handle = (channel, fn) =>
-  ipcMain.handle(channel, (event, ...args) =>
-    isTrustedSender(event) ? fn(event, ...args) : { error: 'unauthorized: IPC sender is not the app window' },
+
+function isTrustedSender(event) {
+  try {
+    const frame = event.senderFrame;
+    if (!frame || frame.parent) return false; // main frame only, never an iframe
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return false;
+    return isAppUrl(frame.url);
+  } catch {
+    return false;
+  }
+}
+
+// A bearer token over plaintext http:// is readable by anything on the path.
+// http:// is accepted only for the loopback interface and RFC1918 LANs, which
+// is where a local model server lives. Everything public must be https://.
+function isLoopbackHost(hostname) {
+  return /^(localhost|127\.0\.0\.1|\[::1\]|::1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(
+    String(hostname || ''),
   );
-
-// ---------- native stealth helper ----------
-// Compiled from scripts/hide-helper.cs with the in-box csc; cached at
-// %TEMP%\wshx-audit\hide-helper.exe so the on-disk path never advertises
-// the app name. Missing on non-Windows —  the deep-stealth path no-ops.
-// Packaged builds carry the helper compiled and signed at build time in
-// resources/ (scripts/build-hide-helper.js), so first run spawns no compiler
-// and leaves no exe in %TEMP%. Dev checkouts keep the compile-on-demand path.
-const HIDE_HELPER_TEMP = path.join(require('os').tmpdir(), 'dxva_143.exe'); // name kept: reads as a DXVA helper
-const HIDE_HELPER_SHIPPED = process.resourcesPath ? path.join(process.resourcesPath, 'hide-helper.exe') : '';
-const HIDE_HELPER = (() => {
-  try { if (HIDE_HELPER_SHIPPED && fs.existsSync(HIDE_HELPER_SHIPPED)) return HIDE_HELPER_SHIPPED; } catch {}
-  return HIDE_HELPER_TEMP;
-})();
-function ensureHideHelper() {
-  if (process.platform !== 'win32') return false;
-  if (HIDE_HELPER !== HIDE_HELPER_TEMP) return true;
-  // If the compiled helper exists and is newer than the embedded source marker, reuse it.
-  try {
-    if (fs.existsSync(HIDE_HELPER)) {
-      const marker = path.join(path.dirname(HIDE_HELPER), '.hide_helper_src');
-      const embeddedHash = crypto.createHash('sha256').update(HIDE_HELPER_CS).digest('hex');
-      if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8') === embeddedHash) return true;
-    }
-  } catch {}
-  try {
-    fs.mkdirSync(path.dirname(HIDE_HELPER), { recursive: true });
-    const src = path.join(path.dirname(HIDE_HELPER), 'hide-helper.cs');
-    fs.writeFileSync(src, HIDE_HELPER_CS);
-    const csc = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe';
-    if (!fs.existsSync(csc)) return false;
-    // the ocr command needs the WinRT projection: its AsTask extension lives in
-    // System.Runtime.WindowsRuntime and the contracts are per-namespace winmd
-    // files shipped in System32\WinMetadata
-    const winmd = path.join(process.env.WINDIR || 'C:\\Windows', 'System32', 'WinMetadata');
-    const refs = ['/reference:System.dll'];
-    for (const md of ['Windows.Foundation', 'Windows.Storage', 'Windows.Graphics', 'Windows.Media', 'Windows.Globalization']) {
-      const p = path.join(winmd, md + '.winmd');
-      if (fs.existsSync(p)) refs.push('/reference:' + p);
-    }
-    const wrr = path.join(
-      process.env.WINDIR || 'C:\\Windows',
-      'Microsoft.NET', 'Framework64', 'v4.0.30319', 'System.Runtime.WindowsRuntime.dll',
-    );
-    if (fs.existsSync(wrr)) refs.push('/reference:' + wrr);
-    // WinRT contracts are compiled against the System.Runtime facade. Without
-    // it csc fails every WinMD with CS0012 and the helper never builds.
-    const sysRuntime = path.join(process.env.WINDIR || 'C:\\Windows',
-      'Microsoft.NET', 'Framework64', 'v4.0.30319', 'System.Runtime.dll');
-    if (fs.existsSync(sysRuntime)) refs.push('/reference:' + sysRuntime);
-    require('child_process').execFileSync(
-      csc,
-      ['/nologo', '/target:exe', '/out:' + HIDE_HELPER, src, ...refs],
-      { stdio: 'ignore' }
-    );
-    if (fs.existsSync(HIDE_HELPER)) {
-      const embeddedHash = crypto.createHash('sha256').update(HIDE_HELPER_CS).digest('hex');
-      fs.writeFileSync(path.join(path.dirname(HIDE_HELPER), '.hide_helper_src'), embeddedHash);
-      try { fs.unlinkSync(src); } catch {}
-      return true;
-    }
-  } catch {}
-  return false;
 }
+function providerUrlError(raw) {
+  let u;
+  try {
+    u = new URL(String(raw));
+  } catch {
+    return 'Base URL is not a valid URL';
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    return 'Base URL must start with http:// or https://';
+  }
+  if (u.protocol === 'http:' && !isLoopbackHost(u.hostname)) {
+    return 'Plain http:// is only allowed for localhost or a private LAN address; use https:// for a public provider.';
+  }
+  return null;
+}
+// ---------- IPC payload schemas ----------
+// The sender check proves *who* is calling. These validators prove *what*
+// arrived: every invoke channel has a shape, unknown channels fail closed, and
+// no handler receives an unbounded string, a non-finite number or a payload it
+// did not ask for. The renderer is the only intended caller, but a renderer bug
+// (or an injected page that somehow cleared the sender check) must not become an
+// arbitrary file write, a 1 GB state save, or a provider URL with a key on it.
+const INVALID = Symbol('invalid');
+const IPC_MAX_ASK = 16 * 1024 * 1024;
+const IPC_MAX_AUDIO = 25 * 1024 * 1024;
+const IPC_MAX_STATE = 4 * 1024 * 1024;
 
-// Blends the Electron process tree's *window titles* (what Task Manager's
-// "Application Windows" column and EnumWindows-based tools read) into a
-// generic Windows shell name. The on-disk exe name is fixed by the build; the
-// title is what a quick glance at Task Manager actually shows, and it is the
-// one surface we can change at runtime. Covers main + the live helper procs.
-// neutral title: the product name is a giveaway in Task Manager's window
-// column, so the window advertises what it does, not what it is called.
-const BLEND_TITLE = IDENTITY.WINDOW_TITLE;
-const procsMarked = new Set();
-function blendProcessTitles() {
-  if (process.platform !== 'win32') return;
-  try {
-    process.title = BLEND_TITLE;
-  } catch {}
-  let procs = [];
-  try {
-    procs = app.getAppMetrics().map((m) => m.pid).filter(Boolean);
-  } catch {}
-  const nat = loadCloak();
-  const child = require('child_process');
-  for (const pid of procs) {
+const isPlainObject = (v) => Object.prototype.toString.call(v) === '[object Object]';
+const ipcString = (v, max) => (typeof v === 'string' && v.length <= max ? v : INVALID);
+const ipcBool = (v) => (typeof v === 'boolean' ? v : INVALID);
+const ipcNumber = (v, min, max) =>
+  typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? v : INVALID;
+const ipcNumeric = (v, min, max) => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= min && n <= max ? n : INVALID;
+};
+const ipcOneOf = (v, allowed) => (typeof v === 'string' && allowed.includes(v) ? v : INVALID);
+
+const CONFIG_SCHEMA = {
+  baseUrl: (v) => ipcString(v, 2048),
+  apiKey: (v) => (v === null ? null : ipcString(v, 8192)),
+  chatModel: (v) => ipcString(v, 200),
+  transcribeModel: (v) => ipcString(v, 200),
+  stealth: ipcBool,
+  captureDisplay: (v) => ipcString(v, 100),
+  ocr: ipcBool,
+  updates: ipcBool,
+  captionMode: ipcBool,
+  audioConsent: ipcBool,
+  audioConsentAt: (v) => ipcString(v, 40),
+  persistTranscript: ipcBool,
+  nvidiaEyeContact: ipcBool,
+  panelOpacity: (v) => ipcNumber(v, 0.3, 0.98),
+  transcribeBaseUrl: (v) => ipcString(v, 2048),
+  transcribeApiKey: (v) => (v === null ? null : ipcString(v, 8192)),
+  ttsBaseUrl: (v) => ipcString(v, 2048),
+  ttsApiKey: (v) => (v === null ? null : ipcString(v, 8192)),
+  ttsVoice: (v) => ipcString(v, 100),
+  ttsModel: (v) => ipcString(v, 200),
+  fallbackBaseUrl: (v) => ipcString(v, 2048),
+  fallbackApiKey: (v) => (v === null ? null : ipcString(v, 8192)),
+  fallbackChatModel: (v) => ipcString(v, 200),
+  contextTokens: (v) => ipcNumeric(v, 4000, 2000000),
+  answerLang: (v) => ipcString(v, 40),
+  answerStyle: (v) => ipcOneOf(v, ['smart', 'brief', 'star', 'bullets', 'code', 'detail']),
+  targetRole: (v) => ipcString(v, 2000),
+  resume: (v) => ipcString(v, 200000),
+  knowledge: (v) => ipcString(v, 400000),
+  smartMode: ipcBool,
+  practiceMode: ipcBool,
+  systemPrompt: (v) => ipcString(v, 20000),
+};
+
+const noArgs = (args) => (args.length === 0 ? [] : null);
+const oneObject = (args) => (args.length === 1 && isPlainObject(args[0]) ? args[0] : null);
+
+const IPC_VALIDATORS = {
+  'config:get': noArgs,
+  'config:set': (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const out = {};
+    for (const [key, value] of Object.entries(o)) {
+      const rule = CONFIG_SCHEMA[key];
+      if (!rule) return null;
+      const clean = rule(value);
+      if (clean === INVALID) return null;
+      out[key] = clean;
+    }
+    return [out];
+  },
+  'models:list': (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const out = {};
+    if (o.baseUrl !== undefined) {
+      const v = ipcString(o.baseUrl, 2048);
+      if (v === INVALID) return null;
+      out.baseUrl = v;
+    }
+    if (o.apiKey !== undefined) {
+      const v = ipcString(o.apiKey, 8192);
+      if (v === INVALID) return null;
+      out.apiKey = v;
+    }
+    if (o.purpose !== undefined) {
+      const v = ipcOneOf(o.purpose, ['chat', 'transcribe', 'tts']);
+      if (v === INVALID) return null;
+      out.purpose = v;
+    }
+    return [out];
+  },
+  ask: (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const id =
+      typeof o.id === 'number' && Number.isFinite(o.id)
+        ? o.id
+        : ipcString(o.id, 64);
+    if (id === INVALID) return null;
+    if (!Array.isArray(o.messages) || o.messages.length < 1 || o.messages.length > 50) return null;
+    const messages = [];
+    for (const m of o.messages) {
+      if (!isPlainObject(m)) return null;
+      const role = ipcOneOf(m.role, ['system', 'user', 'assistant']);
+      const content = ipcString(m.content, 200000);
+      if (role === INVALID || content === INVALID) return null;
+      messages.push({ role, content });
+    }
+    const withScreen = o.withScreen === undefined ? false : ipcBool(o.withScreen);
+    if (withScreen === INVALID) return null;
+    const shots = o.shots === undefined ? undefined : ipcNumber(o.shots, 0, 5);
+    if (shots === INVALID) return null;
+    const clean = { id, messages, withScreen };
+    if (shots !== undefined) clean.shots = shots;
+    if (o.memory !== undefined) {
+      if (!Array.isArray(o.memory) || o.memory.length > 200) return null;
+      clean.memory = [];
+      for (const m of o.memory) {
+        if (!isPlainObject(m)) return null;
+        const kind = ipcString(m.kind || 'note', 40);
+        const text = ipcString(m.text, 4000);
+        const at = m.at === undefined ? '' : ipcString(m.at, 40);
+        if (kind === INVALID || text === INVALID || at === INVALID) return null;
+        clean.memory.push({ kind, text, at });
+      }
+    }
+    if (o.images !== undefined) {
+      if (!Array.isArray(o.images) || o.images.length > 5) return null;
+      clean.images = [];
+      for (const img of o.images) {
+        if (!isPlainObject(img)) return null;
+        const b64 = ipcString(img.b64, 8 * 1024 * 1024);
+        const tokens = img.tokens === undefined ? 0 : ipcNumber(img.tokens, 0, 1000000);
+        if (b64 === INVALID || tokens === INVALID) return null;
+        clean.images.push({ b64, tokens });
+      }
+    }
     try {
-      // In-process SetWindowTextW: no helper executable, so title blending no
-      // longer emits a process-creation event for every PID every five seconds.
-      if (nat && typeof nat.blendTitles === 'function') nat.blendTitles(pid, BLEND_TITLE);
-      else child.spawnSync(HIDE_HELPER, ['set-title', String(pid), BLEND_TITLE], { stdio: 'ignore', timeout: 1500 });
-    } catch {}
-    // hide-process force-sets the exclusion flag on every top-level window the
-    // PID owns, which needs a process that owns those windows to attempt it.
-    // Once per PID is all it can buy; repeating it every pass was a spawn per
-    // helper every five seconds — a louder fingerprint than the windows it hides.
-    if (procsMarked.has(pid)) continue;
-    procsMarked.add(pid);
-    try { child.spawnSync(HIDE_HELPER, ['hide-process', String(pid)], { stdio: 'ignore', timeout: 1500 }); } catch {}
+      if (JSON.stringify(clean).length > IPC_MAX_ASK) return null;
+    } catch {
+      return null;
+    }
+    return [clean];
+  },
+  cancel: noArgs,
+  transcribe: (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const isBytes = o.data instanceof ArrayBuffer || ArrayBuffer.isView(o.data);
+    if (!isBytes || o.data.byteLength < 1 || o.data.byteLength > IPC_MAX_AUDIO) return null;
+    const mime = ipcString(o.mime, 100);
+    const who = o.who === undefined ? undefined : ipcString(o.who, 20);
+    if (mime === INVALID || who === INVALID) return null;
+    return [{ data: o.data, mime, who }];
+  },
+  'window:hide': noArgs,
+  'window:quit': noArgs,
+  'window:minimize': noArgs,
+  'update:check': noArgs,
+  'update:install': noArgs,
+  'update:download': noArgs,
+  'stealth:apply': (args) => {
+    if (args.length !== 1) return null;
+    const on = ipcBool(args[0]);
+    return on === INVALID ? null : [on];
+  },
+  'broadcast:status': noArgs,
+  'broadcast:eye-contact': (args) => {
+    if (args.length !== 1) return null;
+    const on = ipcBool(args[0]);
+    return on === INVALID ? null : [on];
+  },
+  'window:shown': noArgs,
+  'window:move': (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const dx = ipcNumber(o.dx, -10000, 10000);
+    const dy = ipcNumber(o.dy, -10000, 10000);
+    return dx === INVALID || dy === INVALID ? null : [{ dx, dy }];
+  },
+  'capture:one': noArgs,
+  'state:get': noArgs,
+  'state:set': (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    try {
+      if (JSON.stringify(o).length > IPC_MAX_STATE) return null;
+    } catch {
+      return null;
+    }
+    return [o];
+  },
+  'displays:list': noArgs,
+  speak: (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const text = ipcString(o.text, 8000);
+    return text === INVALID || !text.trim() ? null : [{ text }];
+  },
+  'practice:save': (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const transcript = ipcString(o.transcript, 500000);
+    if (transcript === INVALID) return null;
+    const debrief = o.debrief;
+    if (typeof debrief !== 'string' && !isPlainObject(debrief)) return null;
+    try {
+      if (JSON.stringify({ transcript, debrief }).length > 1024 * 1024) return null;
+    } catch {
+      return null;
+    }
+    return [{ transcript, debrief }];
+  },
+  'practice:export': (args) => {
+    const o = oneObject(args);
+    if (!o) return null;
+    const markdown = ipcString(o.markdown, 2 * 1024 * 1024);
+    if (markdown === INVALID) return null;
+    if (o.filePath === undefined) return [{ markdown }];
+    const filePath = ipcString(o.filePath, 500);
+    return filePath === INVALID ? null : [{ markdown, filePath }];
+  },
+  'wipe:all': noArgs,
+};
+
+function validateIpc(channel, args) {
+  const validator = IPC_VALIDATORS[channel];
+  if (!validator) return null;
+  try {
+    return validator(args);
+  } catch {
+    return null;
   }
 }
 
-// ---------- in-process hardening ----------
-// What a same-user inspector can still read out of this process, and where the
-// closure lives. Everything here runs inside Electron — no helper, no file:
-//   ETW writes            suppressEtw()   user-mode providers go silent
-//   PEB command line      sanitizePeb()   WMI/toolhelp read the fake argv
-//   PEB image path        sanitizePeb()   the real GlanceAI.exe path
-//   PEB command line      sanitizePeb()   the executable alone, no profile
-//                                         flags or --autostart
-//   module list           hideModules()   loader lists lose the Electron DLLs
-//   process DACL          sealProcess()   VM_READ / CREATE_THREAD denied
-// Kernel-side reads (NtQuerySystemInformation image name, kernel ETW, the
-// display-affinity flag) are out of reach in user mode; see HARDENING.md.
-// The product is named honestly now, so the PEB is grounded in the real image
-// path rather than a spoofed Windows component. What stays hidden is the argv:
-// profile flags and --autostart never appear in a WMI/toolhelp read.
-const HARDENED_IMAGE = process.execPath;
-const HARDEN_MODULES = [
-  'cloak.node', // the addon's own file name is an unmistakable artifact
-  'chrome_elf.dll',
-  'ffmpeg.dll',
-  'libEGL.dll',
-  'libGLESv2.dll',
-  'vk_swiftshader.dll',
-  'd3dcompiler_47.dll',
-];
-let hardeningApplied = false;
-function applyProcessHardening() {
-  if (process.platform !== 'win32' || hardeningApplied) return;
-  hardeningApplied = true;
-  const nat = loadCloak();
-  if (!nat) return;
-  try {
-    if (typeof nat.suppressEtw === 'function') mlog('hardening: etw writers=' + nat.suppressEtw());
-    if (typeof nat.sanitizePeb === 'function') {
-      const ok = nat.sanitizePeb({
-        commandLine: '"' + HARDENED_IMAGE + '"',
-        imagePath: HARDENED_IMAGE,
-        windowTitle: IDENTITY.WINDOW_TITLE,
-        currentDirectory: path.dirname(HARDENED_IMAGE),
-      });
-      mlog('hardening: peb=' + ok);
+const handle = (channel, fn) =>
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      return { error: 'unauthorized: IPC sender is not the app window' };
     }
-    if (typeof nat.hideModules === 'function') mlog('hardening: modules=' + nat.hideModules(HARDEN_MODULES));
-  } catch (e) { mlog('hardening: ' + (e && e.message)); }
+    const clean = validateIpc(channel, args);
+    if (!clean) return { error: `invalid payload for ${channel}` };
+    return fn(event, ...clean);
+  });
 
-  // Seal last: Chromium opens handles to its own process while it is still
-  // wiring the sandbox and IPC, and a DACL applied mid-setup only makes those
-  // calls fail. Six seconds after the window exists is past that window.
-  setTimeout(() => {
-    try {
-      const n = loadCloak();
-      if (n && typeof n.sealProcess === 'function') {
-        const r = n.sealProcess();
-        mlog('hardening: dacl=' + JSON.stringify(r));
-      }
-    } catch {}
-  }, 6000).unref();
-}
-
-// ---------- child PEB sanitization ----------
-// The main process's own PEB is rewritten above, but Chromium's renderer, GPU
-// and utility helpers are separate PIDs: their command line still reads
-// `--type=renderer --user-data-dir=…`, which is a definitive "this is Electron"
-// signal to any scanner that opens them. They are our children, so the browser
-// process can rewrite their PEB from outside (sanitizeRemotePeb). Same-arch
-// only; the native side refuses a WOW64 child rather than guessing offsets.
+// ---------- removed: anti-inspection layer ----------
+// 3.3.7 deletes the native stealth addon and the C# helper's window commands.
+// ETW suppression, local and remote PEB rewriting, module unlinking, a process
+// DACL that denies PROCESS_VM_READ, process-title blending, DWM cloaking, host
+// reparenting and window-class renaming had no product function: they only made
+// the process harder to inspect, which is the behaviour a detector is entitled
+// to treat as evasive. What remains is documented Electron behaviour:
+// setContentProtection() for capture exclusion, and the app's own name and
+// window title everywhere the OS shows it.
 //
-// The fake argv is the real executable with no switches. Every helper gets the
-// same one: consistent with a process that has several instances, and it
-// carries no profile path or Chromium switch back to this app.
-const HARDENED_ARGV = '"' + HARDENED_IMAGE + '"';
-const sanitizedChildPids = new Set();
-function sanitizeChildPebs() {
-  if (process.platform !== 'win32') return;
-  const nat = loadCloak();
-  if (!nat || typeof nat.sanitizeRemotePeb !== 'function') return;
-  let pids = [];
-  try { pids = app.getAppMetrics().map((m) => m.pid).filter(Boolean); } catch { return; }
-  const live = new Set(pids);
-  for (const pid of sanitizedChildPids) if (!live.has(pid)) sanitizedChildPids.delete(pid);
-  for (const pid of pids) {
-    if (pid === process.pid || sanitizedChildPids.has(pid)) continue;
-    try {
-      const r = nat.sanitizeRemotePeb(pid, {
-        commandLine: HARDENED_ARGV,
-        imagePath: HARDENED_IMAGE,
-        windowTitle: IDENTITY.WINDOW_TITLE,
-        currentDirectory: path.dirname(HARDENED_IMAGE),
-      });
-      if (r && r.ok) {
-        sanitizedChildPids.add(pid);
-        mlog('child-peb: ' + pid + ' wrote=' + r.wrote);
-      }
-    } catch {}
-  }
-}
+// The one native dependency left is OCR. Electron has no OCR API, so a small
+// helper calls the in-box Windows engine. It takes an image path and returns
+// recognised lines; it has no window, process or trust-store commands.
+
 
 // ---------- window ----------
 // Chromium writes DevToolsActivePort into the profile; it names a port and a
@@ -597,23 +696,12 @@ function removeDevtoolsPort() {
 // the window a browser screen share samples at 30 fps. `captureScreen()`
 // composites the panel back from the renderer instead.
 
-// A known window inspector (Process Explorer, a proctoring client) is running.
-// While true the exclusion flag is dropped — the panel becomes capturable, so
-// its content is scrambled instead (§7). The flag is the one signal user mode
-// cannot hide (STEALTH.md §11), and these are the only processes that read it.
-let flaglessMode = false;
-function setFlaglessMode(on, name) {
-  const next = Boolean(on);
-  if (next === flaglessMode) return;
-  flaglessMode = next;
-  applyStealth();
-  if (win && !win.isDestroyed()) {
-    try { win.webContents.send('stealth:flagless', { on: next, name: name || '' }); } catch {}
-  }
-}
+// Detector-aware mode (flaglessMode / text scrambling) was removed in 3.3.7.
+// It polled for screen inspectors and dropped the capture exclusion when one was
+// found, so the panel became capturable but unreadable. That is proctoring
+// evasion: it exists to defeat a monitoring tool the user's other party chose to
+// run. Capture exclusion is now a plain privacy setting, not a conditional one.
 
-// The exclusion flag is top-level-only, so when the blend host exists it goes
-// on the host; the child would accept the call but silently keep affinity 0.
 // NVIDIA Broadcast integration. Eye contact is Broadcast's own feature and its
 // model (Maxine AR / NvAR inside NvBroadcastCore.dll) is licensed, not
 // redistributable — so Glance drives Broadcast's loopback MCP gateway instead of
@@ -666,136 +754,14 @@ async function nvidiaStatus() {
   }
 }
 
-function applyAffinity() {
-  const nat = loadCloak();
-  if (!nat || !nat.hostHandle || !win || win.isDestroyed()) return;
-  const host = nat.hostHandle();
-  if (!host) return;
-
-  const wantOn = Boolean(cfg.stealth) && !flaglessMode;
-
-  // The exclusion flag only works on TOP-LEVEL windows, so it has to live on the
-  // host; a call on the reparented child is accepted but has no effect, which
-  // silently removed the protection. Measured: DWMWA_EXCLUDED_FROM_CAPTURE (16)
-  // on the host does not cover the child's pixels either, so the classic flag is
-  // the only mechanism that works through the shim.
-  //
-  // What the shim still buys: the flagged window is no longer Chrome_WidgetWin_1.
-  // A detector that filters by class before checking affinity finds nothing.
-  // re-key the layered host first: a lost colour key makes the flag ineffective
-  try { if (nat.rekey) nat.rekey(host); } catch {}
-  const ok = nat.setAffinity(host, wantOn ? 0x11 : 0);
-  if (ok && wantOn) {
-    // After a hide/show the flag can read back as 0x11 while the window is still
-    // captured: DWM has not recomposed the surface since the call. A cloak/uncloak
-    // cycle forces it and is invisible at this speed.
-    try { nat.cloak(host); nat.uncloak(host); } catch {}
-  }
-}
-
+// Capture exclusion is the only "stealth" left, and it is a plain privacy
+// setting: the overlay is omitted from screen captures and screen shares the
+// same way a password field is. There is no second mechanism, no conditional
+// drop when an inspector is seen, and no native call behind it.
 function applyStealth() {
   if (win && !win.isDestroyed()) {
-    win.setContentProtection(Boolean(cfg.stealth) && !flaglessMode);
+    win.setContentProtection(Boolean(cfg.stealth));
   }
-  // the exclusion flag is top-level only; with the blend host present the flag
-  // belongs on the host, and a call on the child is accepted but ignored
-  if (loadCloak()) applyAffinity();
-}
-
-// DWM-cloak + SetWindowLong the BrowserWindow frame AND every child surface
-// (Chromium splits a BrowserWindow into a top-level frame plus several child
-// hwnds for the actual content, and the renderer child is what captures and
-// a11y walkers hit). Runs the helper per-hwnd so a single bad handle can't
-// abort the pass.
-function runHideHelper(args, cb) {
-  const { spawn } = require('child_process');
-  const child = spawn(HIDE_HELPER, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  let out = '', err = '';
-  const timer = setTimeout(() => { try { child.kill(); } catch {}; cb(new Error('timeout')); }, 10000);
-  child.stdout.on('data', d => out += d);
-  child.stderr.on('data', d => err += d);
-  child.on('close', code => { clearTimeout(timer); cb(null, out, code); });
-  child.on('error', e => { clearTimeout(timer); cb(e); });
-}
-
-// DWM cloak must run inside the process that OWNS the window: a foreign caller
-// gets E_ACCESSDENIED (0x80070005), measured from a helper, PowerShell and a
-// node addon. So this is a tiny in-process napi addon, not a spawned helper.
-// It is optional — a missing binary just means no cloak, never a crash.
-let cloakNative = null;
-function loadCloak() {
-  if (cloakNative !== null || process.platform !== 'win32') return cloakNative;
-  // prefer a build matching this process arch; the packaging step drops one in
-  // per-arch, and build/Release is the plain `npm install` fallback
-  const candidates = [
-    path.join(__dirname, 'native', process.arch, 'cloak.node'),
-    path.join(__dirname, 'native', 'build', 'Release', 'cloak.node'),
-  ];
-  for (const p of candidates) {
-    try {
-      const mod = require(p);
-      // a stale copy from an older build loads fine but lacks newer exports, so
-      // validate before accepting it instead of shadowing the fresh build
-      if (typeof mod.cloak === 'function' && typeof mod.attachHost === 'function') {
-        cloakNative = mod;
-        break;
-      }
-    } catch {}
-  }
-  if (!cloakNative) cloakNative = false;
-  return cloakNative;
-}
-function setDwmCloak(h32, on) {
-  const nat = loadCloak();
-  if (!nat) return false;
-  try {
-    return on ? nat.cloak(h32).ok : nat.uncloak(h32).ok;
-  } catch {
-    return false;
-  }
-}
-
-function cloakHost(on) {
-  const nat = loadCloak();
-  if (!nat || !nat.hostHandle) return;
-  const host = nat.hostHandle();
-  if (!host) return;
-  try { on ? nat.cloak(host) : nat.uncloak(host); } catch {}
-}
-
-function applyDeepStealth(on, cb, soft) {
-  if (process.platform !== 'win32' || !win || win.isDestroyed()) { if (cb) cb(); return; }
-  const h32 = win.getNativeWindowHandle().readUInt32LE(0);
-  // soft = the panel is on screen: capture protection only, never DWM-cloak.
-  // DWMWA_CLOAK stops DWM composing the window, so "cloaked but visible" does
-  // not exist — the cloak has to stay off whenever the user is meant to see the
-  // panel. The soft path used to fall through to the hard cloak because the
-  // helper has no cloak-soft command, which made deep stealth hide the overlay
-  // from its own user; this branch is what keeps it on screen.
-  const finish = () => {
-    let cloaked = false;
-    if (!soft) {
-      // cloak LAST: the helper rewrites ex-styles, and a style write drops the
-      // cloak, so it has to be the final call
-      cloakHost(on);
-      cloaked = setDwmCloak(h32, on);
-    }
-    // The helper's `uncloak` calls SetWindowDisplayAffinity(h, WDA_NONE) on the
-    // root — so every hide/show cycle silently dropped capture protection and the
-    // panel came back capturable until the next config save. Re-assert it here,
-    // after the style/cloak writes, for both directions.
-    applyStealth();
-    if (process.env.WSHX_CLOAK_DEBUG) console.log('[cloak]', h32, on, cloaked, soft ? 'soft' : 'hard');
-    if (cb) cb(null, cloaked);
-  };
-  if (soft) { finish(); return; }
-  if (!ensureHideHelper()) { finish(); return; }
-  const cmd = on ? 'cloak' : 'uncloak';
-  runHideHelper([cmd, String(h32)], finish);
-}
-
-function applyDeepStealthAsync(on, soft) {
-  return new Promise(resolve => applyDeepStealth(on, resolve, soft));
 }
 
 let isShown = false;
@@ -830,22 +796,15 @@ function createWindow() {
   if (!fs.existsSync(iconPath)) iconPath = undefined;
   win = new BrowserWindow({
     ...bounds,
-    title: crypto.randomBytes(8).toString('hex'),
+    title: IDENTITY.WINDOW_TITLE,
     icon: iconPath || undefined,
-    // A reparented window cannot also be a layered (transparent) one: once the
-    // Chromium window is a child of the blend host, its DirectComposition
-    // surface is never composed and the overlay is an empty hole. Measured both
-    // ways (opaque renders, transparent does not), so blend mode trades the
-    // see-through background for being absent from window enumeration — the
-    // host is the only window other apps can find, and the panel paints opaque
-    // over the window colour instead of over the desktop.
-    transparent: !cfg.blendWindow,
+    transparent: true,
     frame: false,
     resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
-    backgroundColor: cfg.blendWindow ? '#aeb8ca' : '#00000000',
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -853,7 +812,8 @@ function createWindow() {
       sandbox: true,
     },
   });
-  // Freeze the window title so EnumWindows sees BLEND_TITLE, not the page title
+  // The page must not rename the window: the OS should show the product's name,
+  // not whatever the current answer happens to be.
   win.on('page-title-updated', (e) => e.preventDefault());
   // TEMP: dump renderer console + JS errors to a file for diagnosis. Packaged
   // builds stay silent unless WSHX_DEBUG_LOG=1: this file records page text and
@@ -879,36 +839,8 @@ function createWindow() {
   diag(`--- session start ${new Date().toISOString()} ---`);
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  if (process.platform === 'win32') {
-    try {
-      win.setTitle(BLEND_TITLE);
-    } catch {}
-  }
   applyStealth();
-  // Apply deep stealth after the window is fully shown — delayed to ensure
-  // ensureHideHelper() has time to compile the C# helper on first run.
-  // soft=true: cloak-soft (no minimize) so the window stays visible on startup.
-  if (cfg.stealthDeep) {
-    const deepApply = () => { if (win && !win.isDestroyed()) applyDeepStealth(true, null, true); };
-    setTimeout(deepApply, 1500);
-    setTimeout(deepApply, 3000);
-  }
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  // An opaque window that is reparented into the blend host can keep the size it
-  // had while the page was laid out, leaving the panel squeezed into a corner of
-  // a larger window (it reads as an empty/black overlay). A one-pixel resize after
-  // the first paint forces a relayout, then the real bounds are restored.
-  win.webContents.once('did-finish-load', () => {
-    try {
-      const b = win.getBounds();
-      win.setBounds({ x: b.x, y: b.y, width: b.width + 1, height: b.height });
-      setTimeout(() => {
-        try {
-          if (win && !win.isDestroyed()) win.setBounds(b);
-        } catch {}
-      }, 80);
-    } catch {}
-  });
   isShown = true;
 
   // save bounds on move/resize — debounced off the main-thread hot path
@@ -929,18 +861,9 @@ function createWindow() {
 async function toggleVisible() {
   if (!win) return;
   if (isShown) {
-    if (cfg.stealthDeep) {
-      const before = win.getBounds();
-    win.setPosition(-32000, -32000); // off every monitor: an unambiguous background
-    } else {
-      win.setPosition(-32000, -32000);
-      win.hide();
-    }
+    win.hide();
     isShown = false;
   } else {
-    if (cfg.stealthDeep) {
-      await applyDeepStealthAsync(false);
-    }
     const b = win.getBounds();
     const { workArea } = screen.getPrimaryDisplay();
     if (b.x < workArea.x || b.y < workArea.y || b.x + b.width > workArea.x + workArea.width || b.y + b.height > workArea.y + workArea.height) {
@@ -953,9 +876,8 @@ async function toggleVisible() {
     } catch {}
     win.focus();
     isShown = true;
-    // Showing is what drops the flag: Chromium builds a fresh surface for the
-    // child, and the helper's uncloak already cleared affinity on the root. The
-    // re-assert in applyDeepStealth runs *before* this show, so it is not enough.
+    // Re-assert capture exclusion after the show: a hide/show cycle builds a new
+    // surface, and the flag belongs to the window that was just shown.
     setTimeout(() => { if (win && !win.isDestroyed()) applyStealth(); }, 150);
     // Broadcast can be restarted between shows; re-assert the effect then.
     setTimeout(() => syncNvidiaEyeContact(), 400);
@@ -987,7 +909,7 @@ function toggleClickThrough() {
 // and looking at a camera, not at the overlay.
 function panicHide() {
   if (!win || win.isDestroyed() || !isShown) return;
-  toggleVisible(); // the hide branch cloaks off-screen and drops the flag state
+  toggleVisible();
 }
 
 function registerShortcuts() {
@@ -1069,7 +991,7 @@ async function captureScreen() {
     tokens: visionTokens(thumbW, thumbH),
     // OCR is extracted locally so the model gets exact text for code, forms
     // and tables instead of having to read glyphs out of the pixels
-    text: cfg.ocr ? ocrBuffer(jpeg) : '',
+    text: cfg.ocr ? await ocrBuffer(jpeg) : '',
   };
 }
 
@@ -1101,33 +1023,22 @@ async function withPanelComposited(screenImage, display) {
 
 // Where the panel sits inside a captured display, in the capture's pixels.
 //
-// The rect comes from the native addon, not from win.getBounds(): after the host
-// blend Electron's idea of the position goes stale (measured 179 px), while the
-// host window is exactly where the user sees the panel.
+// BrowserWindow.getBounds() is DIPs relative to the display; the captured
+// thumbnail is physical pixels. Converting through the display's scale factor
+// is exact now that nothing reparents the window.
 function panelRectOnDisplay(display, img) {
-  const nat = loadCloak();
-  if (!nat || !nat.hostHandle || !nat.windowRect) return null;
   if (!win || win.isDestroyed() || !win.isVisible()) return null;
-  const host = nat.hostHandle();
-  if (!host) return null;
-  const r = nat.windowRect(host);
-  if (!r || !r.ok || r.w < 8 || r.h < 8) return null;
   if (!img || !img.width || !img.height) return null;
+  const r = win.getBounds();
+  if (!r || r.width < 8 || r.height < 8) return null;
 
-  // The addon reads GetWindowRect in this DPI-aware process, so the numbers are
-  // physical pixels; a DPI-unaware caller reads the same window scaled. Pick the
-  // unit by comparing against Electron's own DIP width — its position is stale,
-  // its size is not.
-  const dsf = display.scaleFactor || 1;
-  const bounds = win.getBounds();
-  const unit = Math.abs(r.w - bounds.width) <= Math.abs(r.w - bounds.width * dsf) ? 1 : dsf;
   const pxPerDipX = img.width / display.size.width;
   const pxPerDipY = img.height / display.size.height;
 
-  const x = Math.round((r.x / unit - display.bounds.x) * pxPerDipX);
-  const y = Math.round((r.y / unit - display.bounds.y) * pxPerDipY);
-  const w = Math.round((r.w / unit) * pxPerDipX);
-  const h = Math.round((r.h / unit) * pxPerDipY);
+  const x = Math.round((r.x - display.bounds.x) * pxPerDipX);
+  const y = Math.round((r.y - display.bounds.y) * pxPerDipY);
+  const w = Math.round(r.width * pxPerDipX);
+  const h = Math.round(r.height * pxPerDipY);
   if (w < 8 || h < 8) return null;
   return { x, y, w, h };
 }
@@ -1233,10 +1144,15 @@ function paintPanel(baseImage, pageImage, rect) {
 // screen capture does: the flag applies to the window. The page fills that
 // window exactly, so the composite is the whole frame.
 function capturesOurWindow(src) {
-  const nat = loadCloak();
-  const m = /^window:(\d+)/.exec(String((src && src.id) || ''));
-  if (!m || !nat || !nat.hostHandle) return false;
-  return String(nat.hostHandle()) === m[1];
+  if (!win || win.isDestroyed()) return false;
+  const id = String((src && src.id) || '');
+  // getMediaSourceId() is Electron's documented mapping from a window to the
+  // desktopCapturer source id; no native handle arithmetic is involved.
+  try {
+    return id === String(win.getMediaSourceId());
+  } catch {
+    return false;
+  }
 }
 
 async function compositeOwnWindow(image) {
@@ -1255,14 +1171,35 @@ async function compositeOwnWindow(image) {
 // Run the in-box Windows OCR engine over a captured JPEG. Returns the text, or
 // '' when OCR is unavailable — never throws, because a vision model alone is
 // still a valid answer path.
-function ocrBuffer(jpegBuf) {
-  try {
-    if (!fs.existsSync(HIDE_HELPER)) return '';
-    const out = require('child_process').execFileSync(
-      HIDE_HELPER,
-      ['ocr', 'b64:' + jpegBuf.toString('base64')],
-      { encoding: 'utf8', timeout: 12000, maxBuffer: 8 * 1024 * 1024 },
+//
+// The image goes to a temp file rather than a base64 argument: Windows caps a
+// command line at 32,767 characters, and a 1080p JPEG exceeds that, which made
+// OCR silently return nothing on exactly the frames that needed it most.
+const OCR_HELPER = (() => {
+  if (process.platform !== 'win32') return '';
+  const shipped = process.resourcesPath ? path.join(process.resourcesPath, 'ocr-helper.exe') : '';
+  if (shipped && fs.existsSync(shipped)) return shipped;
+  const dev = path.join(__dirname, '..', 'build', 'ocr-helper.exe');
+  return fs.existsSync(dev) ? dev : '';
+})();
+
+function runFile(file, args) {
+  return new Promise((resolve, reject) => {
+    require('child_process').execFile(
+      file,
+      args,
+      { encoding: 'utf8', timeout: 12000, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
     );
+  });
+}
+
+async function ocrBuffer(jpegBuf) {
+  if (!OCR_HELPER) return '';
+  const tmp = path.join(require('os').tmpdir(), 'glance-ocr-' + process.pid + '-' + Date.now() + '.jpg');
+  try {
+    fs.writeFileSync(tmp, jpegBuf);
+    const out = await runFile(OCR_HELPER, ['ocr', tmp]);
     const lines = [];
     for (const line of out.split(/\r?\n/)) {
       const m = /^L\t(.+)$/.exec(line);
@@ -1271,288 +1208,15 @@ function ocrBuffer(jpegBuf) {
     return lines.join('\n').trim();
   } catch {
     return '';
-  }
-}
-
-// ---------- ghost check: prove the exclusion from inside the app ----------
-// The claim "nothing that captures your screen sees this" is worth one button
-// that tests it on the machine you are actually sitting at, because capture
-// behaviour depends on the Windows build, the compositor and the capturer.
-//
-// Method, the same shape as the shipped scripts/capture-ab.js: sample a region
-// over the panel while it is protected, hide the panel, sample the identical
-// region again, and compare. Identical hashes mean the capture cannot see the
-// pixels. Pixel equality alone does not say *which* mechanism produced it, so
-// the affinity flag is read back too (0x11 excluded, 0x1 monitor fallback).
-const GHOST_SAMPLE = { w: 180, h: 110 };
-
-function grabRaw(display) {
-  const s = display.scaleFactor || 1;
-  // desktopCapturer only — never touches capture protection, so the panel stays
-  // excluded for the whole check.
-  return desktopCapturer.getSources({
-    types: ['screen'],
-    thumbnailSize: {
-      width: Math.round(display.size.width * s),
-      height: Math.round(display.size.height * s),
-    },
-  });
-}
-
-// Contrast between the inside and the outside of the panel, measured in one frame.
-//
-// Absolute luminance fails here because the panel is translucent glass: what a
-// capture shows depends on the desktop behind it, which changes between samples.
-// Comparing the panel's interior with the desktop just beside it is self-
-// referencing — same frame, same background — so it stays stable whether the
-// page behind is white, dark or moving.
-//   excluded  —  inside looks like the desktop  —  small contrast
-//   captured  —  inside is tinted glass         —  large contrast
-// The panel's real screen rectangle, read from the OS.
-//
-// win.getBounds() after a reparent is Electron's own idea of the position and can
-// disagree with where the composed window actually is (measured 179px off here),
-// so the sample area is derived from EnumWindows + GetWindowRect instead.
-function hostRectExternal() {
-  // Our own PIDs, passed explicitly. Name matching (`Get-Process assistant`)
-  // broke the moment the product was renamed, and a generic name matches
-  // unrelated processes — measuring the wrong window.
-  let pids = [process.pid];
-  try { pids = [...new Set([process.pid, ...app.getAppMetrics().map((m) => m.pid).filter(Boolean)])]; } catch {}
-  const idsLiteral = `New-Object 'uint32[]' @(${pids.join(',')})`;
-  const script = [
-    'Add-Type -TypeDefinition \'using System;using System.Collections.Generic;using System.Runtime.InteropServices;',
-    'public class E { public delegate bool P(IntPtr h, IntPtr l);',
-    ' [DllImport("user32.dll")] public static extern bool EnumWindows(P p, IntPtr l);',
-    ' [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
-    ' [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);',
-    ' [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RC r);',
-    ' [StructLayout(LayoutKind.Sequential)] public struct RC { public int l,t,r,b; }',
-    ' public static List<int[]> V(uint[] t) { var o = new List<int[]>();',
-    '  EnumWindows((h,l) => { uint p; GetWindowThreadProcessId(h, out p);',
-    '   if (Array.IndexOf(t, p) >= 0 && IsWindowVisible(h)) { RC r; GetWindowRect(h, out r);',
-    '     var a = (r.r-r.l)*(r.b-r.t); if (a > 10000) o.Add(new int[]{ r.l, r.t, r.r-r.l, r.b-r.t, a }); }',
-    '   return true; }, IntPtr.Zero); return o; } }\'',
-    `$ids = ${idsLiteral}`,
-    "if ($ids.Count -eq 0) { 'none'; exit }",
-    '$best = $null; $area = 0',
-    'foreach ($r in [E]::V($ids)) { if ($r[4] -gt $area) { $area = $r[4]; $best = $r } }',
-    "if (-not $best) { 'none'; exit }",
-    '"$($best[0]) $($best[1]) $($best[2]) $($best[3])"',
-  ].join("\n");
-  const file = path.join(require('os').tmpdir(), 'stealth-rect-' + process.pid + '.ps1');
-  fs.writeFileSync(file, script);
-  try {
-    const out = require('child_process').execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
-      encoding: 'utf8', timeout: 12000, windowsHide: true,
-    }).trim();
-    if (!out || out === 'none') return null;
-    const [x, y, w, h] = out.split(/\s+/).map(Number);
-    return Number.isFinite(x) && w > 100 ? { x, y, w, h } : null;
-  } catch {
-    return null;
   } finally {
-    try { fs.unlinkSync(file); } catch {}
+    try { fs.unlinkSync(tmp); } catch {}
   }
 }
 
-// A vertical strip across the panel's left border, in screen pixels.
-//
-// Mean luminance alone cannot separate the panel from the desktop on a dark
-// theme: measured 31-38 in every phase. The panel's 1px light border is a step
-// that exists only when the panel is drawn, so the strip is centred on it and the
-// strongest column-to-column jump is the signal.
-function sampleGeometry() {
-  const b = hostRectExternal();
-  if (!b) throw new Error('panel window not found for sampling');
-  const half = 30;
-  return {
-    rect: {
-      x: b.x - half,
-      y: b.y + Math.round(b.h * 0.25),
-      w: half * 2,
-      h: Math.min(220, Math.round(b.h * 0.4)),
-      borderX: half, // the border sits half way into the strip
-    },
-  };
-}
-
-// Strongest column-to-column brightness step in the strip, and where it is.
-// A captured panel puts a light 1px border at a fixed column; an excluded capture
-// only has whatever the desktop happens to contain.
-async function borderStep(rect, borderX) {
-  const script = [
-    'Add-Type -AssemblyName System.Drawing',
-    "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;",
-    'public class B { [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);',
-    ' [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr d,int x,int y,int w,int h,IntPtr s,int sx,int sy,int r);',
-    ' [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr d); }\'',
-    `$bmp = New-Object System.Drawing.Bitmap ${rect.w}, ${rect.h}`,
-    '$g = [System.Drawing.Graphics]::FromImage($bmp); $hdc = $g.GetHdc(); $src = [B]::GetDC([IntPtr]::Zero)',
-    `[void][B]::BitBlt($hdc, 0, 0, ${rect.w}, ${rect.h}, $src, ${rect.x}, ${rect.y}, 0x00CC0020)`,
-    '[void][B]::ReleaseDC([IntPtr]::Zero, $src); $g.ReleaseHdc($hdc); $g.Dispose()',
-    `for ($x = 0; $x -lt ${rect.w}; $x++) { $sum = 0.0`,
-    `  for ($y = 0; $y -lt ${rect.h}; $y += 2) { $c = $bmp.GetPixel($x, $y); $sum += (0.2126*$c.R + 0.7152*$c.G + 0.0722*$c.B) }`,
-    `  [math]::Round($sum / ${Math.ceil(rect.h / 2)}, 2) }`,
-    '$bmp.Dispose()',
-  ].join("\n");
-  const file = path.join(require('os').tmpdir(), 'stealth-strip-' + process.pid + '.ps1');
-  fs.writeFileSync(file, script);
-  try {
-    const out = require('child_process').execFileSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file], {
-      encoding: 'utf8', timeout: 15000, windowsHide: true,
-    }).trim();
-    const cols = out.split(/\r?\n/).map(Number).filter((n) => Number.isFinite(n));
-    if (cols.length < 10) return null;
-    let best = 0, at = -1;
-    for (let i = 1; i < cols.length; i++) {
-      const d = Math.abs(cols[i] - cols[i - 1]);
-      if (d > best) { best = d; at = i; }
-    }
-    // a step at the border is what the panel produces; noise is elsewhere
-    const nearBorder = at >= borderX - 16 && at <= borderX + 16;
-    return { step: best, at, nearBorder };
-  } catch {
-    return null;
-  } finally {
-    try { fs.unlinkSync(file); } catch {}
-  }
-}
-
-// median of a few attempts: a cursor or a repaint can land in one frame
-async function stableStep(rect, borderX) {
-  const v = [];
-  for (let i = 0; i < 3; i++) {
-    const r = await borderStep(rect, borderX);
-    if (r) v.push(r);
-    await delay(120);
-  }
-  if (!v.length) throw new Error('screen capture unavailable');
-  v.sort((a, b) => b.step - a.step);
-  return v[Math.floor(v.length / 2)];
-}
-
-// Capture the panel's own window source and ask whether the frame came back empty.
-//
-// This is the clean oracle the luminance attempts were looking for: a protected
-// window is listed as a capture source but yields a 0x0 frame (WGC logs
-// "GetFrame failed"), while an unprotected one yields real pixels. Measured:
-// 0x0 protected vs 769x600 / 461400 px unprotected. It does not depend on what is
-// on the desktop, so it cannot be confused by a bright or a dark page.
-async function selfCaptureEmpty() {
-  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 800, height: 600 } });
-  const me = sources.find((s) => s.name === BLEND_TITLE) ||
-    sources.find((s) => /assistant|wshx-host|electron/i.test(s.name || ''));
-  if (!me) return { listed: false, empty: null, size: null, names: sources.map((x) => x.name).slice(0, 12) };
-  const size = me.thumbnail.getSize();
-  return { listed: true, empty: size.width < 8 || size.height < 8, size };
-}
-
-async function stealthReport() {
-  if (process.platform !== 'win32') return { ok: false, reason: 'Windows only' };
-  if (!win || win.isDestroyed()) return { ok: false, reason: 'no window' };
-  const nat = loadCloak();
-  if (!nat || !nat.hostHandle) return { ok: false, reason: 'native addon unavailable (host shim off)' };
-  const host = nat.hostHandle();
-  if (!host) return { ok: false, reason: 'host window missing — class and flag are unprotected' };
-
-  // Deliberately not short-circuited when stealth is off: the report is most
-  // useful as a diagnosis of the bad case, so it runs and fails the capture row.
-
-  const wasShown = isShown;
-  if (!isShown) { win.showInactive(); isShown = true; }
-  applyStealth(); // make sure the flag is asserted, not merely remembered
-  await delay(600);
-
-  const affinity = nat.getAffinity(host);
-  const bounds = win.getBounds();
-
-  // Reference: panel on screen with protection deliberately off — how much
-  // contrast the panel itself creates against its surroundings.
-  // Both measurements happen over the same grey backdrop, so the numbers are
-  // comparable regardless of what is on the desktop.
-  // Control: panel unprotected. If the frame is not empty here, the oracle is dead
-  // and the row says nothing. Then the real measurement, protected.
-  const wasStealth = cfg.stealth;
-  cfg.stealth = false;
-  applyStealth();
-  await delay(700);
-  const control = await selfCaptureEmpty();
-
-  cfg.stealth = true;
-  applyStealth();
-  await delay(700);
-  const probe = await selfCaptureEmpty();
-  cfg.stealth = wasStealth;
-  if (!wasShown) { win.hide(); isShown = false; }
-
-  const conclusive = control.listed && control.empty === false;
-  const excluded = conclusive && probe.empty === true;
-
-  const mechanism = affinity === 17 ? 'excluded' : affinity === 1 ? 'monitor' : 'none';
-
-  // Everything a detector can read, measured — not restated from settings. Each
-  // row says what the machine actually reports right now, so a weak machine shows
-  // the weak row instead of a blanket "hidden".
-  const cls = nat.className(host);
-  const ex = Number(nat.exStyle(host)) || 0;
-  const title = nat.title(host);
-  const chromiumChildren = nat.childChromiumClasses(host);
-  const hasTool = (ex & 0x80) !== 0; // WS_EX_TOOLWINDOW —  no taskbar, no Alt+Tab
-  const hasTop = (ex & 0x8) !== 0; // WS_EX_TOPMOST
-
-  const tell = (id, label, status, detail) => ({ id, label, status, detail });
-  const tells = [
-    tell('capture', 'Pixels absent from a screen capture', 'info',
-      'Chromium hides the app\'s own windows from its own window list, so this cannot be measured in-process. Definitive test: npm run capture-probe — protected returns a 0x0 empty frame, unprotected returns real pixels (measured 0x0 vs 769x600 / 461400 px).'),
-    tell('affinity', 'Capture-exclusion flag', affinity === 17 ? 'pass' : affinity === 1 ? 'warn' : 'fail',
-      affinity === 17 ? 'GetWindowDisplayAffinity reads 0x11 (WDA_EXCLUDEFROMCAPTURE).'
-        : affinity === 1 ? 'Reads 0x1 (WDA_MONITOR): a black block, not a hidden window. Windows 10 2004+ is needed for 0x11.'
-          : 'No flag set — the window is capturable.'),
-    tell('class', 'Window class', /chrome/i.test(cls) ? 'fail' : 'pass',
-      /chrome/i.test(cls) ? `Enumerated window is ${cls}, which says Electron.`
-        : `Enumerated window is "${cls}", an innocuous shell-style class.`),
-    tell('estyle', 'Not in the taskbar or Alt-Tab', hasTool ? 'pass' : 'warn',
-      hasTool ? 'WS_EX_TOOLWINDOW set: no taskbar button and no Alt+Tab entry.'
-        : 'WS_EX_TOOLWINDOW missing — the window shows up in Alt+Tab.'),
-    tell('topmost', 'Stays above other windows', hasTop ? 'pass' : 'warn',
-      hasTop ? 'WS_EX_TOPMOST set.' : 'Not topmost; the window can be covered.'),
-    tell('title', 'Window title', title ? 'warn' : 'pass',
-      title ? `Title reads "${title}" — a word, not a random hex string, but it does name the tool.`
-        : 'No title at all, so the enumeration shows nothing to read.'),
-    tell('children', 'Chromium child windows', chromiumChildren === 0 ? 'pass' : 'warn',
-      chromiumChildren === 0 ? 'No Chromium-classed children under the host.'
-        : `${chromiumChildren} child window(s) still use a Chrome_WidgetWin class — only visible if a detector walks children.`),
-    tell('uia', 'Accessibility tree', app.accessibilitySupportEnabled ? 'warn' : 'pass',
-      app.accessibilitySupportEnabled ? 'UIA is enabled; the panel text can be walked by an accessibility tool.'
-        : 'Chromium accessibility is off, so the UIA tree is minimal.'),
-    tell('devtools', 'DevTools port file', fs.existsSync(path.join(app.getPath('userData'), 'DevToolsActivePort')) ? 'warn' : 'pass',
-      fs.existsSync(path.join(app.getPath('userData'), 'DevToolsActivePort')) ? 'DevToolsActivePort exists next to the profile.'
-        : 'No DevToolsActivePort file left in the profile.'),
-    tell('process', 'Process identity', 'info',
-      `${path.basename(process.execPath)} — visible in any process list; the mirror path and version resource are what a scraper reads.`),
-  ];
-
-  const fails = tells.filter((t) => t.status === 'fail').length;
-  const warns = tells.filter((t) => t.status === 'warn').length;
-  const ok = fails === 0;
-  return {
-    ok,
-    fails,
-    warns,
-    tells,
-    // kept for the older single-check callers
-    pixelExcluded: excluded,
-    affinity,
-    mechanism,
-    bounds,
-    probe: { control, probe },
-    affinityAfter: probe.empty === null ? null : nat.getAffinity(host),
-    verdict: ok
-      ? `PASS — ${tells.length - warns} of ${tells.length} tells clean${warns ? `, ${warns} caveat(s)` : ''}. A screen capture returns your screen without this panel.`
-      : `FAIL — ${fails} tell(s) let a detector notice the panel.`,
-  };
-}
+// The in-app "ghost check" report was removed with the native layer. It measured
+// DWM affinity, window classes and extended styles, which only existed because
+// the app was trying to be unenumerable. Capture exclusion is now verified by
+// the same path every capturer uses: npm run capture-probe.
 
 // ---------- meeting detection ----------
 // The overlay is most useful at the moment a call starts, and that is exactly the
@@ -1609,56 +1273,20 @@ function setupUpdater() {
     // required inside try: a dev checkout has no electron-updater in the app dir
     const { autoUpdater } = require('electron-updater');
     updater = autoUpdater;
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = false;
+    autoUpdater.allowDowngrade = false;
 
-    autoUpdater.on('update-available', (i) => updaterStatus(`Downloading update ${i.version}—€—`));
+    autoUpdater.on('update-available', (i) => updaterStatus(`Update ${i.version} available - click to download`));
     autoUpdater.on('update-not-available', () => updaterStatus('Up to date'));
     autoUpdater.on('update-downloaded', (i) =>
-      updaterStatus(`Update ${i.version} ready — restart to apply`, 'info'));
+      updaterStatus(`Update ${i.version} ready - restart to apply`, 'info'));
     autoUpdater.on('error', (e) => updaterStatus('Update check failed: ' + String(e.message).slice(0, 90), 'warn'));
 
     // wait a little after boot so an update check never delays the first paint
     setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
   } catch {}
-}
-
-// ---------- host blend: hide the class name and the affinity flag ----------
-// A detector that enumerates top-level windows finds the overlay, reads its class
-// (Chrome_WidgetWin_1 —  "Electron") and GetWindowDisplayAffinity (0x11 — 
-// "deliberately hidden"). Reparenting the window under an innocuous host means
-// only the host is enumerated: our class, and no affinity flag at all.
-// The child keeps the exclusion, so capture is unaffected.
-let hostTimer = null;
-
-function setupHostBlend() {
-  if (process.platform !== 'win32' || !win || win.isDestroyed()) { mlog('host: no win'); return; }
-  if (cfg.blendWindow === false) { mlog('host: disabled by config'); return; }
-  const nat = loadCloak();
-  if (!nat || !nat.attachHost) { mlog('host: addon missing'); return; }
-  try {
-    const h32 = win.getNativeWindowHandle().readUInt32LE(0);
-    const r = nat.attachHost(h32);
-    mlog(`host: attach hwnd=${h32} -> ${JSON.stringify(r)}`);
-    if (!r || !r.ok) return;
-    // Electron still moves the window with screen coordinates; the addon turns
-    // each such move into the host's new position. 30 ms tracks a drag closely
-    // without burning CPU on an idle window.
-    hostTimer = setInterval(() => {
-      try {
-        if (win && !win.isDestroyed()) nat.syncHost();
-      } catch {}
-    }, 30);
-    if (hostTimer.unref) hostTimer.unref();
-    applyStealth(); // move the exclusion flag onto the host
-  } catch {}
-}
-
-function teardownHostBlend() {
-  if (hostTimer) { clearInterval(hostTimer); hostTimer = null; }
-  const nat = loadCloak();
-  if (nat && nat.detachHost) { try { nat.detachHost(); } catch {} }
 }
 
 // ---------- LLM ----------
@@ -2049,25 +1677,103 @@ async function speak(_e, { text }) {
 // ---------- conversation state ----------
 const statePath = () => path.join(app.getPath('userData'), 'state.json');
 
+const EMPTY_STATE = () => ({ history: [], transcript: '', transcriptLog: [], memory: [] });
+
+function stateString(v, max) {
+  return typeof v === 'string' ? v.slice(0, max) : '';
+}
+
+// The renderer is allowed to send a transcript only after the user has opted in
+// to saving it. This is enforced here as well as in the UI: a renderer bug, a
+// stale page or a future feature cannot write meeting audio text to disk by
+// calling state:set directly.
+function sanitizeState(raw) {
+  const out = EMPTY_STATE();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  if (Array.isArray(raw.history)) {
+    out.history = raw.history
+      .filter((m) => m && typeof m === 'object' && !Array.isArray(m))
+      .map((m) => ({
+        role: ['system', 'user', 'assistant'].includes(m.role) ? m.role : 'user',
+        content: stateString(m.content, 200000),
+        ...(typeof m.at === 'string' ? { at: m.at.slice(0, 40) } : {}),
+      }))
+      .filter((m) => m.content)
+      .slice(-100);
+  }
+  if (cfg.persistTranscript === true) {
+    out.transcript = stateString(raw.transcript, 20000);
+    if (Array.isArray(raw.transcriptLog)) {
+      out.transcriptLog = raw.transcriptLog
+        .filter((e) => e && typeof e === 'object' && !Array.isArray(e))
+        .map((e) => ({
+          at: stateString(e.at, 40),
+          text: stateString(e.text, 4000),
+          ...(typeof e.who === 'string' ? { who: e.who.slice(0, 20) } : {}),
+        }))
+        .filter((e) => e.text)
+        .slice(-500);
+    }
+  }
+  if (Array.isArray(raw.memory)) {
+    out.memory = raw.memory
+      .filter((m) => m && typeof m === 'object' && !Array.isArray(m))
+      .map((m) => ({
+        at: stateString(m.at, 40),
+        kind: stateString(m.kind, 40) || 'note',
+        text: stateString(m.text, 4000),
+      }))
+      .filter((m) => m.text)
+      .slice(-200);
+  }
+  return out;
+}
+
 function loadState() {
   try {
     const raw = JSON.parse(fs.readFileSync(statePath(), 'utf8'));
     if (raw && raw.enc) {
       // DPAPI-encrypted at rest — without the blob, no history on disk
       const txt = decryptBlob(raw.enc);
-      return txt ? JSON.parse(txt) : { history: [], transcript: '' };
+      return txt ? sanitizeState(JSON.parse(txt)) : EMPTY_STATE();
     }
-    return { history: raw.history || [], transcript: raw.transcript || '' }; // legacy plaintext
+    return sanitizeState(raw); // legacy plaintext, migrated on the next save
   } catch {
-    return { history: [], transcript: '' };
+    return EMPTY_STATE();
   }
 }
 
 function saveState(next) {
   fs.mkdirSync(path.dirname(statePath()), { recursive: true });
-  const enc = encryptBlob(JSON.stringify(next));
-  if (!enc) return; // no DPAPI available => nothing on disk (fail closed)
+  const enc = encryptBlob(JSON.stringify(sanitizeState(next)));
+  if (!enc) return false; // no DPAPI available => nothing on disk (fail closed)
   writeFileAtomic(statePath(), JSON.stringify({ enc }));
+  return true;
+}
+
+// A pre-3.3.7 profile stored the full transcript by default. On the first launch
+// without the new opt-in, remove it from disk while keeping history and memory.
+// If DPAPI is unavailable the plaintext file is deleted rather than left behind.
+function scrubStoredTranscript() {
+  if (cfg.persistTranscript === true) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(statePath(), 'utf8'));
+    let parsed = raw;
+    if (raw && raw.enc) {
+      const txt = decryptBlob(raw.enc);
+      if (!txt) return; // cannot read it; never rewrite an unreadable blob
+      parsed = JSON.parse(txt);
+    }
+    if (!parsed || typeof parsed !== 'object') return;
+    const hasTranscript =
+      Boolean(parsed.transcript) ||
+      (Array.isArray(parsed.transcriptLog) && parsed.transcriptLog.length > 0);
+    if (!hasTranscript) return;
+    const clean = sanitizeState(parsed);
+    const enc = encryptBlob(JSON.stringify(clean));
+    if (enc) writeFileAtomic(statePath(), JSON.stringify({ enc }));
+    else fs.unlinkSync(statePath());
+  } catch {}
 }
 
 function encryptBlob(str) {
@@ -2128,16 +1834,9 @@ if (!singleInstance) {
   });
 }
 
-// GPU stealth: disable the hardware GPU process entirely so Chromium renders
-// via its software rasterizer (SwiftShader) instead of creating a
-// D3D11On12Device / ANGLE swap chain that a GPU debugger would fingerprint.
-// This removes the `--type=gpu-process` child and the D3D11 device usage.
-// --disable-gpu-sandbox: prevents a sandboxed GPU helper from spawning.
-app.commandLine.appendSwitch('disable-gpu');
-// --single-process was tried here: it cuts the process list from five to one but
-// dies during window creation on this build (measured), so it stays off.
-app.commandLine.appendSwitch('disable-gpu-sandbox');
-app.commandLine.appendSwitch('use-gl', 'swiftshader');
+// Hardware acceleration stays on. Disabling the GPU process was an attempt to
+// erase a GPU-debugger fingerprint, and it made the overlay slower and heavier
+// on every machine to hide something that is not a secret.
 // An overlay is covered by whatever is behind/over it all the time. Without these
 // Chromium throttles a fully occluded window, so the panel can look frozen or
 // repaint late exactly when a call is on top of it.
@@ -2213,12 +1912,26 @@ app.whenReady().then(() => {
   // down: whenReady used to be registered outside the lock, so a rapid second
   // launch could add a second overlay before exiting.
   if (!singleInstance) return;
+  // Navigation and window creation are denied by default. This app loads exactly
+  // one local page; any attempt to navigate elsewhere, open a child window, or
+  // attach a <webview> is refused. Without this, a link in model output or any
+  // future HTML injection turns the renderer into a page of the attacker's
+  // choosing while it still holds the preload bridge.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.on('will-attach-webview', (event) => event.preventDefault());
+    contents.on('will-navigate', (event, url) => {
+      if (!isAppUrl(url)) event.preventDefault();
+    });
+    contents.on('will-redirect', (event, url) => {
+      if (!isAppUrl(url)) event.preventDefault();
+    });
+  });
   protocol.handle(MP_SCHEME, mpRequestHandler);
-  // Point Chromium's per-app profile folder (userData) at a path that does not
-  // contain identifying strings. The default is %APPDATA%\<appName>, which
-  // reads as the app's name in every file listing. We keep it under APPDATA so
-  // the wipe-helper path math (sibling of userData) still works, and the
-  // folder name blends in with the rest of the per-user app state.
+  // Keep Chromium's profile under %APPDATA%\Glance AI, the product's own name.
+  // Earlier builds renamed it to a Windows-component name and marked it
+  // system+hidden; both are retired. The migration below still adopts data from
+  // those folders so an upgrade does not lose settings.
   if (process.platform === 'win32' && !process.env.RB_PROFILE_DIR) {
     try {
       // one-time migration across every previous name, oldest first so the most
@@ -2261,11 +1974,6 @@ app.whenReady().then(() => {
         }
       }
       app.setPath('userData', PROFILE_DIR);
-      // the profile is a plain "%APPDATA%\<name>" folder and shows in any listing;
-      // flag it system+hidden like the install trees
-      try {
-        require('child_process').execFileSync('attrib', ['+s', '+h', PROFILE_DIR], { stdio: 'ignore', timeout: 3000 });
-      } catch {}
     } catch {}
   }
   // a wipe was requested earlier but never completed (the cleanup helper can die
@@ -2286,6 +1994,9 @@ app.whenReady().then(() => {
     pendingWipe = true;
   }
   loadConfig();
+  // The transcript is opt-in. Remove any copy an older build wrote before the
+  // renderer can read it, while keeping history and long-term memory.
+  scrubStoredTranscript();
   // Migrate once, and only when a legacy plaintext key actually exists. The old
   // unconditional saveConfig({}) rewrote the file on every launch and erased any
   // blob it had just failed to decrypt (V-05) — and resurrected config.json on
@@ -2307,7 +2018,7 @@ app.whenReady().then(() => {
   // wins, and a per-user value left over from an older build is removed.
   const RUN_KEY = 'HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
   const HKCU_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
-  if (app.isPackaged) {
+  if (app.isPackaged && !process.env.RB_PROFILE_DIR && !SMOKE_TEST) {
     const { execFileSync } = require('child_process');
     const hasRun = (key, name) => {
       try {
@@ -2349,48 +2060,21 @@ app.whenReady().then(() => {
     }
   }
 
-  // stealth: shrink the accessibility tree surface (UIA/MSAA see far less of the overlay)
-  try { app.accessibilitySupportEnabled = false; } catch {}
+  if (!SMOKE_TEST) {
+    setupUpdater();
+    watchForMeetings();
+    // Broadcast may still be starting; retry once after the app is up. If it is
+    // not installed or not running this resolves quietly.
+    setTimeout(() => syncNvidiaEyeContact(), 3000);
+  }
 
-  setupUpdater();
-  watchForMeetings();
-  // Detector-aware mode: a known window inspector is running, so drop the one
-  // flag it would read and let the renderer scramble the text instead.
-  startDetectorWatch({ onChange: (name) => setFlaglessMode(Boolean(name), name) });
-  // Broadcast may still be starting; retry once after the app is up. If it is
-  // not installed or not running this resolves quietly.
-  setTimeout(() => syncNvidiaEyeContact(), 3000);
-
-  // stealth: AUMID grouping hint so the shell/taskbar associates the window
-  // with a familiar Windows component. This does NOT rename the process or
-  // change what Task Manager's process column shows (that comes from the exe
-  // version resource). Combined with process.title blending below.
+  // AUMID grouping is a normal Electron setting: it tells the shell which app
+  // owns the window for notifications and taskbar grouping. It is not a
+  // rename and does not change what Task Manager shows.
   if (process.platform === 'win32') {
     try {
       app.setAppUserModelId(IDENTITY.APP_ID);
     } catch {}
-    // Blend the whole process tree's window titles into a generic shell name so
-    // Task Manager's per-process view + EnumWindows tools can't correlate a
-    // family of windows. Re-run periodically to catch late-spawned
-    // GPU/renderer helpers.
-    blendProcessTitles();
-    // Helpers spawn and respawn on navigation/crash: patch each new PID quickly.
-    // `blendProcessTitles` already runs every 5 s; this is the same idea for the
-    // command line, which is the string that fingerprints Electron.
-    sanitizeChildPebs();
-    setInterval(sanitizeChildPebs, 500).unref();
-    // Hide the chrome_elf.dll integrity checker from directory listings if present.
-    if (ensureHideHelper()) {
-      try {
-        const installDir = path.dirname(process.execPath);
-        require('child_process').execFileSync(HIDE_HELPER, ['hide-chrome-elf', installDir], { stdio: 'ignore', timeout: 3000 });
-      } catch {}
-    }
-    setInterval(() => {
-      try {
-        if (app.isReady()) blendProcessTitles();
-      } catch {}
-    }, 5000).unref();
     // The capture exclusion can be dropped without anyone noticing: a hide/show
     // cycle, a DWM reset, a renderer restart, or another process calling
     // SetWindowDisplayAffinity on the window. Re-assert it on a slow timer while
@@ -2405,21 +2089,37 @@ app.whenReady().then(() => {
 
   // The renderer is sandboxed and has no permission prompt UI of its own, so
   // getUserMedia/getDisplayMedia are denied unless the session grants them.
-  // Without this the Listen button fails silently with NotAllowedError.
+  // Every grant is scoped to this app's own webContents and this app's own
+  // page: a handler that answers only by permission name grants the microphone
+  // to whatever page happens to be loaded.
   const ALLOWED_PERMISSIONS = new Set([
     'media', 'display-capture', 'audioCapture', 'videoCapture',
-    // the Copy button writes the answer to the OS clipboard
-    'clipboard-sanitized-write', 'clipboard-read',
+    // the Copy button writes the answer to the OS clipboard. clipboard-read is
+    // deliberately not granted: nothing in the UI reads the clipboard.
+    'clipboard-sanitized-write',
   ]);
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(ALLOWED_PERMISSIONS.has(permission));
+  const isAppContents = (wc) => Boolean(win && !win.isDestroyed() && wc === win.webContents);
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const url = (details && details.requestingUrl) || (wc && wc.getURL()) || '';
+    callback(isAppContents(wc) && isAppUrl(url) && ALLOWED_PERMISSIONS.has(permission));
   });
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
-    ALLOWED_PERMISSIONS.has(permission),
-  );
+  session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin, details) => {
+    // The check handler does not always receive a full URL; require this app's
+    // webContents, a file: origin, and the same allow-list.
+    if (!isAppContents(wc)) return false;
+    if (!ALLOWED_PERMISSIONS.has(permission)) return false;
+    const origin = String(requestingOrigin || (details && details.requestingUrl) || '');
+    return origin.startsWith('file://');
+  });
   // lets the renderer capture system audio (WASAPI loopback) via getDisplayMedia,
   // honouring the display picker instead of always grabbing display 0
-  session.defaultSession.setDisplayMediaRequestHandler(async (_req, cb) => {
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, cb) => {
+    // Only this app's own page may ask. A denied request is cancelled with an
+    // empty object; it never silently falls back to display 0.
+    if (!request || !request.frame || !isAppUrl(request.frame.url)) {
+      try { cb({}); } catch {}
+      return;
+    }
     const wantWindow = cfg.captureDisplay && String(cfg.captureDisplay).startsWith('window:')
       ? String(cfg.captureDisplay).slice(7)
       : '';
@@ -2439,7 +2139,8 @@ app.whenReady().then(() => {
   handle('models:list', async (_e, { baseUrl, apiKey, purpose }) => {
     try {
       const base = (baseUrl || cfg.baseUrl).replace(/\/+$/, '');
-      if (!/^https?:\/\//i.test(base)) return { error: 'Base URL must start with http:// or https://' };
+      const urlError = providerUrlError(base);
+      if (urlError) return { error: urlError };
       // A renderer-supplied URL may only borrow a stored key when it points at a
       // provider the user already configured, or at a local model server. Anything
       // else must bring its own key, so this handler can never exfiltrate one.
@@ -2459,9 +2160,7 @@ app.whenReady().then(() => {
           }
         })
         .filter(Boolean);
-      const isLocal = /^(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)$/.test(
-        target.hostname,
-      );
+      const isLocal = isLoopbackHost(target.hostname);
       // A separate audio provider is a separate trust domain: never lend it the chat
       // key. providerKey() refuses that combination on the request path; model
       // discovery must obey the same rule (this was the remaining cross-provider leak).
@@ -2503,24 +2202,42 @@ app.whenReady().then(() => {
     }
   });
   handle('config:set', (_e, next) => {
-    // a settings save can flip stealthDeep — re-apply the native state so the
-    // toggle doesn't wait for the next show. soft: never cloak a window the
-    // user is looking at (see applyDeepStealth).
-    if (Object.prototype.hasOwnProperty.call(next, 'stealthDeep')) {
-      applyDeepStealth(Boolean(next.stealthDeep), null, true);
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'stealth')) {
-      applyStealth();
-    }
-    if (Object.prototype.hasOwnProperty.call(next, 'nvidiaEyeContact')) {
-      syncNvidiaEyeContact();
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      return { error: 'config:set expects an object' };
     }
     const clean = { ...next };
+    // Provider URLs are validated before anything is written. A public http://
+    // endpoint would put the bearer token on the wire in clear text.
+    for (const urlKey of ['baseUrl', 'transcribeBaseUrl', 'ttsBaseUrl', 'fallbackBaseUrl']) {
+      if (!Object.prototype.hasOwnProperty.call(clean, urlKey)) continue;
+      if (!clean[urlKey]) { delete clean[urlKey]; continue; } // blank = default
+      const urlError = providerUrlError(clean[urlKey]);
+      if (urlError) return { error: urlError };
+    }
+    // A key belongs to the origin it was entered for. Changing a provider URL
+    // without re-entering the key clears it, so a renderer cannot repoint the
+    // stored credential at a host of its choosing.
+    const originOf = (u) => {
+      try { return u ? new URL(String(u)).origin : null; } catch { return null; }
+    };
+    const rebind = new Set();
+    for (const [keyField, urlField] of [
+      ['apiKey', 'baseUrl'],
+      ['transcribeApiKey', 'transcribeBaseUrl'],
+      ['ttsApiKey', 'ttsBaseUrl'],
+      ['fallbackApiKey', 'fallbackBaseUrl'],
+    ]) {
+      if (!Object.prototype.hasOwnProperty.call(clean, urlField)) continue;
+      const before = originOf(cfg[urlField] || DEFAULTS[urlField]);
+      const after = originOf(clean[urlField] || DEFAULTS[urlField]);
+      if (before !== after) rebind.add(keyField);
+    }
     // blank = keep existing secret (renderer only sees masked values);
     // null = delete the stored key on purpose
     const dropBlobs = [];
-    for (const k of ['apiKey', 'transcribeApiKey', 'ttsApiKey']) {
-      if (clean[k] === null) {
+    for (const k of KEY_FIELDS) {
+      const mustDrop = clean[k] === null || (rebind.has(k) && !clean[k]);
+      if (mustDrop) {
         clean[k] = '';
         dropBlobs.push(k); // an explicit delete must also drop an unreadable blob
       } else if (!clean[k]) {
@@ -2528,6 +2245,15 @@ app.whenReady().then(() => {
       }
     }
     saveConfig(clean, dropBlobs);
+    // Apply window-level settings after the new config is in memory. Applying
+    // before saveConfig read the previous value, so the toggle looked inert
+    // until the next launch.
+    if (Object.prototype.hasOwnProperty.call(next, 'stealth')) applyStealth();
+    if (Object.prototype.hasOwnProperty.call(next, 'nvidiaEyeContact')) syncNvidiaEyeContact();
+    // Turning transcript persistence off must delete the existing copy now, not
+    // wait for the next state save. Turning it on leaves whatever is already
+    // there alone.
+    if (cfg.persistTranscript !== true) scrubStoredTranscript();
     if (pendingWipe) {
       // the user is re-personalizing after an interrupted wipe — keep the new
       // data (old secrets are already gone); the profile-dir wipe is cancelled
@@ -2556,12 +2282,7 @@ app.whenReady().then(() => {
   });
   handle('window:hide', async () => {
     if (win) {
-      if (cfg.stealthDeep) {
-        await applyDeepStealthAsync(true);
-      } else {
-        win.setPosition(-32000, -32000);
-        win.hide();
-      }
+      win.hide();
       isShown = false;
     }
   });
@@ -2584,7 +2305,7 @@ app.whenReady().then(() => {
     if (!app.isPackaged) return { ok: false, error: 'only in an installed build' };
     if (!updater) return { ok: false, error: 'updater unavailable' };
     try {
-      updaterStatus('Checking for updates—€—');
+      updaterStatus('Checking for updates…');
       await updater.checkForUpdates();
       return { ok: true };
     } catch (e) {
@@ -2597,29 +2318,25 @@ app.whenReady().then(() => {
     setImmediate(() => updater.quitAndInstall(false, true));
     return { ok: true };
   });
-  // Deep stealth re-assert from the renderer (init + focus): capture protection
-  // and the window tells, never the DWM cloak — a cloaked window is not drawn,
-  // and this runs while the panel is on screen. Toggled on stealthDeep=true.
+  // Download only after the user clicks the "update available" notice. The
+  // installer's signature is checked by electron-updater against the
+  // publisherName in app-update.yml before it is allowed to run.
+  handle('update:download', async () => {
+    if (!updater) return { ok: false };
+    try {
+      updaterStatus('Downloading update...');
+      await updater.downloadUpdate();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e.message).slice(0, 120) };
+    }
+  });
+  // The renderer re-asserts capture exclusion on init and focus. This is the
+  // same documented Electron call the settings toggle uses; there is no native
+  // deep-stealth state to restore.
   handle('stealth:apply', (_e, on) => {
-    applyDeepStealth(Boolean(on), null, true);
+    if (win && !win.isDestroyed()) win.setContentProtection(Boolean(on));
     return { ok: true };
-  });
-  // "Prove it here" — the Ghost check measures the exclusion on this machine
-  // instead of repeating a claim from the README.
-  handle('ghost:check', async () => {
-    try {
-      return await stealthReport();
-    } catch (err) {
-      return { ok: false, reason: err.message };
-    }
-  });
-  // v3 name; ghost:check is kept so older probes and the renderer keep working
-  handle('stealth:report', async () => {
-    try {
-      return await stealthReport();
-    } catch (err) {
-      return { ok: false, reason: err.message };
-    }
   });
   // NVIDIA Broadcast: which camera it is feeding, and the live eye-contact
   // flag. Broadcast owns the effect; this drives its loopback gateway.
@@ -2648,14 +2365,14 @@ app.whenReady().then(() => {
   handle('state:get', () => loadState());
   handle('state:set', (_e, state) => {
     if (wipeOnQuit) return; // wiped this run — refuse to resurrect state
-    // keep it bounded: last 100 turns, last 20k chars of transcript, last 500 timestamped chunks
-    saveState({
-      history: (state.history || []).slice(-100),
-      transcript: String(state.transcript || '').slice(-20000),
-      transcriptLog: Array.isArray(state.transcriptLog) ? state.transcriptLog.slice(-500) : [],
-      // long-term memory: durable facts/summaries the assistant reuses across chats
-      memory: Array.isArray(state.memory) ? state.memory.slice(-200) : [],
-    });
+    // sanitizeState drops transcript/transcriptLog unless persistTranscript is
+    // on, and bounds every array and string. Slicing array lengths alone is not
+    // a size bound: 100 turns of 10 MB each is still a 1 GB write.
+    const next = sanitizeState(state);
+    let serialized;
+    try { serialized = JSON.stringify(next); } catch { return; }
+    if (serialized.length > IPC_MAX_STATE) return;
+    saveState(next);
   });
   handle('displays:list', async () => {
     const displays = screen.getAllDisplays().map((d, i) => ({
@@ -2730,7 +2447,7 @@ app.whenReady().then(() => {
     // destroy every trace on disk: key, history, transcript, sessions, window position.
     // Files go now; the whole userData dir (Chromium profile included) follows once
     // this process exits — however it exits. The marker lets a later launch finish
-    // the job if the cleanup helper itself is killed (taskkill /IM, /T).
+    // the job if the cleanup helper itself is killed with the image.
     deleteWipeTargets();
     try { fs.writeFileSync(wipeMarkerPath(), String(Date.now())); } catch {}
     cfg = { ...DEFAULTS };
@@ -2749,30 +2466,31 @@ app.whenReady().then(() => {
     return true;
   });
 
-  try {
-    const nat = loadCloak();
-    if (nat && nat.maskWindowClasses) mlog('mask: window classes patched=' + nat.maskWindowClasses());
-  } catch {}
   mlog(`handlers registered, calling createWindow`);
   try {
     createWindow();
     mlog(`createWindow returned`);
-    setupHostBlend();
-    // The host is a brand-new top-level window created with an empty title, and
-    // the periodic blend only reaches it on its next pass — until then the audit
-    // (and any detector) sees an untitled window. Blend once now that it exists.
-    if (process.platform === 'win32') blendProcessTitles();
-    applyProcessHardening();
   } catch (e) {
     mlog(`createWindow threw: ${e.stack || e}`);
     throw e;
   }
-  registerShortcuts();
+  if (!SMOKE_TEST) registerShortcuts();
   mlog(`launch complete`);
+
+  if (SMOKE_TEST) {
+    // The window is created above; give Chromium one paint, then write the
+    // marker the verifier checks and exit. No shortcuts, updater, autostart or
+    // meeting watcher run in this mode.
+    setTimeout(() => {
+      try {
+        if (process.env.RB_SMOKE_FILE) fs.writeFileSync(process.env.RB_SMOKE_FILE, 'ready');
+      } catch {}
+      app.quit();
+    }, 1500);
+  }
 });
 
 app.on('will-quit', () => {
-  teardownHostBlend();
   globalShortcut.unregisterAll();
   removeDevtoolsPort();
   scheduleWipe(true); // always respawn at exit when a wipe is pending — the wipe-time helper may have capped out, failed, or been killed
@@ -2781,7 +2499,7 @@ app.on('window-all-closed', () => app.quit());
 
 // Exposed so scripts/test-main.js can execute the real cleanup script rather than a
 // copy that drifts. The app itself never reads this.
-module.exports = { wipeHelperCommand };
+module.exports = { wipeHelperCommand, styleInstruction };
 
 
 

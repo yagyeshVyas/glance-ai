@@ -29,7 +29,6 @@ const cfg = {
   smartMode: true,
   practiceMode: false,
   stealth: true,
-  stealthProcess: true,
   captureDisplay: 'auto',
   panelOpacity: 0.78,
   hasKey: true,
