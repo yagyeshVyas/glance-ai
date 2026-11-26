@@ -202,7 +202,10 @@ jobs:
       - name: Apply the update
         shell: pwsh
         run: |
+          # quitAndInstall closes the app while the evaluation is in flight, so
+          # the CDP call is expected to lose its socket and exit non-zero.
           node scripts/cdp-eval.js --port 9333 "window.glance.updateInstall()" 2>$null | Out-Null
+          $LASTEXITCODE = 0
           $deadline = (Get-Date).AddMinutes(8)
           $v = ''
           while ((Get-Date) -lt $deadline) {
