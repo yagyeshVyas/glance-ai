@@ -140,6 +140,17 @@ jobs:
       - name: Install dependencies for the CDP driver
         run: npm ci
 
+      - name: Trust the project certificate for this test VM
+        shell: pwsh
+        run: |
+          # The project certificate is self-signed and the product deliberately
+          # does not install it into a trust store. A clean VM therefore reports
+          # the new installer as untrusted, and electron-updater's signature
+          # check rejects it before the publisher pin can match. Real users need
+          # a publicly trusted certificate; this ephemeral VM trusts the project
+          # certificate so the rest of the update path is exercised.
+          Import-Certificate -FilePath build/codesign.cer -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+
       - name: Download and install the previous release
         shell: pwsh
         env:
@@ -150,6 +161,8 @@ jobs:
           $exe = Get-ChildItem installers -Filter *-x64.exe | Select-Object -First 1
           if (-not $exe) { throw 'previous x64 installer not found' }
           Unblock-File $exe.FullName
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          if ($sig.Status -ne 'Valid') { throw "previous installer is not trusted: $($sig.Status)" }
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "previous installer exited $($p.ExitCode)" }
 
