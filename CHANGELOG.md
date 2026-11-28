@@ -7,6 +7,25 @@ autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
 
+## 3.4.2
+
+Published 27 Nov 2026. A follow-up for the update verifier.
+
+- Updates: the verifier parses the signature JSON even when the PowerShell host
+  writes a harmless warning to stderr (which a service process with redirected
+  handles can do). Treating any stderr as fatal turned a valid pinned signature
+  into a failed update. The console-encoding assignment that caused the warning
+  is removed; a BOM is still stripped before parsing.
+- Release verification: the clean-install job runs the thumbprint pin on a VM
+  that has not trusted the certificate, and the 3.4.1 → 3.4.2 update runs with
+  no trust import, so the app's own verifier - not electron-updater's default -
+  accepts the downloaded installer.
+- Compatibility: installs from 3.3.7 or 3.4.0 still use the default verifier and
+  need the certificate trusted; install 3.4.2 once manually. A publicly trusted
+  certificate is still required to remove **Unknown publisher**.
+- Tests: 56 unit tests, 45 main-process tests, 10 embedding tests, 9 eye checks
+  and 3 OCR checks; signed x64/arm64 build and packaged x64 Settings smoke.
+
 ## 3.4.1
 
 Published 27 Nov 2026. A patch for the update path itself.

@@ -21,11 +21,15 @@ on:
       version:
         description: Published version to verify
         required: true
-        default: "3.4.1"
+        default: "3.4.2"
       previous:
         description: Previous published version for the update test
         required: true
-        default: "3.4.0"
+        default: "3.4.1"
+      trust:
+        description: Trust the project certificate in the update test VM
+        required: true
+        default: "true"
 
 permissions:
   contents: read
@@ -139,6 +143,7 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       PREVIOUS: ${{ inputs.previous }}
+      TRUST_CERT: ${{ inputs.trust }}
     steps:
       - uses: actions/checkout@v4
 
@@ -151,6 +156,7 @@ jobs:
         run: npm ci
 
       - name: Trust the project certificate for this test VM
+        if: inputs.trust == 'true'
         shell: pwsh
         run: |
           # The project certificate is self-signed and the product deliberately
@@ -172,7 +178,9 @@ jobs:
           if (-not $exe) { throw 'previous x64 installer not found' }
           Unblock-File $exe.FullName
           $sig = Get-AuthenticodeSignature $exe.FullName
-          if ($sig.Status -ne 'Valid') { throw "previous installer is not trusted: $($sig.Status)" }
+          if ($env:TRUST_CERT -eq 'true' -and $sig.Status -ne 'Valid') {
+            throw "previous installer is not trusted: $($sig.Status)"
+          }
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "previous installer exited $($p.ExitCode)" }
 
