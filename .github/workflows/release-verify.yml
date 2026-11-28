@@ -190,10 +190,12 @@ jobs:
       - name: Let the updater find and download the new release
         shell: pwsh
         run: |
-          # The app downloads only after an explicit click (autoDownload is
-          # false), so the test has to drive both halves of the real flow.
-          node scripts/cdp-eval.js --port 9333 "window.glance.updateCheck()" 2>$null | Out-Null
-          $deadline = (Get-Date).AddMinutes(3)
+          # The app checks once, 8 s after launch, and downloads only after an
+          # explicit click (autoDownload is false). Wait for that one check
+          # instead of starting a second one: a later check re-emits
+          # update-available after the download already finished and overwrites
+          # the "ready" status before this loop can observe it.
+          $deadline = (Get-Date).AddMinutes(2)
           $available = $false
           $ready = $false
           while ((Get-Date) -lt $deadline) {
@@ -207,9 +209,11 @@ jobs:
           }
           if (-not $ready -and -not $available) { throw 'updater did not offer the new release' }
           if ($available) {
-            node scripts/cdp-eval.js --port 9333 "window.glance.updateDownload()" 2>$null | Out-Null
+            # Do not await the download promise: it resolves only when the file
+            # is staged, which is past the CDP evaluation timeout.
+            node scripts/cdp-eval.js --port 9333 "void window.glance.updateDownload()" 2>$null | Out-Null
           }
-          $deadline = (Get-Date).AddMinutes(12)
+          $deadline = (Get-Date).AddMinutes(15)
           while (-not $ready -and (Get-Date) -lt $deadline) {
             $status = node scripts/cdp-eval.js --port 9333 "document.getElementById('status').textContent" 2>$null
             if ($LASTEXITCODE -ne 0) { Start-Sleep -Seconds 3; continue }

@@ -3,7 +3,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
 const crypto = require('crypto');
-const { estimateTokens, fitContext, visionTokens, fitFrames } = require('./shared');
+const { estimateTokens, fitContext, visionTokens, fitFrames, updaterNotice } = require('./shared');
 const IDENTITY = require('./identity');
 const broadcast = require('./broadcast');
 const providers = require('./providers');
@@ -1310,13 +1310,24 @@ function watchForMeetings() {
 }
 
 // ---------- auto-update (GitHub Releases via electron-updater) ----------
-// Checks quietly in the background, then downloads and stages a new version so
-// the next quit installs it. Never restarts on its own — a restart mid-meeting
-// would be worse than running one version behind, so updating is user-driven.
+// Checks quietly in the background, then offers an explicit download. Never
+// restarts on its own — a restart mid-meeting would be worse than running one
+// version behind, so updating is user-driven.
 let updater = null;
+let updaterState = {};
 
 function updaterStatus(message, level) {
   if (win && !win.isDestroyed()) win.webContents.send('notice', { level: level || 'info', message });
+}
+
+// All updater events go through one reducer. In particular, the boot check can
+// finish after a fast download, and it must not turn "ready" back into
+// "available" or clobber a progress line.
+function applyUpdaterEvent(event) {
+  const next = updaterNotice(updaterState, event);
+  if (next === updaterState) return;
+  updaterState = next;
+  if (next.message) updaterStatus(next.message, next.level);
 }
 
 function setupUpdater() {
@@ -1330,14 +1341,18 @@ function setupUpdater() {
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
 
-    autoUpdater.on('update-available', (i) => updaterStatus(`Update ${i.version} available - click to download`));
-    autoUpdater.on('update-not-available', () => updaterStatus('Up to date'));
-    autoUpdater.on('update-downloaded', (i) =>
-      updaterStatus(`Update ${i.version} ready - restart to apply`, 'info'));
-    autoUpdater.on('error', (e) => updaterStatus('Update check failed: ' + String(e.message).slice(0, 90), 'warn'));
+    autoUpdater.on('checking-for-update', () => applyUpdaterEvent({ type: 'checking' }));
+    autoUpdater.on('update-available', (i) => applyUpdaterEvent({ type: 'available', version: i.version }));
+    autoUpdater.on('update-not-available', () => applyUpdaterEvent({ type: 'none' }));
+    autoUpdater.on('download-progress', (p) => applyUpdaterEvent({ type: 'progress', percent: p.percent }));
+    autoUpdater.on('update-downloaded', (i) => applyUpdaterEvent({ type: 'downloaded', version: i.version }));
+    autoUpdater.on('error', (e) => applyUpdaterEvent({ type: 'error', error: e.message }));
 
     // wait a little after boot so an update check never delays the first paint
-    setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
+    setTimeout(() => {
+      if (updaterState.downloading || updaterState.downloadedVersion) return;
+      autoUpdater.checkForUpdates().catch(() => {});
+    }, 8000);
   } catch {}
 }
 
@@ -2527,8 +2542,13 @@ app.whenReady().then(() => {
   handle('update:check', async () => {
     if (!app.isPackaged) return { ok: false, error: 'only in an installed build' };
     if (!updater) return { ok: false, error: 'updater unavailable' };
+    if (updaterState.downloading) return { ok: false, error: 'download in progress' };
+    if (updaterState.downloadedVersion) {
+      applyUpdaterEvent({ type: 'downloaded', version: updaterState.downloadedVersion });
+      return { ok: true, ready: true };
+    }
     try {
-      updaterStatus('Checking for updates…');
+      applyUpdaterEvent({ type: 'checking' });
       await updater.checkForUpdates();
       return { ok: true };
     } catch (e) {
@@ -2538,6 +2558,7 @@ app.whenReady().then(() => {
   // apply a downloaded update now (restarts the app)
   handle('update:install', () => {
     if (!updater) return { ok: false };
+    if (!updaterState.downloadedVersion) return { ok: false, error: 'no update downloaded' };
     setImmediate(() => updater.quitAndInstall(false, true));
     return { ok: true };
   });
@@ -2546,11 +2567,19 @@ app.whenReady().then(() => {
   // publisherName in app-update.yml before it is allowed to run.
   handle('update:download', async () => {
     if (!updater) return { ok: false };
+    if (updaterState.downloadedVersion) {
+      applyUpdaterEvent({ type: 'downloaded', version: updaterState.downloadedVersion });
+      return { ok: true, already: true };
+    }
+    if (updaterState.downloading) return { ok: true, already: true };
+    applyUpdaterEvent({ type: 'downloading' });
     try {
-      updaterStatus('Downloading update...');
       await updater.downloadUpdate();
       return { ok: true };
     } catch (e) {
+      // electron-updater usually emits its own error first; only add one when
+      // that did not happen, so the status is never left on "Downloading".
+      if (updaterState.downloading) applyUpdaterEvent({ type: 'error', error: e.message });
       return { ok: false, error: String(e.message).slice(0, 120) };
     }
   });
