@@ -43,25 +43,25 @@ function verifyFile(file, pinnedThumbprint, run = execFile) {
   return new Promise((resolve) => {
     // PowerShell single-quote escaping: double every quote inside the literal.
     const escaped = String(file).replace(/'/g, "''");
-    // Force UTF-8 on the redirected stream; Windows PowerShell otherwise emits
-    // UTF-16 and JSON.parse sees a BOM. Strip a BOM anyway for older hosts.
-    const command =
-      `$OutputEncoding=[Console]::OutputEncoding=[Text.Encoding]::UTF8; ` +
-      `Get-AuthenticodeSignature -LiteralPath '${escaped}' | ConvertTo-Json -Compress`;
+    // No console-encoding assignment: touching [Console]::OutputEncoding can
+    // write an error to stderr when the host has redirected handles, even
+    // though Get-AuthenticodeSignature succeeds. ConvertTo-Json is ASCII-safe,
+    // and a BOM is stripped below.
+    const command = `Get-AuthenticodeSignature -LiteralPath '${escaped}' | ConvertTo-Json -Compress`;
     run(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-InputFormat', 'None', '-Command', command],
       { timeout: 20000, windowsHide: true },
-      (error, stdout, stderr) => {
-        if (error || stderr) {
-          resolve('could not read the signature');
-          return;
-        }
+      (_error, stdout) => {
+        // Parse stdout first. Some hosts (including a service process with
+        // redirected handles) write a harmless warning to stderr even when
+        // Get-AuthenticodeSignature succeeds; rejecting that would turn a
+        // valid signature into a failed update.
         let data;
         try {
           data = JSON.parse(String(stdout || '').replace(/^\uFEFF/, '').trim());
         } catch {
-          resolve('could not parse the signature');
+          resolve('could not read the signature');
           return;
         }
         resolve(signatureProblem(data, file, pinnedThumbprint));
