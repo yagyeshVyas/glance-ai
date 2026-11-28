@@ -21,11 +21,11 @@ on:
       version:
         description: Published version to verify
         required: true
-        default: "3.4.2"
+        default: "3.4.3"
       previous:
         description: Previous published version for the update test
         required: true
-        default: "3.4.1"
+        default: "3.3.7"
       trust:
         description: Trust the project certificate in the update test VM
         required: true

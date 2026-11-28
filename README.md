@@ -39,7 +39,7 @@ The installer is signed with the project's own certificate. That certificate is 
 
 Then open ⚙ and add an API key — or pick a provider (OpenAI-compatible, Anthropic-compatible, Ollama, LM Studio, or a custom endpoint) and point the base URL at it. A local model needs no key.
 
-> **Updating:** installed builds check GitHub Releases. When you accept an update it downloads in the background and applies on restart. No silent restarts and no automatic download — a panel that reloads mid-call is worse than being a version behind. From 3.4.1 the downloaded installer is pinned to the project certificate's SHA-1 thumbprint, so the self-signed certificate does not need to be added to a trust store; 3.4.2 makes the verifier tolerate a harmless PowerShell warning on hosts with redirected handles. Builds 3.3.7 and 3.4.0 still use electron-updater's default verifier; install 3.4.2 once manually, after which updates use the thumbprint pin.
+> **Updating:** installed builds check GitHub Releases. When you accept an update it downloads in the background and applies on restart. No silent restarts and no automatic download — a panel that reloads mid-call is worse than being a version behind. From 3.4.1 the downloaded installer is pinned to the project certificate's SHA-1 thumbprint, so the self-signed certificate does not need to be added to a trust store; 3.4.3 fixes the verifier's PowerShell invocation so it actually reads the signature on a clean machine. Builds 3.3.7 through 3.4.2 still need a manual install; install 3.4.3 once, after which updates use the thumbprint pin.
 
 ---
 
@@ -297,7 +297,7 @@ Windows 10 2004+ or Windows 11. x64 or arm64. The capture-exclusion flag needs t
 - Screen analysis reads one display or one window; no multi-monitor stitch.
 - TTS needs a real TTS model configured; a sensible default is not assumed.
 - Updates download only after you accept one, and never restart on their own — you apply them.
-- The certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store. The installer does not add it for you. From 3.4.1 an update is accepted when its Authenticode signature is intact and its signer matches the pinned certificate thumbprint; 3.4.2 hardens that verifier for redirected PowerShell hosts. 3.3.7 and 3.4.0 still need the certificate trusted, so install 3.4.2 once manually.
+- The certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store. The installer does not add it for you. From 3.4.1 an update is accepted when its Authenticode signature is intact and its signer matches the pinned certificate thumbprint; 3.4.3 fixes the verifier's PowerShell invocation. Builds 3.3.7 through 3.4.2 still need the certificate trusted or a manual install, so install 3.4.3 once manually.
 
 ## Layout
 
@@ -322,6 +322,7 @@ renders the same list.
 
 | Version | Date | What changed |
 |---|---|---|
+| [3.4.3](../../releases/tag/v3.4.3) | 27 Nov 2026 | Update verifier quotes the PowerShell pipeline for the cmd shell and uses electron-updater's UTF-8 invocation, so it reads the signature JSON on a clean machine; the thumbprint pin passes on a VM that does not trust the certificate. 3.4.3 is the first build whose own updater can verify a future release without a trust-store install. Installs from 3.3.7–3.4.2 need one manual install. |
 | [3.4.2](../../releases/tag/v3.4.2) | 27 Nov 2026 | Update verifier parses a valid signature result even when a redirected PowerShell host writes a warning to stderr, and no longer touches the console encoding; clean-install pin check runs with the certificate untrusted; 3.4.1 → 3.4.2 update verified without trusting the certificate. Installs from 3.3.7/3.4.0 need one manual install. |
 | [3.4.1](../../releases/tag/v3.4.1) | 27 Nov 2026 | Thumbprint-pinned update verifier so a clean machine does not need the self-signed certificate in a trust store; a later background check can no longer downgrade a finished download; clean-install pin check with the certificate untrusted; 3.4.0 → 3.4.1 update downloads, applies and launches. Installs from 3.3.7/3.4.0 need one manual install. |
 | [3.4.0](../../releases/tag/v3.4.0) | 27 Nov 2026 | Modular OpenAI-compatible/Anthropic-compatible/Ollama/LM Studio/custom provider layer with health checks, model discovery, local-first routing and failover; optional semantic retrieval; provider speaker labels; per-model cost overrides; real chat test; packaged-build Settings smoke; PFX-or-thumbprint signing with a publisher-pin check. |
