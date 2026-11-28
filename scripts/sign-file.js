@@ -18,8 +18,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const { THUMBPRINT } = require('../src/signing');
-const CERT_THUMB = process.env.WSHX_CERT_THUMB || THUMBPRINT;
+const signIdentity = require('./sign-identity');
 const REQUIRE_SIGNING = process.env.REQUIRE_SIGNING === '1';
 // CI and dev machines have no release key. Skipping is explicit and can never
 // override a release build: REQUIRE_SIGNING=1 wins.
@@ -49,14 +48,7 @@ module.exports = async function sign(configuration) {
     console.warn('  • sign: signtool not found, skipping ' + path.basename(file));
     return;
   }
-  execFileSync(st, [
-    'sign',
-    '/sha1', CERT_THUMB,
-    '/fd', 'sha256',
-    '/tr', 'http://timestamp.digicert.com',
-    '/td', 'sha256',
-    file,
-  ], { stdio: 'inherit' });
+  execFileSync(st, signIdentity.signArgs(file), { stdio: 'inherit' });
   if (REQUIRE_SIGNING) {
     // A successful `sign` exit code is not proof the file carries our chain;
     // verify every PE we claim to have signed.

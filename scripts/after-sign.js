@@ -23,8 +23,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const { THUMBPRINT } = require('../src/signing');
-const CERT_THUMB = process.env.WSHX_CERT_THUMB || THUMBPRINT;
+const signIdentity = require('./sign-identity');
 const REQUIRE_SIGNING = process.env.REQUIRE_SIGNING === '1';
 const SKIP_SIGNING = process.env.SKIP_SIGNING === '1' && !REQUIRE_SIGNING;
 
@@ -64,14 +63,21 @@ exports.default = async function afterSign(context) {
     console.warn('  • afterSign: signtool missing, payload unsigned');
     return;
   }
-  console.log('  • afterSign: re-signing payload');
-  execFileSync(st, [
-    'sign', '/sha1', CERT_THUMB, '/fd', 'sha256',
-    '/tr', 'http://timestamp.digicert.com', '/td', 'sha256', exe,
-  ], { stdio: 'inherit' });
+  if (!signIdentity.identityAvailable()) {
+    if (REQUIRE_SIGNING) throw new Error('afterSign: signing identity ' + signIdentity.identityLabel() + ' is missing');
+    console.warn('  • afterSign: signing identity missing, payload unsigned');
+    return;
+  }
+  console.log('  • afterSign: re-signing payload with ' + signIdentity.identityLabel());
+  execFileSync(st, signIdentity.signArgs(exe), { stdio: 'inherit' });
 
   // The resource edit invalidated the earlier signature; prove the new one
   // exists and chains to our certificate before this artifact is packaged.
   console.log('  • afterSign: verifying payload signature');
   execFileSync(st, ['verify', '/pa', '/all', exe], { stdio: 'inherit' });
+  // signtool /pa proves a chain, not that the chain is the one electron-updater
+  // pins. A PFX with a different subject would otherwise produce an installer
+  // that can never update.
+  const subject = signIdentity.assertPublisher(exe);
+  console.log('  • afterSign: publisher pin matched (' + subject + ')');
 };

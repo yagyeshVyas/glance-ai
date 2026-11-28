@@ -35,9 +35,9 @@ Download the installer for your machine from the [latest release](../../releases
 | x64 | `GlanceAI-<version>-x64.exe` |
 | arm64 | `GlanceAI-<version>-arm64.exe` |
 
-The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\GlanceAI` and needs an administrator prompt once.
+The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\GlanceAI` and needs an administrator prompt once. A release build can use a publicly trusted certificate instead by setting `GLANCE_SIGN_PFX` and `GLANCE_SIGN_PASSWORD`; the `publisherName` pin still has to match that certificate's subject.
 
-Then open ⚙ and add an API key — or point the base URL at any OpenAI-compatible endpoint, including a local one.
+Then open ⚙ and add an API key — or pick a provider (OpenAI-compatible, Anthropic-compatible, Ollama, LM Studio, or a custom endpoint) and point the base URL at it. A local model needs no key.
 
 > **Updating:** installed builds check GitHub Releases. When you accept an update it downloads in the background and applies on restart. No silent restarts and no automatic download — a panel that reloads mid-call is worse than being a version behind.
 
@@ -50,18 +50,23 @@ Built for live interviews: it listens to the interviewer, reads the question on 
 - **Transparent, always-on-top overlay** with a hotkey for every action
 - **Excluded from screen capture** — Windows' own capture-exclusion flag keeps the panel out of a screen share
 - **Panic hide** on `Ctrl+Alt+X` — the panel is gone before the call reacts
-- **Live transcription** from mic, system loopback, or **both at once** with You/Them labels — **one model for audio and chat**: leave the transcribe model blank and it uses the chat model, same URL, same key
+- **Live transcription** from mic, system loopback, or **both at once** with You/Them labels - **one model for audio and chat**: leave the transcribe model blank and it uses the chat model, same URL, same key
+- **Clean audio before it leaves the machine** — echo cancellation, noise suppression and automatic gain control on the microphone, with a plain-audio fallback when a driver refuses the constraints
 - **Explicit audio consent** — a blocking notice before the first stream, and a red listening pill for as long as a microphone or loopback stream is open
 - **Transcript off by default** — it stays in memory and is erased on quit unless you tick *Save the live transcript across restarts*
 - **Screen Q&A** — capture up to five frames, ask once, get a streamed answer
 - **Local OCR** on every captured frame, so code, forms and error text reach the model as exact characters rather than pixels
-- **Offline knowledge base** — paste notes; only the entries matching the question ride along, scored on-device
+- **Offline knowledge base** — paste notes or import a text/markdown file; retrieval is local TF-IDF plus phrase matching, and each injected note keeps its source heading. An optional embedding model adds semantic ranking; leave it blank and no note text leaves the machine
 - **Meeting detection** — sees Zoom, Teams, Webex, Discord or a browser meeting tab and says so once
 - **Chat memory** — threads persist, and *New chat* files the old one into durable memory instead of losing it
+- **Editable memory** — every stored note is visible in Settings, editable, individually deletable, or wiped in one action
 - **Practice mode** — rehearse an interview, then get a scored debrief
 - **Copilot** — spots questions in the transcript and answers them unprompted
 - **Answer styles** — smart, brief, STAR, bullets, code-first or detailed
-- **Backup provider** — a second endpoint takes over when the first fails mid-call
+- **Provider health** — one check reports reachability, latency and model count for chat, backup, transcription and TTS without echoing a key; **Test chat** sends one real 8-token completion through the same path an answer uses
+- **Backup and local-first routing** — a second endpoint takes over when the first fails mid-call; optionally try a local model first and fall back to the paid provider
+- **Usage line** — last answer latency, token count and an approximate cost, from the provider's own usage block, with optional per-model price overrides
+- **Microphone recovery** — a dropped mic or loopback stream is reopened with a bounded retry instead of silently going quiet
 - Personalisation: target role, pasted résumé, forced answer language
 - **Eye morph** — offline face landmarks for gaze and attention, with the webcam left free for other apps
 
@@ -79,6 +84,34 @@ display or window ─────┘                                     ├─�
 ```
 
 Nothing is uploaded until there is something to send, and the screenshot only rides the newest turn.
+
+## Providers and routing
+
+| Provider | Wire format | Key |
+|---|---|---|
+| OpenAI-compatible | `/chat/completions`, bearer token | required unless the host is loopback |
+| Anthropic-compatible | `/messages`, `x-api-key` + `anthropic-version` | required |
+| Ollama | OpenAI-compatible endpoint on `127.0.0.1:11434` | none |
+| LM Studio | OpenAI-compatible endpoint on `127.0.0.1:1234` | none |
+| Custom | OpenAI-compatible by default; choose the family explicitly if it is Anthropic-shaped | per endpoint |
+
+`Auto` infers the family from the base URL, so a profile created before provider
+selection existed keeps working. Chat, transcription, TTS and the optional backup
+each carry their own base URL, key and model; a key is never sent to an origin it
+was not entered for. **Check all providers** in Settings reports reachability,
+latency and model count with a 5 s timeout per provider; **Test chat** then proves
+the chat route itself with one tiny completion, because a gateway can list models
+while refusing chat. Local-first routing is
+opt-in: a local model is tried first and the configured paid provider catches a
+local outage. A failed primary is retried, then the backup is tried once.
+
+Semantic retrieval is optional and off by default. Set an embedding model to rank
+knowledge notes by meaning as well as words; the chat key is reused only when the
+embedding endpoint has the same origin, so a local embedding server never receives
+a cloud key. A slow or broken embedding endpoint falls back to lexical ranking
+instead of failing the answer. Cost estimates come from a built-in list-price
+table; `Cost overrides` in Settings reprices any model with one
+`model = inputUSD, outputUSD` line per model, per 1M tokens.
 
 ## Audio consent and the transcript
 
@@ -191,7 +224,7 @@ open-source project does not.
 
 ## API compatibility
 
-Any OpenAI-compatible base URL — OpenAI, OpenRouter, Azure, LM Studio, Ollama with a compatible shim. The chat model needs vision for screen questions; transcription needs a Whisper-compatible endpoint. Keys never reach the renderer, and the IPC bridge is an explicit allowlist of 25 invoke channels and 9 event listeners.
+Any OpenAI-compatible or Anthropic-compatible base URL - OpenAI, OpenRouter, Azure, Anthropic, LM Studio, Ollama, or your own gateway. The chat model needs vision for screen questions; transcription needs a Whisper-compatible endpoint unless you point it at a local server. Keys never reach the renderer, and the IPC bridge is an explicit allowlist of 26 invoke channels and 9 event listeners.
 
 ## Local API server
 
@@ -225,7 +258,7 @@ key-free test of the proxy) are in [server/README.md](server/README.md).
 npm install
 npm start           # not `electron .` — the wrapper clears a hostile NODE_OPTIONS
 npm run check       # syntax, identity, installer and Electron-support checks
-npm test            # 20 helper + 36 main-process + 9 eye-probe assertions
+npm test            # 40 helper + 43 main-process + 10 embedding + 9 eye + 3 OCR assertions
 npm run dist:signed # signed installers, x64 + arm64
 npm run verify:build -- --all --launch  # read fuses/arch back, then start the app
 ```
@@ -289,6 +322,7 @@ renders the same list.
 
 | Version | Date | What changed |
 |---|---|---|
+| [3.4.0](../../releases/tag/v3.4.0) | 27 Nov 2026 | Modular OpenAI-compatible/Anthropic-compatible/Ollama/LM Studio/custom provider layer with health checks, model discovery, local-first routing and failover; optional semantic retrieval; provider speaker labels; per-model cost overrides; real chat test; packaged-build Settings smoke; PFX-or-thumbprint signing with a publisher-pin check. |
 | [3.3.7](../../releases/tag/v3.3.7) | 26 Nov 2026 | Concealment subsystem and root-certificate install removed; IPC boundary and all 25 channel schemas hardened; Electron 45; audio consent and visible capture indicator; transcript opt-in; packaged-build fuse/arch/launch verification; CI and branch protection. Published and verified: the clean install and the 3.3.6 → 3.3.7 update ran against the release on fresh Windows VMs. |
 | 3.3.6 | 26 Nov 2026 | Named Glance AI end to end; RuntimeBroker impersonation removed; child PEB sanitization; proctoring watch expanded. |
 | [3.3.5](../../releases/tag/v3.3.5) | 16 Nov 2026 | Chunks end at a pause instead of a stopwatch, so boundaries fall between words; chunk length follows the model (3 s for small/medium/large); a chunk that does not finish a sentence continues the previous line. |

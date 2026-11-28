@@ -4,6 +4,7 @@ const api = window.glance;
 const el = {
   panel: $('panel'),
   status: $('status'), transcript: $('transcript'), answer: $('answer'), shot: $('shot'),
+  usage: $('usage'),
   question: $('question'), stop: $('stop'), listen: $('listen'),   source: $('source'),
   recState: $('recState'), recLabel: $('recLabel'),
   consent: $('consent'), consentAccept: $('consentAccept'), consentCancel: $('consentCancel'),
@@ -50,6 +51,15 @@ function paintTranscriptSaveState() {
   el.transcriptSaveState.textContent = appCfg.persistTranscript === true
     ? 'saved on this device'
     : 'not saved — cleared on quit';
+}
+
+// First-run card: hidden as soon as either a remote key or a local endpoint is
+// configured. It is guidance, not a gate; the settings panel still works.
+function paintOnboarding() {
+  const card = $('onboarding');
+  if (!card) return;
+  const localReady = Boolean(appCfg.preferLocal && appCfg.localBaseUrl);
+  card.hidden = Boolean(appCfg.hasKey || localReady);
 }
 
 // ---------- shot pile: capture screenshots first, ask afterwards ----------
@@ -102,6 +112,57 @@ function addMemory(kind, text) {
   memory.push({ at: new Date().toISOString(), kind, text });
   if (memory.length > 200) memory = memory.slice(-200);
   persistState();
+}
+
+// User-controlled memory: every note is visible, editable and deletable. The
+// model gets the same array the user sees, so there is no hidden profile.
+function paintMemory() {
+  const list = $('memoryList');
+  if (!list) return;
+  list.textContent = '';
+  const shown = memory.slice(-50);
+  if (!shown.length) {
+    const empty = document.createElement('p');
+    empty.className = 'muted small';
+    empty.textContent = 'No saved memory yet.';
+    list.appendChild(empty);
+    return;
+  }
+  const offset = memory.length - shown.length;
+  shown.forEach((note, i) => {
+    const index = offset + i;
+    const item = document.createElement('div');
+    item.className = 'memory-item';
+    const meta = document.createElement('div');
+    meta.className = 'memory-meta';
+    const kind = String(note.kind || 'note');
+    meta.textContent = kind + ' · ' + (note.at ? stampAt(note.at) : 'unknown time');
+    const text = document.createElement('textarea');
+    text.value = String(note.text || '');
+    text.rows = 3;
+    text.setAttribute('aria-label', 'Memory note');
+    text.addEventListener('change', () => {
+      const next = text.value.trim();
+      if (!next) memory.splice(index, 1);
+      else memory[index].text = next;
+      persistState();
+      paintMemory();
+      if ($('memoryMsg')) $('memoryMsg').textContent = 'Saved';
+    });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'danger tiny';
+    del.textContent = 'Delete';
+    del.setAttribute('aria-label', 'Delete this memory note');
+    del.addEventListener('click', () => {
+      memory.splice(index, 1);
+      persistState();
+      paintMemory();
+      if ($('memoryMsg')) $('memoryMsg').textContent = 'Deleted';
+    });
+    item.append(meta, text, del);
+    list.appendChild(item);
+  });
 }
 
 // short local stamp for transcript lines: "Oct 23, 2:03 PM"
@@ -245,6 +306,7 @@ function send(text, withScreen, shots, noScreen, images) {
   lastQuery = { text, withScreen: screen, shots, images: pile };
   activeReq = ++reqId;
   answerRaw = '';
+  el.usage.textContent = '';
   showSkeleton();
   el.shot.hidden = true;
   el.stop.hidden = false;
@@ -308,7 +370,16 @@ api.onChunk(({ id, text }) => {
   answerRaw += text;
   scheduleRender();
 });
-api.onDone(({ id }) => id === activeReq && finish(true, id));
+api.onDone(({ id, latencyMs, usage, costUsd }) => {
+  if (id !== activeReq) return;
+  finish(true, id);
+  const bits = [];
+  if (typeof latencyMs === 'number') bits.push((latencyMs / 1000).toFixed(1) + 's');
+  const tok = usage && (usage.totalTokens || (usage.inputTokens || 0) + (usage.outputTokens || 0));
+  if (tok) bits.push(tok + ' tok');
+  if (typeof costUsd === 'number') bits.push(costUsd === 0 ? 'local' : '$' + costUsd.toFixed(4));
+  el.usage.textContent = bits.join(' · ');
+});
 api.onNotice(({ level, message }) => {
   setStatus(message, level === 'error');
   // Updates are two explicit clicks: one to download, one to install. Nothing
@@ -438,7 +509,16 @@ async function openStream(kind) {
     if (!s.getAudioTracks().length) throw new Error('No system audio track available');
     return new MediaStream(s.getAudioTracks());
   }
-  return navigator.mediaDevices.getUserMedia({ audio: true });
+  // Browser-level cleanup before the chunk leaves the machine: echo cancellation
+  // keeps meeting audio out of the mic track (loopback already captures it),
+  // noise suppression handles fans and keyboards, and AGC keeps a quiet headset
+  // audible. If a driver rejects the constraint set, plain audio still works.
+  const wanted = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: wanted });
+  } catch {
+    return navigator.mediaDevices.getUserMedia({ audio: true });
+  }
 }
 
 // Record until a pause rather than until a stopwatch. A fixed cut lands inside a
@@ -447,11 +527,9 @@ async function openStream(kind) {
 // between words, so consecutive chunks join back into the sentence they came from.
 const SPEECH_RMS = 0.008;
 
-function recordOnce(who, ms, { minMs = 0, quietMs = 0 } = {}) {
+function recordOnce(who, ms, { minMs = 0, quietMs = 0, src = streams.get(who) } = {}) {
   return new Promise((resolve) => {
-    const src = streams.get(who);
-    if (!src) return resolve(null);
-    const rec = new MediaRecorder(src);
+    if (!src) return resolve(null);    const rec = new MediaRecorder(src);
     const parts = [];
     rec.ondataavailable = (e) => e.data.size && parts.push(e.data);
     let node = null;
@@ -531,18 +609,29 @@ async function drainQueue() {
       }
       const text = (r.text || '').trim();
       if (!text) continue;
-      // the label is display-only: transcriptText stays plain so the prompt reads
-      // like speech, not like a screenplay
+      // Provider-diarized text already carries its own speaker labels, so the
+      // capture-source label ("You"/"Them") would be a second, wrong label.
+      // The model still gets the plain text, not the screenplay formatting.
+      const whoLabel = r.diarized ? null : who;
+      const plain = (r.plain || text).trim();
       const last = transcriptLog[transcriptLog.length - 1];
-      const continues = last && last.who === who && /[a-z0-9,;:]$/.test(last.text);
+      const continues = last && last.who === whoLabel && /[a-z0-9,;:]$/.test(last.text);
       if (continues) {
         // same speaker, previous line did not finish a sentence: keep one line
         last.text = (last.text + ' ' + text).replace(/\s+/g, ' ').trim();
         last.at = new Date().toISOString();
       } else {
-        transcriptLog.push({ at: new Date().toISOString(), text, who });
+        transcriptLog.push({ at: new Date().toISOString(), text, who: whoLabel });
       }
-      transcriptText += (transcriptText ? ' ' : '') + text;
+      transcriptText += (transcriptText ? ' ' : '') + plain;
+      // Long sessions must not grow without bound: keep the most recent text
+      // (the model only ever receives the tail) and cap the rendered log.
+      if (transcriptText.length > 300000) {
+        const cut = transcriptText.length - 300000;
+        transcriptText = transcriptText.slice(cut);
+        copilotSince = Math.max(0, copilotSince - cut);
+      }
+      if (transcriptLog.length > 2000) transcriptLog = transcriptLog.slice(-2000);
       paintTranscript();
       onTranscriptUpdated();
       persistState();
@@ -563,13 +652,20 @@ function enqueueChunk(buf, mime, who) {
   if (!transcribeWorker) transcribeWorker = drainQueue();
 }
 
-async function listenLoop(who) {
-  while (listening && streams.has(who)) {
+async function listenLoop(who, src = streams.get(who)) {
+  while (listening && streams.get(who) === src) {
     // do not record while the panel is speaking: that audio is on the same
     // output device the loopback taps
     while (speaking && listening) await new Promise((r) => setTimeout(r, 150));
-    if (!listening) break;
-    const blob = await recordOnce(who, CHUNK_MS, { minMs: Math.max(900, Math.round(CHUNK_MS * 0.7)), quietMs: 240 });
+    if (!listening || streams.get(who) !== src) break;
+    const blob = await recordOnce(who, CHUNK_MS, {
+      minMs: Math.max(900, Math.round(CHUNK_MS * 0.7)),
+      quietMs: 240,
+      src,
+    });
+    // A device swap replaces the stream mid-chunk: this loop belongs to the old
+    // one, so it must not enqueue a chunk the replacement loop also records.
+    if (streams.get(who) !== src) break;
     if (!blob || !listening) break; // Stop arrived while this chunk was recording — do not enqueue it
     if (blob.size < 2000) continue; // near-silence / empty
     const buf = await blob.arrayBuffer();
@@ -581,6 +677,56 @@ async function listenLoop(who) {
 function stopAllStreams() {
   for (const s of streams.values()) s.getTracks().forEach((t) => t.stop());
   streams.clear();
+}
+
+// A microphone can disappear mid-session: USB unplug, Bluetooth drop, device
+// sleep, or a loopback share that the OS closes. The old loop simply went quiet
+// forever while the UI still said "Listening". Re-open the same source with a
+// bounded retry, keep the transcript queue, and say what happened.
+const recoveryAttempts = new Map();
+const recovering = new Set();
+
+function watchStream(who, stream) {
+  for (const track of stream.getAudioTracks()) {
+    track.addEventListener('ended', () => {
+      if (!listening || streams.get(who) !== stream) return;
+      recoverStream(who);
+    });
+  }
+}
+
+async function recoverStream(who) {
+  if (!listening || recovering.has(who) || streams.has(who)) return;
+  recovering.add(who);
+  const attempt = (recoveryAttempts.get(who) || 0) + 1;
+  recoveryAttempts.set(who, attempt);
+  const label = who === 'them' ? 'System audio' : 'Microphone';
+  try {
+    if (attempt > 3) {
+      setStatus(`${label} disconnected — press Stop, then Listen to retry.`, true);
+      return;
+    }
+    setStatus(`${label} disconnected — reconnecting (${attempt}/3)…`, true);
+    await new Promise((r) => setTimeout(r, 400 * attempt));
+    if (!listening) return;
+    const stream = await openStream(who === 'them' ? 'system' : 'mic');
+    if (!listening) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    streams.set(who, stream);
+    watchStream(who, stream);
+    recoveryAttempts.delete(who);
+    setStatus(`${label} reconnected`);
+    listenLoop(who, stream).catch((err) => setStatus('Listen loop error: ' + err.message, true));
+  } catch (err) {
+    setStatus(`${label} still unavailable: ${String(err.message || err).slice(0, 70)}`, true);
+    if (listening && attempt < 3) {
+      setTimeout(() => recoverStream(who).catch(() => {}), 1200 * attempt);
+    }
+  } finally {
+    recovering.delete(who);
+  }
 }
 
 // ---------- capture consent + visible indicator ----------
@@ -663,7 +809,10 @@ async function toggleListen() {
     try {
       // a system loop must be requested from the loopback path; a mic loop from
       // getUserMedia. The label decides the display name, the path is by kind.
-      streams.set(who, await openStream(who === 'them' ? 'system' : 'mic'));
+      const stream = await openStream(who === 'them' ? 'system' : 'mic');
+      streams.set(who, stream);
+      watchStream(who, stream);
+      recoveryAttempts.delete(who);
     } catch (err) {
       failed.push(`${who === 'them' ? 'system audio' : 'mic'}: ${err.message}`);
     }
@@ -688,8 +837,8 @@ async function toggleListen() {
   } else {
     setStatus(wanted.length > 1 ? 'Listening to both sides…' : 'Listening…');
   }
-  for (const who of streams.keys()) {
-    listenLoop(who).catch((err) => {
+  for (const [who, stream] of streams) {
+    listenLoop(who, stream).catch((err) => {
       setStatus('Listen loop error: ' + err.message, true);
       if (listening) toggleListen();
     });
@@ -707,19 +856,60 @@ api.onTrigger((what) => {
 api.onClickThrough((on) => document.body.classList.toggle('click-through', on));
 
 // ---------- settings ----------
-const fields = ['baseUrl', 'chatModel', 'transcribeModel', 'systemPrompt',
+const fields = ['baseUrl', 'chatModel', 'chatProvider', 'transcribeModel', 'transcribeProvider',
+  'ttsProvider', 'systemPrompt', 'transcribeLanguage',
   'transcribeBaseUrl', 'ttsBaseUrl', 'ttsVoice', 'ttsModel',
-  'targetRole', 'resume', 'knowledge', 'answerLang', 'answerStyle', 'contextTokens',
-  'fallbackBaseUrl', 'fallbackChatModel'];
+  'targetRole', 'resume', 'knowledge', 'embeddingModel', 'embeddingBaseUrl', 'answerLang', 'answerStyle', 'contextTokens',
+  'fallbackBaseUrl', 'fallbackChatModel', 'fallbackProvider',
+  'localBaseUrl', 'localChatModel', 'embeddingModel', 'embeddingBaseUrl', 'pricingOverrides'];
 // secrets are never read back from main; they submit blank and main keeps the stored value
 const keyFields = ['apiKey', 'transcribeApiKey', 'ttsApiKey', 'fallbackApiKey'];
 const hasFlag = {
   apiKey: 'hasKey', transcribeApiKey: 'hasTranscribeKey',
   ttsApiKey: 'hasTtsKey', fallbackApiKey: 'hasFallbackKey',
 };
-﻿const boolFields = ['stealth', 'smartMode', 'practiceMode', 'ocr', 'nvidiaEyeContact', 'persistTranscript'];
+// Secrets are never sent back to the renderer. A saved key shows as a
+// placeholder instead, so the field is visibly "set" without exposing it, and a
+// blank submit means "keep what is stored" rather than "delete".
+function paintKeyPlaceholders(c) {
+  for (const f of keyFields) {
+    const input = $('s_' + f);
+    if (!input) continue;
+    const saved = Boolean(c && c[hasFlag[f]]);
+    input.placeholder = saved ? '•••••• saved — leave blank to keep' : '';
+    input.setAttribute('aria-description', saved ? 'A key is saved. Leave blank to keep it.' : '');
+  }
+}
+﻿const boolFields = ['stealth', 'smartMode', 'practiceMode', 'ocr', 'nvidiaEyeContact', 'persistTranscript', 'preferLocal', 'transcribeDiarize'];
+
+// Privacy dashboard: a plain-language answer to "what is stored, and where does
+// it go?" computed from the same config and memory the app actually uses.
+function paintPrivacy(c) {
+  const keys = [
+    c.hasKey && 'chat',
+    c.hasTranscribeKey && 'transcription',
+    c.hasTtsKey && 'TTS',
+    c.hasFallbackKey && 'backup',
+  ].filter(Boolean);
+  $('privacyKeys').textContent = keys.length
+    ? keys.join(', ') + ' — encrypted with the OS keystore, never shown again'
+    : 'none saved';
+  $('privacyTranscript').textContent = c.persistTranscript
+    ? 'saved encrypted on this device (turn off to delete it)'
+    : 'memory only — erased when Glance quits';
+  $('privacyMemory').textContent = memory.length + ' note(s) — edit or delete any of them above';
+  $('privacyRouting').textContent = c.preferLocal && c.localBaseUrl
+    ? 'local model first (' + (c.localChatModel || 'default') + '), then ' + (c.chatProvider === 'auto' ? 'auto-detected provider' : c.chatProvider)
+    : (c.chatProvider === 'auto' ? 'auto-detected provider' : c.chatProvider) + ' only';
+  $('privacyRetrieval').textContent = c.embeddingModel
+    ? 'embeddings: ' + c.embeddingModel + ' — note text goes to that endpoint'
+    : 'fully local — note text never leaves this device';
+}
 
 async function openSettings() {
+  lastSettingsFocus = document.activeElement && document.activeElement !== document.body
+    ? document.activeElement
+    : $('gear');
   const c = await api.getConfig();
   fields.forEach((f) => ($('s_' + f).value = c[f] || ''));
   for (const f of keyFields) $('s_' + f).value = '';
@@ -738,10 +928,88 @@ async function openSettings() {
   $('s_panelOpacity').value = c.panelOpacity ?? 0.78;
   $('opacityVal').textContent = Math.round((c.panelOpacity ?? 0.78) * 100) + '%';
   $('s_msg').textContent = '';
+  paintMemory();
+  paintPrivacy(c);
   el.settings.hidden = false;
   el.settings.scrollTop = 0; // reopening must land on the top fields, not wherever it was last scrolled
   refreshModels(); // async — fills the dropdowns once the provider answers
+  // Keyboard and screen-reader users land on the first control, not at the top
+  // of the document, and get focus back on the gear when the dialog closes.
+  const first = el.settings.querySelector('select, input, button');
+  if (first) first.focus();
 }
+
+let lastSettingsFocus = null;
+function closeSettings() {
+  if (el.settings.hidden) return;
+  el.settings.hidden = true;
+  (lastSettingsFocus || $('gear')).focus();
+}
+// A modal settings panel keeps Tab inside it; without this, focus walks into
+// the panel behind the overlay and the dialog stops being modal for keyboards.
+el.settings.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const focusable = [...el.settings.querySelectorAll('select, input, textarea, button, [tabindex]:not([tabindex="-1"])')]
+    .filter((n) => !n.disabled && !n.hidden && n.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+});
+
+// provider health: one row per configured provider, no keys in the response
+$('s_checkProviders').addEventListener('click', async () => {
+  const btn = $('s_checkProviders');
+  const list = $('providerHealth');
+  btn.disabled = true;
+  $('s_healthMsg').textContent = 'Checking…';
+  list.textContent = '';
+  const r = await api.providerHealth();
+  btn.disabled = false;
+  if (!r || r.error) {
+    $('s_healthMsg').textContent = (r && r.error) || 'Health check failed';
+    return;
+  }
+  $('s_healthMsg').textContent = r.providers.length + ' provider(s) checked';
+  for (const p of r.providers) {
+    const row = document.createElement('div');
+    row.className = 'health-row ' + (p.ok ? 'ok' : 'bad');
+    const dot = document.createElement('i');
+    dot.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('b');
+    label.textContent = p.role;
+    const detail = document.createElement('span');
+    detail.textContent = p.ok
+      ? `${p.kind} @ ${p.host} — ${p.latencyMs} ms, ${p.models} model(s)`
+      : `${p.kind} @ ${p.host} — ${p.error}`;
+    row.append(dot, label, detail);
+    list.appendChild(row);
+  }
+});
+
+// Deep provider test: one tiny real completion, so a gateway that lists models
+// but cannot chat is caught before the interview starts.
+$('s_testChat').addEventListener('click', async () => {
+  const btn = $('s_testChat');
+  const msg = $('s_testMsg');
+  btn.disabled = true;
+  msg.textContent = 'Testing…';
+  const r = await api.providerTest();
+  btn.disabled = false;
+  if (!r || r.error) {
+    msg.textContent = (r && r.error) || 'Test failed';
+    return;
+  }
+  msg.textContent = r.ok
+    ? `${r.kind} ${r.model} — ${r.latencyMs} ms, replied ${JSON.stringify(r.text || '')}`
+    : `${r.model} — ${r.error}`;
+});
 
 // fill model dropdowns from the provider's /models endpoint (works with a typed-but-unsaved key too)
 let modelsSeq = 0;
@@ -774,6 +1042,9 @@ async function refreshModels() {
       baseUrl: url,
       apiKey: purpose === 'chat' ? key : $('s_' + keyField).value.trim() || key,
       purpose,
+      provider: purpose === 'chat'
+        ? $('s_chatProvider').value
+        : purpose === 'transcribe' ? $('s_transcribeProvider').value : $('s_ttsProvider').value,
     });
     if (seq !== modelsSeq) return; // user typed again — discard this result
     if (r.error) {
@@ -791,13 +1062,49 @@ const refreshModelsDebounced = () => {
   clearTimeout(modelsDebounce);
   modelsDebounce = setTimeout(refreshModels, 600);
 };
-for (const id of ['s_baseUrl', 's_apiKey', 's_transcribeBaseUrl', 's_transcribeApiKey', 's_ttsBaseUrl', 's_ttsApiKey']) {
+for (const id of ['s_baseUrl', 's_apiKey', 's_transcribeBaseUrl', 's_transcribeApiKey', 's_ttsBaseUrl', 's_ttsApiKey',
+  's_chatProvider', 's_transcribeProvider', 's_ttsProvider']) {
   $(id).addEventListener('change', refreshModelsDebounced);
 }
+
+// Switching provider fills the default endpoint only when the field is still
+// blank. It never overwrites a URL the user typed, and it never clears a key.
+const PROVIDER_PRESETS = {
+  openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  anthropic: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5' },
+  ollama: { baseUrl: 'http://127.0.0.1:11434/v1', model: 'llama3.2' },
+  lmstudio: { baseUrl: 'http://127.0.0.1:1234/v1', model: '' },
+};
+$('s_chatProvider').addEventListener('change', () => {
+  const preset = PROVIDER_PRESETS[$('s_chatProvider').value];
+  if (!preset) return;
+  if (!$('s_baseUrl').value.trim()) $('s_baseUrl').value = preset.baseUrl;
+  if (!$('s_chatModel').value.trim() && preset.model) $('s_chatModel').value = preset.model;
+});
+$('s_fallbackProvider').addEventListener('change', () => {
+  const preset = PROVIDER_PRESETS[$('s_fallbackProvider').value];
+  if (preset && !$('s_fallbackBaseUrl').value.trim()) $('s_fallbackBaseUrl').value = preset.baseUrl;
+});
 $('gear').addEventListener('click', openSettings);
-$('s_close').addEventListener('click', () => (el.settings.hidden = true));
+$('onboardingSetup').addEventListener('click', () => openSettings());
+$('onboardingLocal').addEventListener('click', async () => {
+  const c = await api.setConfig({
+    preferLocal: true,
+    localBaseUrl: 'http://127.0.0.1:11434/v1',
+    localChatModel: 'llama3.2',
+  });
+  if (!c || c.error) {
+    setStatus('Could not save local model settings', true);
+    return;
+  }
+  appCfg = c;
+  paintOnboarding();
+  setStatus('Local model selected — start Ollama, then ask a question');
+  openSettings();
+});
+$('s_close').addEventListener('click', closeSettings);
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !el.settings.hidden) el.settings.hidden = true;
+  if (e.key === 'Escape' && !el.settings.hidden) closeSettings();
 });
 $('s_update').addEventListener('click', async () => {
   const msg = $('s_updateMsg');
@@ -841,6 +1148,31 @@ $('s_panelOpacity').addEventListener('input', () => {
   applyOpacity($('s_panelOpacity').value);
 });
 ﻿
+$('s_importKnowledge').addEventListener('click', async () => {
+  const r = await api.importKnowledge();
+  if (!r || r.canceled) return;
+  if (r.error) {
+    $('knowledgeMsg').textContent = r.error;
+    return;
+  }
+  const area = $('s_knowledge');
+  const head = '# ' + r.name;
+  area.value = (area.value.trim() ? area.value.trim() + '\n\n' + head : head) + '\n' + r.text;
+  $('knowledgeMsg').textContent = `Imported ${r.name} — click Save to keep it`;
+});
+
+$('s_clearMemory').addEventListener('click', () => {
+  if (!memory.length) {
+    if ($('memoryMsg')) $('memoryMsg').textContent = 'Nothing to delete.';
+    return;
+  }
+  if (!confirm('Delete every saved memory note? This cannot be undone.')) return;
+  memory = [];
+  persistState();
+  paintMemory();
+  if ($('memoryMsg')) $('memoryMsg').textContent = 'All memory deleted.';
+});
+
 $('s_save').addEventListener('click', async () => {
   const next = { panelOpacity: parseFloat($('s_panelOpacity').value) };
   keyFields.forEach((f) => (next[f] = $('s_' + f).value.trim()));
@@ -852,6 +1184,7 @@ $('s_save').addEventListener('click', async () => {
     return;
   }
   appCfg = c; // practiceMode etc. take effect immediately
+  paintOnboarding();
   paintTranscriptSaveState();
   if (api.setBroadcastEyeContact) {
     try { await api.setBroadcastEyeContact(Boolean(next.nvidiaEyeContact)); } catch {}
@@ -889,12 +1222,14 @@ $('s_testKey').addEventListener('click', async () => {
     baseUrl: $('s_baseUrl').value.trim(),
     apiKey: $('s_apiKey').value.trim(),
     purpose: 'chat',
+    provider: $('s_chatProvider').value,
   });
   btn.disabled = false;
   if (r.error) {
     setMsg('✗ Key failed: ' + r.error.slice(0, 120), 'err');
   } else {
-    setMsg(`✓ Key works — ${r.models.length} models available (${new Date().toLocaleTimeString()})`, 'ok');
+    const ms = typeof r.latencyMs === 'number' ? ` in ${r.latencyMs} ms` : '';
+    setMsg(`✓ Key works — ${r.models.length} models available${ms} (${new Date().toLocaleTimeString()})`, 'ok');
   }
 });
 // delete stored keys (chat/transcribe/TTS) without touching anything else
@@ -911,7 +1246,6 @@ $('s_resetConsent').addEventListener('click', async () => {
   setMsg('Audio consent withdrawn — Listen will ask again.');
 });
 
-$('min').addEventListener('click', () => api.minimize());
 $('hide').addEventListener('click', () => api.hide());
 $('close').addEventListener('click', () => api.quit());
 
@@ -1322,8 +1656,9 @@ api.getConfig().then((c) => {
   appCfg = c;
   paintTranscriptSaveState();
   paintListeningIndicator();
+  paintOnboarding();
   if (!c.hasKey) {
-    el.answer.innerHTML = '<span class="muted">No API key yet. Click ⚙ and add any OpenAI-compatible key + base URL.</span>';
+    el.answer.innerHTML = '<span class="muted">No API key yet. Click ⚙ and add any OpenAI-compatible key + base URL, or use a local model.</span>';
   }
   // Captions mode resumes by itself only after consent. If consent is missing,
   // setCaptions shows the same blocking notice Listen uses and leaves the mode

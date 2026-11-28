@@ -21,11 +21,11 @@ on:
       version:
         description: Published version to verify
         required: true
-        default: "3.3.7"
+        default: "3.4.0"
       previous:
         description: Previous published version for the update test
         required: true
-        default: "3.3.6"
+        default: "3.3.7"
 
 permissions:
   contents: read
@@ -104,7 +104,11 @@ jobs:
           $deadline = (Get-Date).AddSeconds(30)
           while ((Get-Date) -lt $deadline -and -not (Test-Path $marker)) { Start-Sleep -Milliseconds 250 }
           if (-not (Test-Path $marker)) { throw 'installed app did not write its smoke marker' }
-          if ((Get-Content $marker -Raw).Trim() -ne 'ready') { throw 'smoke marker has the wrong content' }
+          $raw = (Get-Content $marker -Raw).Trim()
+          if ($raw -ne 'ready') {
+            try { $smoke = $raw | ConvertFrom-Json } catch { throw "smoke marker is not JSON: $raw" }
+            if (-not $smoke.pass) { throw "smoke check failed: $raw" }
+          }
           $p.WaitForExit(10000) | Out-Null
           'clean install launch: ok'
 
@@ -234,7 +238,11 @@ jobs:
           $deadline = (Get-Date).AddSeconds(30)
           while ((Get-Date) -lt $deadline -and -not (Test-Path $marker)) { Start-Sleep -Milliseconds 250 }
           if (-not (Test-Path $marker)) { throw 'updated app did not write its smoke marker' }
-          if ((Get-Content $marker -Raw).Trim() -ne 'ready') { throw 'updated smoke marker has the wrong content' }
+          $raw = (Get-Content $marker -Raw).Trim()
+          if ($raw -ne 'ready') {
+            try { $smoke = $raw | ConvertFrom-Json } catch { throw "updated smoke marker is not JSON: $raw" }
+            if (-not $smoke.pass) { throw "updated smoke check failed: $raw" }
+          }
           $p.WaitForExit(10000) | Out-Null
           'updated app launch: ok'
 

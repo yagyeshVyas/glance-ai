@@ -29,7 +29,7 @@
       "description": "Open-source AI interview assistant for Windows. Hears the room, reads the screen, and answers in an overlay that screen shares leave out.",
       "operatingSystem": "Windows 10 2004+, Windows 11",
       "applicationCategory": "BusinessApplication",
-      "softwareVersion": "3.3.7",
+      "softwareVersion": "3.4.0",
       "isAccessibleForFree": true,
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
       "license": "https://github.com/yagyeshVyas/glance-ai/blob/master/LICENSE",
@@ -140,7 +140,7 @@
             <span class="live-dot" aria-hidden="true"></span>
             <span>Open source</span><span class="eyebrow-sep">/</span>
             <span>Windows 10 &amp; 11</span><span class="eyebrow-sep">/</span>
-            <span>v3.3.7</span>
+            <span>v3.4.0</span>
           </div>
 
           <h1 class="hero-title" id="hero-title">
@@ -653,7 +653,7 @@
             </div>
             <div class="receipt-body">
               <div class="terminal-line"><span class="t-prompt">$</span> npm run audit</div>
-              <div class="terminal-out terminal-dim">&gt; glance-ai@3.3.7 audit</div>
+              <div class="terminal-out terminal-dim">&gt; glance-ai@3.4.0 audit</div>
               <div class="terminal-out terminal-dim">&gt; node scripts/detect-audit.js</div>
               <div class="terminal-gap"></div>
               <div class="terminal-table">
@@ -704,7 +704,7 @@
               </a>
               <a class="btn btn-outline-light btn-lg" href="https://github.com/yagyeshVyas/glance-ai#build-from-source" target="_blank" rel="noopener">Build from source</a>
             </div>
-            <p class="install-meta"><span>v3.3.7</span><span>x64 + arm64</span><span>Windows 10 2004+ / 11</span></p>
+            <p class="install-meta"><span>v3.4.0</span><span>x64 + arm64</span><span>Windows 10 2004+ / 11</span></p>
           </div>
           <div class="install-steps">
             <div class="install-step"><span>01</span><div><b>Run the installer</b><p>It installs per-machine and needs one administrator prompt.</p></div></div>
@@ -779,13 +779,25 @@
         <ol class="release-list" data-reveal>
           <li class="release is-latest">
             <div class="release-meta">
+              <a class="release-version" href="https://github.com/yagyeshVyas/glance-ai/releases/tag/v3.4.0" target="_blank" rel="noopener">3.4.0</a>
+              <span class="release-date">27 Nov 2026</span>
+              <em class="release-badge">Feature release</em>
+            </div>
+            <ul class="release-notes">
+              <li>One provider layer for OpenAI-compatible, Anthropic-compatible, Ollama, LM Studio and custom endpoints, with health checks, model discovery, local-first routing and backup failover.</li>
+              <li>Optional semantic retrieval over the knowledge base, provider speaker labels, per-model cost overrides, and a real chat test that catches a gateway which lists models but rejects completions.</li>
+              <li>Packaged-build smoke drives the real Settings dialog; signing pins are checked against the certificate subject; the duplicate minimize control and its IPC channel are gone.</li>
+            </ul>
+          </li>
+          <li class="release">
+            <div class="release-meta">
               <a class="release-version" href="https://github.com/yagyeshVyas/glance-ai/releases/tag/v3.3.7" target="_blank" rel="noopener">3.3.7</a>
               <span class="release-date">26 Nov 2026</span>
               <em class="release-badge">Security release</em>
             </div>
             <ul class="release-notes">
               <li>The concealment subsystem is removed: one documented capture-exclusion flag remains, and the app is visible to Task Manager and inspectors.</li>
-              <li>IPC requires the app's own page and validates every one of the 25 invoke channels; Electron moves to 45 with fuses retained.</li>
+              <li>IPC requires the app's own page and validates every invoke channel; Electron moves to 45 with fuses retained.</li>
               <li>Audio capture needs explicit consent, a red Listening pill is always visible, and the transcript is opt-in and erased on quit by default.</li>
             </ul>
           </li>
@@ -956,7 +968,7 @@
           <span class="brand-word">Glance<span>AI</span></span>
         </a>
         <p>Answers in reach.<br /><em>Pixels out of sight.</em></p>
-        <div class="footer-status"><span class="live-dot"></span>v3.3.7 · Windows 10/11</div>
+        <div class="footer-status"><span class="live-dot"></span>v3.4.0 · Windows 10/11</div>
       </div>
 
       <div class="footer-cols">

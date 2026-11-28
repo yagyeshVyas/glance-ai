@@ -69,24 +69,73 @@ function terms(text) {
     .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
 }
 
-// Rank note blocks against a question. Returns the best blocks (score > 0),
-// joined by blank lines and capped, or '' when nothing overlaps.
-function rankNotes(knowledge, query, { maxBlocks = 3, maxChars = 1400 } = {}) {
-  const blocks = String(knowledge || '')
+// Split pasted knowledge into the blocks retrieval scores. One definition, used
+// by rankNotes and by the embedding path so both always see the same blocks.
+function splitNotes(knowledge) {
+  return String(knowledge || '')
     .split(/\n\s*\n+/)
     .map((b) => b.trim())
     .filter((b) => b.length > 20);
-  if (!blocks.length) return '';
-  const q = new Set(terms(query));
-  if (!q.size) return '';
+}
 
-  const scored = blocks.map((block) => {
-    const bt = new Set(terms(block));
-    let score = 0;
-    for (const t of q) if (bt.has(t)) score += 2;
-    // a heading-ish block that shares a rare word is worth more than a long one
-    if (score) score += Math.min(3, Math.floor(block.length / 400) ? 1 : 0);
-    return { block, score };
+// Rank note blocks against a question. Returns the best blocks (score > 0),
+// joined by blank lines and capped, or '' when nothing overlaps.
+//
+// Retrieval is hybrid and local by default: TF-IDF cosine similarity plus an
+// exact-phrase bonus and a small heading bonus. No network call and no note text
+// leaves the machine just to decide which note is relevant. When the user opts
+// into an embedding model, rankNotes accepts its cosine scores and adds a bounded
+// semantic boost; the lexical score still decides ties, so an embedding outage
+// cannot empty the answer.
+function rankNotes(knowledge, query, { maxBlocks = 3, maxChars = 1400, withLabels = false, embeddingScores = null } = {}) {
+  const blocks = splitNotes(knowledge);
+  if (!blocks.length) return '';
+  const qTerms = terms(query);
+  const q = new Set(qTerms);
+  if (!q.size) return '';
+  const emb = Array.isArray(embeddingScores) && embeddingScores.length === blocks.length
+    ? embeddingScores
+    : null;
+
+  const docs = blocks.map((block) => {
+    const list = terms(block);
+    const counts = new Map();
+    for (const t of list) counts.set(t, (counts.get(t) || 0) + 1);
+    return { block, counts };
+  });
+
+  // Document frequency across the user's own notes, so a term every block uses
+  // (the project name, "experience") counts less than a rare, specific one.
+  const df = new Map();
+  for (const d of docs) for (const t of d.counts.keys()) df.set(t, (df.get(t) || 0) + 1);
+  const N = docs.length;
+  const idf = (t) => Math.log((N + 1) / ((df.get(t) || 0) + 0.5));
+
+  const qWeight = new Map();
+  for (const t of q) qWeight.set(t, idf(t));
+  const qNorm = Math.sqrt([...qWeight.values()].reduce((s, w) => s + w * w, 0)) || 1;
+  const qPhrase = qTerms.join(' ');
+
+  const scored = docs.map((d, i) => {
+    let dot = 0;
+    let dNorm = 0;
+    for (const [t, c] of d.counts) {
+      const w = (1 + Math.log(c)) * idf(t);
+      dNorm += w * w;
+      if (qWeight.has(t)) dot += w * qWeight.get(t);
+    }
+    const cosine = dot / ((Math.sqrt(dNorm) || 1) * qNorm);
+    const text = d.block.toLowerCase().replace(/\s+/g, ' ');
+    const phrase = qTerms.length > 1 && text.includes(qPhrase) ? 0.25 : 0;
+    const head = text.slice(0, 120);
+    let headHits = 0;
+    for (const t of q) if (head.includes(t)) headHits++;
+    // Bounded semantic boost: a cosine of 1 adds 0.6, a negative/zero one adds
+    // nothing. The lexical score remains the spine, so a bad embedding ranking
+    // can reorder notes but cannot force an unrelated block in on its own.
+    const semantic = emb ? Math.max(0, Math.min(1, Number(emb[i]) || 0)) * 0.6 : 0;
+    const score = cosine + phrase + Math.min(0.15, headHits * 0.05) + semantic;
+    return { block: d.block, score };
   });
 
   scored.sort((a, b) => b.score - a.score);
@@ -98,9 +147,17 @@ function rankNotes(knowledge, query, { maxBlocks = 3, maxChars = 1400 } = {}) {
     picked.push(s.block);
     used += s.block.length;
   }
-  return picked.join('\n\n');
+  if (!withLabels) return picked.join('\n\n');
+  // A visible source line lets the model say which note it used, and lets the
+  // user see exactly what was injected instead of a wall of anonymous text.
+  return picked
+    .map((block) => {
+      const first = block.split('\n')[0].replace(/^#+\s*/, '').trim().slice(0, 60);
+      return `[note: ${first || 'untitled'}]\n${block}`;
+    })
+    .join('\n\n');
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes, terms };
+  module.exports = { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes, splitNotes, terms };
 }

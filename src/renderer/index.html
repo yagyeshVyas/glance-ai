@@ -11,12 +11,12 @@
     <header id="bar">
       <span class="brand"></span>
       <span id="recState" class="rec" role="status" aria-live="polite" hidden><i aria-hidden="true"></i><span id="recLabel">Listening</span></span>
-      <span id="status" class="status"></span>
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+      <span id="usage" class="usage"></span>
       <div class="spacer"></div>
-      <button id="gear" title="Settings">⚙</button>
-      <button id="min" title="Minimize (Ctrl+Shift+H brings it back)">▁</button>
-      <button id="hide" title="Hide (Ctrl+Shift+H) · panic hide Ctrl+Alt+X">–</button>
-      <button id="close" title="Close and quit (Ctrl+Shift+Q)">✕</button>
+      <button id="gear" title="Settings" aria-label="Open settings">⚙</button>
+      <button id="hide" title="Hide (Ctrl+Shift+H) · panic hide Ctrl+Alt+X" aria-label="Hide">–</button>
+      <button id="close" title="Close and quit (Ctrl+Shift+Q)" aria-label="Close and quit">✕</button>
     </header>
 
     <div id="toolbar">
@@ -44,6 +44,16 @@
       <span class="muted small" id="shotTrayLabel"></span>
       <div id="shotThumbs"></div>
       <button id="clearShots" class="tiny">Clear shots</button>
+      <span class="muted small shot-privacy">Frames go only to your provider — check them for notifications or other people's data before asking.</span>
+    </div>
+
+    <div id="onboarding" class="onboarding" role="region" aria-labelledby="onboardingTitle" hidden>
+      <b id="onboardingTitle">Welcome to Glance</b>
+      <p>Add a provider key, or point Glance at a local model. Nothing leaves this machine until you choose a provider.</p>
+      <div class="row">
+        <button id="onboardingSetup" class="primary" type="button">Set up a provider</button>
+        <button id="onboardingLocal" type="button">Use a local model</button>
+      </div>
     </div>
 
     <div id="consent" class="consent" role="dialog" aria-labelledby="consentTitle" aria-describedby="consentBody" hidden>
@@ -87,24 +97,64 @@
       <button type="button" id="stop" hidden>Stop</button>
     </form>
 
-    <div id="settings" hidden>
+    <div id="settings" hidden role="dialog" aria-modal="true" aria-label="Settings">
       <h3>Settings</h3>
+      <label>Provider
+        <select id="s_chatProvider">
+          <option value="auto">Auto-detect from base URL</option>
+          <option value="openai">OpenAI-compatible</option>
+          <option value="anthropic">Anthropic-compatible</option>
+          <option value="ollama">Ollama (local)</option>
+          <option value="lmstudio">LM Studio (local)</option>
+          <option value="custom">Custom endpoint</option>
+        </select>
+      </label>
       <label>API base URL <input id="s_baseUrl" /></label>
       <label>API key <input id="s_apiKey" type="password" /></label>
       <div class="row">
         <button id="s_testKey" type="button">Test key</button>
         <span class="muted small">Checks the key against the provider (calls /models).</span>
       </div>
+      <div class="row">
+        <button id="s_checkProviders" type="button">Check all providers</button>
+        <span id="s_healthMsg" class="muted small">Chat, backup, transcription and TTS — 5 s timeout each.</span>
+      </div>
+      <div class="row">
+        <button id="s_testChat" type="button">Test chat</button>
+        <span id="s_testMsg" class="muted small" role="status" aria-live="polite">Sends one 8-token request through the real chat path.</span>
+      </div>
+      <div id="providerHealth" class="health-list" role="status" aria-live="polite"></div>
+      <label class="row"><input id="s_preferLocal" type="checkbox" /> Prefer a local model first (falls back to the provider above if it is down)</label>
+      <label>Local base URL <input id="s_localBaseUrl" placeholder="http://127.0.0.1:11434/v1 — no key is sent here" /></label>
+      <label>Local chat model <input id="s_localChatModel" placeholder="llama3.2" /></label>
       <label>Chat model <input id="s_chatModel" list="chatModels" placeholder="fetched from provider…" /></label>
       <datalist id="chatModels"></datalist>
       <label>Transcribe model <input id="s_transcribeModel" list="transcribeModels" placeholder="blank — use the chat model" /></label>
+      <label>Spoken language <input id="s_transcribeLanguage" placeholder="blank — detect automatically (or en, es, hi…)" /></label>
+      <label class="row"><input id="s_transcribeDiarize" type="checkbox" /> Use provider speaker labels when the endpoint returns them (falls back to You/Them)</label>
       <datalist id="transcribeModels"></datalist>
       <label>Context budget (tokens) <input id="s_contextTokens" placeholder="32000 — set to your model's window: 128000, 200000, 1000000…" /></label>
+      <label>Cost overrides (optional) <textarea id="s_pricingOverrides" rows="3" placeholder="One model per line, USD per 1M tokens:&#10;my-model = 3, 15&#10;# comments and blank lines are ignored"></textarea></label>
       <label>System prompt <textarea id="s_systemPrompt" rows="4"></textarea></label>
       <h4>Personalization (grounds every answer in your real experience)</h4>
       <label>Target role <input id="s_targetRole" placeholder="e.g. Senior React engineer, fintech" /></label>
       <label>Your background / CV (pasted) <textarea id="s_resume" rows="6" placeholder="Paste your resume or a summary of your experience, skills, projects…"></textarea></label>
       <label>Knowledge base (pasted, offline) <textarea id="s_knowledge" rows="6" placeholder="Cheat sheet, project notes, star stories, JD, study notes. Separate entries with a blank line; only the entries matching the question are sent."></textarea></label>
+      <div class="row">
+        <button id="s_importKnowledge" type="button">Import notes file…</button>
+        <span id="knowledgeMsg" class="muted small" role="status" aria-live="polite">txt, md, csv, json — read locally, never uploaded</span>
+      </div>
+      <h4>Semantic retrieval (optional)</h4>
+      <p class="muted small">Rank notes by meaning as well as words. Setting a model sends note text to that endpoint; leave it blank to keep retrieval fully local. The chat key is reused only when the endpoint is the same origin.</p>
+      <label>Embedding model <input id="s_embeddingModel" placeholder="e.g. text-embedding-3-small, nomic-embed-text" /></label>
+      <label>Embedding base URL <input id="s_embeddingBaseUrl" placeholder="blank = your chat provider" /></label>
+      <h4>Memory (editable, stored encrypted on this device)</h4>
+      <p class="muted small">Notes Glance keeps between chats: screen analyses, recaps and condensed previous conversations. Edit or delete any note here; deleting is permanent on the next save.</p>
+      <div id="memoryList" class="memory-list"></div>
+      <div class="row">
+        <button id="s_clearMemory" type="button" class="danger">Delete all memory</button>
+        <span id="memoryMsg" class="muted small" role="status" aria-live="polite"></span>
+      </div>
       <label>Answer language <input id="s_answerLang" placeholder="auto — or any language, e.g. Hindi, Spanish" /></label>
       <label>Answer style
         <select id="s_answerStyle">
@@ -118,6 +168,7 @@
       </label>
       <h4>Capture and privacy</h4>
       <p class="muted small">Capture exclusion is Windows' own privacy flag: screen shares that honour it leave the panel out. It is not a proctoring bypass, and it does not hide the process or the window from an enumerating tool.</p>
+      <p class="muted small">Screenshots are capped at 1920 px on the long edge and five per question, and never written to disk. A frame can still contain notifications, names or other people's data — review the thumbnails before asking.</p>
       <label class="row"><input id="s_stealth" type="checkbox" /> Hide overlay from screen capture / screen share</label>
       <label class="row"><input id="s_ocr" type="checkbox" /> OCR on capture — read text locally from every screenshot and attach it to the question</label>
       <label class="row"><input id="s_persistTranscript" type="checkbox" /> Save the live transcript across restarts (encrypted on this device)</label>
@@ -127,13 +178,41 @@
         <span class="muted small">Listen will show the consent notice again.</span>
       </div>
       <h4>Backup chat provider (optional — used only when the main one fails)</h4>
+      <label>Backup provider
+        <select id="s_fallbackProvider">
+          <option value="auto">Auto-detect</option>
+          <option value="openai">OpenAI-compatible</option>
+          <option value="anthropic">Anthropic-compatible</option>
+          <option value="ollama">Ollama (local)</option>
+          <option value="lmstudio">LM Studio (local)</option>
+          <option value="custom">Custom endpoint</option>
+        </select>
+      </label>
       <label>Backup base URL <input id="s_fallbackBaseUrl" placeholder="(none)" /></label>
       <label>Backup API key <input id="s_fallbackApiKey" type="password" /></label>
       <label>Backup chat model <input id="s_fallbackChatModel" placeholder="(same as main model)" /></label>
       <p class="muted small">After the main provider exhausts its retries or returns an error, the same question is retried here. The backup key is only ever sent to the backup origin.</p>
       <h4>Audio provider (optional — use when your main API lacks /audio endpoints)</h4>
+      <label>Transcription provider
+        <select id="s_transcribeProvider">
+          <option value="auto">Auto-detect</option>
+          <option value="openai">OpenAI-compatible</option>
+          <option value="ollama">Ollama (local)</option>
+          <option value="lmstudio">LM Studio (local)</option>
+          <option value="custom">Custom endpoint</option>
+        </select>
+      </label>
       <label>Transcription base URL <input id="s_transcribeBaseUrl" placeholder="(same as main API)" /></label>
       <label>Transcription API key <input id="s_transcribeApiKey" type="password" /></label>
+      <label>TTS provider
+        <select id="s_ttsProvider">
+          <option value="auto">Auto-detect</option>
+          <option value="openai">OpenAI-compatible</option>
+          <option value="ollama">Ollama (local)</option>
+          <option value="lmstudio">LM Studio (local)</option>
+          <option value="custom">Custom endpoint</option>
+        </select>
+      </label>
       <label>TTS base URL <input id="s_ttsBaseUrl" placeholder="(same as main API)" /></label>
       <label>TTS API key <input id="s_ttsApiKey" type="password" /></label>
       <label>TTS voice <input id="s_ttsVoice" placeholder="alloy" /></label>
@@ -143,11 +222,20 @@
       <label class="row"><input id="s_practiceMode" type="checkbox" /> Practice mode (rehearse; answers hidden until you stop, then a scored debrief)</label>
       <label class="row"><input id="s_nvidiaEyeContact" type="checkbox" /> NVIDIA eye contact (drives the Broadcast app's effect; any app selecting “Camera (NVIDIA Broadcast)” gets it) <span id="s_nvidiaMsg" class="muted small"></span></label>
       <label>Overlay transparency <input id="s_panelOpacity" type="range" min="0.3" max="0.98" step="0.02" /><span id="opacityVal"></span></label>
+      <h4>Privacy dashboard</h4>
+      <div class="privacy-board" role="status" aria-live="polite">
+        <div><b>Provider keys</b><span id="privacyKeys">—</span></div>
+        <div><b>Transcript</b><span id="privacyTranscript">—</span></div>
+        <div><b>Memory</b><span id="privacyMemory">—</span></div>
+        <div><b>Screenshots</b><span>Only when you ask. OCR runs locally; frames go only to the provider you configured.</span></div>
+        <div><b>Routing</b><span id="privacyRouting">—</span></div>
+        <div><b>Retrieval</b><span id="privacyRetrieval">—</span></div>
+      </div>
       <div class="row">
         <button id="s_save">Save</button>
         <button id="s_deleteKeys" type="button" class="danger" title="Remove the stored API keys; enter a new one afterwards">Delete keys</button>
         <button id="s_close" type="button">Close</button>
-        <span id="s_msg" class="muted"></span>
+        <span id="s_msg" class="muted" role="status" aria-live="polite"></span>
       </div>
       <div class="row">
         <button id="s_wipe" class="danger" title="Delete API key, history, transcript and window position from disk">Wipe all data</button>
