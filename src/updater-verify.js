@@ -43,20 +43,20 @@ function verifyFile(file, pinnedThumbprint, run = execFile) {
   return new Promise((resolve) => {
     // PowerShell single-quote escaping: double every quote inside the literal.
     const escaped = String(file).replace(/'/g, "''");
-    // No console-encoding assignment: touching [Console]::OutputEncoding can
-    // write an error to stderr when the host has redirected handles, even
-    // though Get-AuthenticodeSignature succeeds. ConvertTo-Json is ASCII-safe,
-    // and a BOM is stripped below.
-    const command = `Get-AuthenticodeSignature -LiteralPath '${escaped}' | ConvertTo-Json -Compress`;
+    // Outer double quotes keep cmd.exe from treating the PowerShell pipeline
+    // as its own pipe when shell:true joins the arguments.
+    const command = `"Get-AuthenticodeSignature -LiteralPath '${escaped}' | ConvertTo-Json -Compress"`;
+    // electron-updater's proven invocation: cmd sets the console codepage to
+    // UTF-8 before Windows PowerShell starts. Without it, a redirected host can
+    // emit UTF-16 and JSON.parse sees mojibake. Parse stdout even when the host
+    // writes a harmless warning to stderr.
+    const executable = 'set "PSModulePath=" & chcp 65001 >NUL & powershell.exe';
+    const args = ['-NoProfile', '-NonInteractive', '-InputFormat', 'None', '-Command', command];
     run(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-InputFormat', 'None', '-Command', command],
-      { timeout: 20000, windowsHide: true },
+      executable,
+      args,
+      { shell: true, timeout: 20000, windowsHide: true },
       (_error, stdout) => {
-        // Parse stdout first. Some hosts (including a service process with
-        // redirected handles) write a harmless warning to stderr even when
-        // Get-AuthenticodeSignature succeeds; rejecting that would turn a
-        // valid signature into a failed update.
         let data;
         try {
           data = JSON.parse(String(stdout || '').replace(/^\uFEFF/, '').trim());
