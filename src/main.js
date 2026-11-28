@@ -5,6 +5,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { estimateTokens, fitContext, visionTokens, fitFrames, updaterNotice } = require('./shared');
 const IDENTITY = require('./identity');
+const SIGNING = require('./signing');
+const updaterVerify = require('./updater-verify');
 const broadcast = require('./broadcast');
 const providers = require('./providers');
 const embeddings = require('./embeddings');
@@ -1340,6 +1342,14 @@ function setupUpdater() {
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
+    // Pin the signer by certificate thumbprint. The default verifier needs the
+    // self-signed certificate in a trust store before it compares the DN, which
+    // a clean machine does not have; this accepts the exact pinned signer while
+    // still rejecting a tampered file or any other certificate.
+    if (process.platform === 'win32') {
+      autoUpdater.verifyUpdateCodeSignature = (_publisherNames, file) =>
+        updaterVerify.verifyFile(file, SIGNING.THUMBPRINT);
+    }
 
     autoUpdater.on('checking-for-update', () => applyUpdaterEvent({ type: 'checking' }));
     autoUpdater.on('update-available', (i) => applyUpdaterEvent({ type: 'available', version: i.version }));

@@ -12,6 +12,8 @@ const files = [
   'src/providers.js',
   'src/logging.js',
   'src/embeddings.js',
+  'src/signing.js',
+  'src/updater-verify.js',
   'src/renderer/drag.js',
   'scripts/detect-audit.js',
   'scripts/build-probe.js',
@@ -40,6 +42,7 @@ const files = [
   'scripts/before-pack.js',
   'scripts/check.js',
   'scripts/verify-build.js',
+  'scripts/verify-update-signature.js',
 ];
 let bad = 0;
 for (const f of files) {

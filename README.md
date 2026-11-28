@@ -35,11 +35,11 @@ Download the installer for your machine from the [latest release](../../releases
 | x64 | `GlanceAI-<version>-x64.exe` |
 | arm64 | `GlanceAI-<version>-arm64.exe` |
 
-The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\GlanceAI` and needs an administrator prompt once. A release build can use a publicly trusted certificate instead by setting `GLANCE_SIGN_PFX` and `GLANCE_SIGN_PASSWORD`; the `publisherName` pin still has to match that certificate's subject.
+The installer is signed with the project's own certificate. That certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store; the installer deliberately does not do that for you. It installs per-machine to `C:\Program Files\GlanceAI` and needs an administrator prompt once. A release build can use a publicly trusted certificate instead by setting `GLANCE_SIGN_PFX` and `GLANCE_SIGN_PASSWORD`; the `publisherName` pin and the `SIGNING.THUMBPRINT` in `src/signing.js` (plus the committed `build/codesign.cer`) then have to be updated to that certificate. Because the updater pin is single-valued, the first build signed with a new certificate must be installed manually.
 
 Then open ⚙ and add an API key — or pick a provider (OpenAI-compatible, Anthropic-compatible, Ollama, LM Studio, or a custom endpoint) and point the base URL at it. A local model needs no key.
 
-> **Updating:** installed builds check GitHub Releases. When you accept an update it downloads in the background and applies on restart. No silent restarts and no automatic download — a panel that reloads mid-call is worse than being a version behind.
+> **Updating:** installed builds check GitHub Releases. When you accept an update it downloads in the background and applies on restart. No silent restarts and no automatic download — a panel that reloads mid-call is worse than being a version behind. From 3.4.1 the downloaded installer is pinned to the project certificate's SHA-1 thumbprint, so the self-signed certificate does not need to be added to a trust store. Builds 3.3.7 and 3.4.0 still use electron-updater's default verifier; install 3.4.1 once manually, after which updates use the thumbprint pin.
 
 ---
 
@@ -297,7 +297,7 @@ Windows 10 2004+ or Windows 11. x64 or arm64. The capture-exclusion flag needs t
 - Screen analysis reads one display or one window; no multi-monitor stitch.
 - TTS needs a real TTS model configured; a sensible default is not assumed.
 - Updates download only after you accept one, and never restart on their own — you apply them.
-- The certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store. The installer does not add it for you.
+- The certificate is self-signed, so Windows shows **Unknown publisher** unless you add the public certificate to your own trust store. The installer does not add it for you. From 3.4.1 an update is accepted when its Authenticode signature is intact and its signer matches the pinned certificate thumbprint; 3.3.7 and 3.4.0 still need the certificate trusted, so install 3.4.1 once manually.
 
 ## Layout
 
@@ -322,6 +322,7 @@ renders the same list.
 
 | Version | Date | What changed |
 |---|---|---|
+| [3.4.1](../../releases/tag/v3.4.1) | 27 Nov 2026 | Thumbprint-pinned update verifier so a clean machine does not need the self-signed certificate in a trust store; a later background check can no longer downgrade a finished download; clean-install pin check with the certificate untrusted; 3.4.0 → 3.4.1 update downloads, applies and launches. Installs from 3.3.7/3.4.0 need one manual install. |
 | [3.4.0](../../releases/tag/v3.4.0) | 27 Nov 2026 | Modular OpenAI-compatible/Anthropic-compatible/Ollama/LM Studio/custom provider layer with health checks, model discovery, local-first routing and failover; optional semantic retrieval; provider speaker labels; per-model cost overrides; real chat test; packaged-build Settings smoke; PFX-or-thumbprint signing with a publisher-pin check. |
 | [3.3.7](../../releases/tag/v3.3.7) | 26 Nov 2026 | Concealment subsystem and root-certificate install removed; IPC boundary and all 25 channel schemas hardened; Electron 45; audio consent and visible capture indicator; transcript opt-in; packaged-build fuse/arch/launch verification; CI and branch protection. Published and verified: the clean install and the 3.3.6 → 3.3.7 update ran against the release on fresh Windows VMs. |
 | 3.3.6 | 26 Nov 2026 | Named Glance AI end to end; RuntimeBroker impersonation removed; child PEB sanitization; proctoring watch expanded. |
