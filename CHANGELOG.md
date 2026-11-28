@@ -7,8 +7,71 @@ autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
 
-## Unreleased
+## 3.4.0
 
+Published 27 Nov 2026. The provider layer, optional semantic retrieval, speaker
+labels and packaged-build checks in this release were verified locally and in
+CI; the installer remains self-signed until a publicly trusted certificate is
+installed.
+
+- AI: provider architecture split out of `main.js` into `src/providers.js`.
+  OpenAI-compatible, Anthropic-compatible, Ollama, LM Studio and custom endpoints
+  are first-class; old profiles keep working because `auto` infers the family from
+  the base URL. Chat, transcription and TTS each keep their own origin and key.
+- AI: provider health checks (`providers:health`), model discovery per provider,
+  local-first routing, backup failover, cancellation, per-request timeouts,
+  first-token latency, token usage and approximate cost in the `done` event and a
+  small usage line in the header.
+- Audio: optional spoken-language pin (`transcribeLanguage`), a 60 s STT timeout,
+  bounded transcript growth for long sessions, and bounded microphone/loopback
+  recovery when a device disappears mid-session. The microphone now asks for echo
+  cancellation, noise suppression and automatic gain control, with a plain-audio
+  fallback when a driver rejects the constraint set. Speaker labels come from the
+  two capture paths (`You` from the mic, `Them` from loopback); when the endpoint
+  returns diarized segments, the optional provider-label mode uses those instead
+  and falls back to the capture labels if it does not.
+- Knowledge: optional semantic retrieval. Setting an embedding model sends each
+  note to that endpoint once, caches the vector by content hash, and adds a
+  bounded cosine boost to the local TF-IDF ranking; a failure, timeout or missing
+  model falls back to lexical retrieval. The chat key is reused only on the same
+  origin, so a local embedding server never receives a cloud key. Retrieval stays
+  fully local when the model is blank.
+- Knowledge: import a local text/markdown file into the knowledge base; retrieval
+  is now hybrid TF-IDF cosine plus exact-phrase and heading bonuses, fully local;
+  injected notes carry their source heading. Memory notes are visible, editable,
+  individually deletable and permanently removable from Settings.
+- Vision: frames are capped at 1920 px on the long edge and five per question,
+  never written to disk, and the tray plus Settings warn that a frame can carry
+  notifications or other people's data. OCR still runs locally through the
+  in-box Windows engine.
+- Providers: **Test chat** sends one real 8-token completion through the same
+  request builder as an answer, so a gateway that lists models but rejects chat
+  is caught in Settings instead of mid-interview.
+- Usage: optional per-model cost overrides (`model = inputUSD, outputUSD` per 1M
+  tokens) repricing models missing from the built-in list-price table.
+- UX: first-run onboarding card, provider selects and presets, privacy dashboard,
+  provider-health list, `aria-label`s on icon buttons, `role="status"` live
+  regions for status and save messages, Escape-to-close settings, and a modal
+  focus trap that restores focus to the gear when the dialog closes.
+- UX: fixed a settings regression where saved-key placeholders referenced a
+  missing function, so the dialog threw before opening. Saved keys now show a
+  non-secret placeholder and keep the stored value on a blank submit.
+- UX: removed the duplicate minimize control (the `▁` button next to hide) and
+  its now-unused `window:minimize` IPC channel; hide (`–`) and close (`✕`)
+  remain. Added reduced-motion-safe panel and settings-sheet entrances, smoother
+  hover/press states, and a red close hover.
+- Engineering: `src/logging.js` structured logs with secret redaction, wired into
+  provider request/error/failover events; `scripts/ocr-probe.js` builds no native
+  addon but exercises the OCR helper's success and error paths; CI builds the
+  helper before `npm test` and keeps `npm audit` as a gate.
+- Engineering: packaged-build smoke now drives the real Settings dialog (open,
+  privacy dashboard, embedding and pricing controls, Escape, focus restore) and
+  fails on any renderer error; `scripts/sign-identity.js` adds a PFX/thumbprint
+  signing identity selected by environment, with the same timestamp and verify
+  policy; every signed payload and installer is checked against the publisher
+  pin, so a CA-issued PFX with a different subject cannot ship; the publisher
+  comparison is RDN-order independent and rejects a CN suffix; `scripts/test-embeddings.js`
+  adds 10 mocked-fetch tests.
 - CI: every `electron-builder` invocation now passes `--publish never`. On a
   push to `master`, electron-builder's implicit CI publishing (`onTagOrDraft`)
   tried to upload a release after the installers were built, then failed because

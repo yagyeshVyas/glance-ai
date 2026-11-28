@@ -1,8 +1,7 @@
 'use strict';
 // Build + identity pipeline: electron-builder → version-resource edit → sign.
-// Keeps `dist:signed` one command so the two steps that make the binary look
-// like a Windows shell process can never run in the wrong order (editing the
-// resource AFTER signing would invalidate the signature).
+// Keeps `dist:signed` one command so the resource edit can never run after the
+// signature (editing the resource AFTER signing would invalidate it).
 //
 // Evidence is recorded, not assumed: each step is re-verified and the final
 // signature is checked with signtool /pa.
@@ -15,6 +14,7 @@ const ROOT = path.join(__dirname, '..');
 const IDENTITY = require('../src/identity');
 const EXE = path.join(ROOT, 'dist', 'win-unpacked', IDENTITY.EXE);
 const { THUMBPRINT } = require('../src/signing');
+const signIdentity = require('./sign-identity');
 const CERT_THUMB = process.env.WSHX_CERT_THUMB || THUMBPRINT;
 const REQUIRE_SIGNING = process.env.REQUIRE_SIGNING === '1';
 
@@ -103,12 +103,12 @@ function thumbExists(thumb) {
     } else {
       console.log('3/4 signtool not found — binaries stay unsigned (dev build)');
     }
-  } else if (!thumbExists(CERT_THUMB)) {
+  } else if (signIdentity.usingPfx() ? !signIdentity.identityAvailable() : !thumbExists(CERT_THUMB)) {
     if (REQUIRE_SIGNING) {
-      steps.push(['signing', 'FAIL', 'certificate ' + CERT_THUMB + ' not in the user store']);
-      console.log('3/4 certificate ' + CERT_THUMB + ' not in the user store — release build refuses to ship unsigned');
+      steps.push(['signing', 'FAIL', signIdentity.identityLabel() + ' is missing']);
+      console.log('3/4 ' + signIdentity.identityLabel() + ' is missing — release build refuses to ship unsigned');
     } else {
-      console.log('3/4 certificate ' + CERT_THUMB + ' not in the user store — unsigned (dev build)');
+      console.log('3/4 ' + signIdentity.identityLabel() + ' is missing — unsigned (dev build)');
     }
   } else {
     // app payload was signed in afterPack; the installer + uninstaller are
@@ -120,10 +120,7 @@ function thumbExists(thumb) {
         .filter((f) => f.endsWith('.exe'))
         .map((f) => path.join(dist, f));
       for (const t of targets) {
-        execFileSync(st, [
-          'sign', '/sha1', CERT_THUMB, '/fd', 'sha256',
-          '/tr', 'http://timestamp.digicert.com', '/td', 'sha256', t,
-        ], { stdio: 'pipe' });
+        execFileSync(st, signIdentity.signArgs(t), { stdio: 'pipe' });
       }
       return targets.map((t) => path.basename(t)).join(', ');
     });
@@ -140,7 +137,10 @@ function thumbExists(thumb) {
         const p = path.join(ROOT, 'dist', d, IDENTITY.EXE);
         if (fs.existsSync(p)) exes.push(p);
       }
-      for (const e of exes) execFileSync(st, ['verify', '/pa', '/v', e], { stdio: 'pipe' });
+      for (const e of exes) {
+        execFileSync(st, ['verify', '/pa', '/v', e], { stdio: 'pipe' });
+        signIdentity.assertPublisher(e);
+      }
       return exes.map((e) => path.basename(path.dirname(e))).join(', ');
     });
     run('verify installer', () => {
@@ -148,7 +148,11 @@ function thumbExists(thumb) {
       // are the loose .exe files that are not the unpacked payload
       const setups = fs.readdirSync(path.join(ROOT, 'dist'))
         .filter((f) => f.endsWith('.exe'));
-      for (const s of setups) execFileSync(st, ['verify', '/pa', '/v', path.join(ROOT, 'dist', s)], { stdio: 'pipe' });
+      for (const s of setups) {
+        const file = path.join(ROOT, 'dist', s);
+        execFileSync(st, ['verify', '/pa', '/v', file], { stdio: 'pipe' });
+        signIdentity.assertPublisher(file);
+      }
       return setups.join(', ');
     });
   }

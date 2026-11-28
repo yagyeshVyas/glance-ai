@@ -161,12 +161,12 @@ function smokeLaunch(arch) {
       windowsHide: true,
     });
     let settled = false;
-    const finish = (failure) => {
+    const finish = (failure, detail) => {
       if (settled) return;
       settled = true;
       clearInterval(timer);
       if (failure) fail(failure);
-      else ok(`${arch} packaged launch reached the smoke marker in ${Date.now() - started} ms`);
+      else ok(`${arch} packaged launch passed its UI check in ${Date.now() - started} ms`);
       const cleanup = () => {
         try {
           fs.rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
@@ -185,8 +185,19 @@ function smokeLaunch(arch) {
       setTimeout(cleanup, 5000);
     };
     const timer = setInterval(() => {
-      const wrote = fs.existsSync(marker) && fs.readFileSync(marker, 'utf8') === 'ready';
-      if (wrote) return finish(null);
+      if (fs.existsSync(marker)) {
+        const raw = fs.readFileSync(marker, 'utf8').trim();
+        if (raw) {
+          let data;
+          try {
+            data = JSON.parse(raw);
+          } catch {
+            data = { pass: raw === 'ready' }; // accept a marker from an older build
+          }
+          if (data && data.pass) return finish(null, data);
+          return finish(`${arch} packaged launch failed its UI check: ${raw.slice(0, 300)}`);
+        }
+      }
       if (child.exitCode !== null) return finish(`${arch} packaged launch exited early (${child.exitCode}) without writing its marker`);
       if (Date.now() - started > 30000) return finish(`${arch} packaged launch timed out without writing its marker`);
     }, 250);

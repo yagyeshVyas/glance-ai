@@ -140,7 +140,8 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
 
   await okAsync('the app registers its IPC handlers', async () => {
     for (const ch of ['ask', 'transcribe', 'speak', 'models:list', 'config:get', 'config:set',
-      'capture:one', 'update:check', 'update:download', 'update:install']) {
+      'capture:one', 'update:check', 'update:download', 'update:install',
+      'providers:health', 'providers:test', 'knowledge:import', 'displays:list']) {
       assert.ok(handlers.has(ch), `missing handler ${ch}`);
     }
   });
@@ -194,6 +195,66 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
     assert.strictEqual(calls[0].url, 'https://api.test/v1/audio/transcriptions');
     assert.strictEqual(calls[0].auth, 'Bearer test-key-123');
     assert.strictEqual(r.text, 'hello');
+  });
+
+  await okAsync('transcribe pins the configured spoken language', async () => {
+    call('config:set', fakeEvent, { transcribeLanguage: 'es' });
+    let form = null;
+    global.fetch = async (_url, opts) => {
+      form = opts.body;
+      return jsonOk({ text: 'hola' });
+    };
+    const r = await call('transcribe', fakeEvent, { data: new Uint8Array([1, 2, 3]), mime: 'audio/webm' });
+    assert.strictEqual(r.error, undefined, r.error);
+    assert.strictEqual(form.get('language'), 'es');
+    assert.ok(form.get('model'), 'a model must be sent');
+    call('config:set', fakeEvent, { transcribeLanguage: '' });
+  });
+
+  await okAsync('an invalid spoken language is rejected at the IPC boundary', async () => {
+    const r = await call('config:set', fakeEvent, { transcribeLanguage: 'not a language!' });
+    assert.match(r.error, /invalid payload for config:set/);
+  });
+
+  await okAsync('provider speaker labels become display lines, plain text stays plain', async () => {
+    call('config:set', fakeEvent, { transcribeDiarize: true });
+    let form = null;
+    global.fetch = async (_url, opts) => {
+      form = opts.body;
+      return jsonOk({
+        text: 'hello there. hi.',
+        segments: [
+          { speaker: '0', text: 'hello there.' },
+          { speaker: '0', text: 'how are you?' },
+          { speaker: '1', text: 'hi.' },
+        ],
+      });
+    };
+    const r = await call('transcribe', fakeEvent, { data: new Uint8Array([1, 2, 3]), mime: 'audio/webm', who: 'you' });
+    assert.strictEqual(r.error, undefined, r.error);
+    assert.strictEqual(form.get('response_format'), 'verbose_json');
+    assert.strictEqual(r.text, 'Speaker 0: hello there. how are you?\nSpeaker 1: hi.');
+    assert.strictEqual(r.plain, 'hello there. how are you? hi.');
+    assert.strictEqual(r.diarized, true);
+    call('config:set', fakeEvent, { transcribeDiarize: false });
+  });
+
+  await okAsync('a provider that rejects verbose_json still transcribes', async () => {
+    call('config:set', fakeEvent, { transcribeDiarize: true });
+    let calls = 0;
+    let lastForm = null;
+    global.fetch = async (_url, opts) => {
+      calls++;
+      lastForm = opts.body;
+      if (calls === 1) return { ok: false, status: 400, text: async () => 'response_format not supported' };
+      return jsonOk({ text: 'plain fallback' });
+    };
+    const r = await call('transcribe', fakeEvent, { data: new Uint8Array([1, 2, 3]), mime: 'audio/webm' });
+    assert.strictEqual(r.error, undefined, r.error);
+    assert.strictEqual(r.text, 'plain fallback');
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(lastForm.get('response_format'), null);
+    call('config:set', fakeEvent, { transcribeDiarize: false });
   });
 
   await okAsync('speak sends the real key, not "Bearer undefined"', async () => {
@@ -396,6 +457,134 @@ const delta = (text) => ({ choices: [{ delta: { content: text } }] });
     const err = sent.find((s) => s.ch === 'error');
     assert.ok(err, 'no error event');
     assert.match(err.payload.message, /API 401/);
+  });
+
+  // ---------- Anthropic-compatible provider ----------
+  await okAsync('an Anthropic provider gets /messages, x-api-key and its own SSE shape', async () => {
+    call('config:set', fakeEvent, {
+      chatProvider: 'anthropic',
+      baseUrl: 'https://api.anthropic.test/v1',
+      apiKey: 'ant-key-456',
+      chatModel: 'claude-sonnet-4',
+    });
+    let url = null;
+    let headers = null;
+    let body = null;
+    global.fetch = async (u, opts) => {
+      url = String(u);
+      headers = opts.headers;
+      body = JSON.parse(opts.body);
+      const sseBody =
+        sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'ANTHROPIC ' } }) +
+        sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'REPLY' } }) +
+        sse({ type: 'message_stop' });
+      return new Response(sseBody, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+    sent = [];
+    await call('ask', fakeEvent, {
+      id: 16,
+      messages: [
+        { role: 'system', content: 'be concise' },
+        { role: 'user', content: 'hi' },
+      ],
+      withScreen: false,
+    });
+    assert.strictEqual(url, 'https://api.anthropic.test/v1/messages');
+    assert.strictEqual(headers['x-api-key'], 'ant-key-456');
+    assert.strictEqual(headers.Authorization, undefined, 'Anthropic must not receive a bearer token');
+    assert.strictEqual(headers['anthropic-version'], '2023-06-01');
+    assert.match(body.system, /be concise/);
+    assert.doesNotMatch(JSON.stringify(body.messages), /be concise/, 'the system turn must not stay in messages');
+    assert.strictEqual(body.messages.length, 1);
+    assert.strictEqual(body.max_tokens, 8192);
+    assert.strictEqual(sent.filter((s) => s.ch === 'chunk').map((s) => s.payload.text).join(''), 'ANTHROPIC REPLY');
+    const done = sent.find((s) => s.ch === 'done');
+    assert.ok(done, 'no done event');
+    assert.ok(typeof done.payload.latencyMs === 'number');
+    assert.strictEqual(done.payload.costUsd, null, 'unknown test model should not invent a price');
+  });
+
+  await okAsync('a local provider can list models without borrowing the cloud key', async () => {
+    call('config:set', fakeEvent, {
+      chatProvider: 'auto',
+      baseUrl: 'https://api.test/v1',
+      apiKey: 'test-key-123',
+      chatModel: 'gpt-4o-mini',
+    });
+    let auth;
+    global.fetch = async (_u, opts) => {
+      auth = authOf(opts);
+      return jsonOk({ models: [{ name: 'llama3.2' }] });
+    };
+    const r = await call('models:list', fakeEvent, {
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      apiKey: '',
+      purpose: 'chat',
+      provider: 'ollama',
+    });
+    assert.deepStrictEqual(r.models, ['llama3.2']);
+    assert.strictEqual(auth, undefined, 'the cloud key must not travel to a local model server');
+  });
+
+  await okAsync('providers:health reports reachability without leaking keys', async () => {
+    call('config:set', fakeEvent, {
+      baseUrl: 'https://api.test/v1',
+      apiKey: 'test-key-123',
+      chatProvider: 'openai',
+      fallbackBaseUrl: '',
+      fallbackApiKey: '',
+      transcribeBaseUrl: '',
+      transcribeApiKey: '',
+      ttsBaseUrl: '',
+      ttsApiKey: '',
+      preferLocal: false,
+    });
+    global.fetch = async () => jsonOk({ data: [{ id: 'a-model' }, { id: 'b-model' }] });
+    const r = await call('providers:health', fakeEvent);
+    const chat = r.providers.find((p) => p.role === 'primary');
+    assert.ok(chat, 'primary provider missing');
+    assert.strictEqual(chat.ok, true, chat.error);
+    assert.ok(typeof chat.latencyMs === 'number');
+    assert.strictEqual(chat.models, 2);
+    assert.doesNotMatch(JSON.stringify(r), /test-key-123/);
+  });
+
+  await okAsync('providers:test proves a real completion through the chat path', async () => {
+    call('config:set', fakeEvent, {
+      baseUrl: 'https://api.test/v1',
+      apiKey: 'test-key-123',
+      chatProvider: 'openai',
+      chatModel: 'gpt-4o-mini',
+      preferLocal: false,
+    });
+    let seen = null;
+    global.fetch = async (url, opts) => {
+      seen = { url: String(url), auth: authOf(opts), body: JSON.parse(opts.body) };
+      return jsonOk({ choices: [{ message: { content: 'OK' } }] });
+    };
+    const r = await call('providers:test', fakeEvent);
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.text, 'OK');
+    assert.match(seen.url, /\/chat\/completions$/);
+    assert.strictEqual(seen.auth, 'Bearer test-key-123');
+    assert.strictEqual(seen.body.stream, false);
+    assert.strictEqual(seen.body.max_tokens, 8);
+    assert.doesNotMatch(JSON.stringify(r), /test-key-123/);
+
+    // A gateway that answers /models but rejects chat must fail the deep test
+    // with the provider's own status, not a generic "unreachable".
+    global.fetch = async () => new Response('model not found', { status: 404 });
+    const bad = await call('providers:test', fakeEvent);
+    assert.strictEqual(bad.ok, false);
+    assert.match(bad.error, /chat 404/);
+  });
+
+  await okAsync('config:set rejects a public http embedding URL and accepts loopback', async () => {
+    const rejected = call('config:set', fakeEvent, { embeddingBaseUrl: 'http://api.example.com/v1' });
+    assert.match(rejected.error, /https|loopback|http:\/\//i);
+    const accepted = call('config:set', fakeEvent, { embeddingBaseUrl: 'http://127.0.0.1:11434/v1' });
+    assert.strictEqual(accepted.error, undefined, accepted.error);
+    call('config:set', fakeEvent, { embeddingBaseUrl: '' });
   });
 
   // ---------- answer styles ----------

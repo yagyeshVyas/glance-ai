@@ -1,6 +1,6 @@
 {
   "name": "glance-ai",
-  "version": "3.3.7",
+  "version": "3.4.0",
   "productName": "Glance AI",
   "description": "Glance AI desktop assistant",
   "author": "Glance AI",
@@ -11,7 +11,7 @@
     "probe": "node scripts/build-probe.js",
     "audit": "node scripts/detect-audit.js",
     "hotkeys": "node scripts/hotkey-audit.js",
-    "test": "node scripts/test.js && node scripts/test-main.js && node scripts/eye-probe.js",
+    "test": "node scripts/test.js && node scripts/test-main.js && node scripts/test-embeddings.js && node scripts/eye-probe.js && node scripts/ocr-probe.js",
     "eye": "node scripts/eye-probe.js",
     "test:main": "node scripts/test-main.js",
     "dist": "electron-builder --win --publish never",

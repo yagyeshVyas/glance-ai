@@ -3,9 +3,12 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
 const crypto = require('crypto');
-const { estimateTokens, fitContext, visionTokens, fitFrames, rankNotes } = require('./shared');
+const { estimateTokens, fitContext, visionTokens, fitFrames } = require('./shared');
 const IDENTITY = require('./identity');
 const broadcast = require('./broadcast');
+const providers = require('./providers');
+const embeddings = require('./embeddings');
+const logging = require('./logging');
 
 // The only page this process will ever load. IPC trust is decided against this
 // exact URL, not against "anything that starts with file://".
@@ -19,10 +22,25 @@ const DEFAULTS = {
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   chatModel: 'gpt-4o-mini',
+  // 'auto' infers the family from the base URL, so profiles created before
+  // provider selection existed keep working. Explicit values: openai,
+  // anthropic, ollama, lmstudio, custom.
+  chatProvider: 'auto',
+  transcribeProvider: 'auto',
+  ttsProvider: 'auto',
+  fallbackProvider: 'auto',
   // Blank means "the same model as chat": a gateway that transcribes with the
   // model it chats with needs no second name, and no second key. Set it only when
   // the audio model is genuinely a different one (a dedicated whisper endpoint).
   transcribeModel: '',
+  // Blank lets the provider detect the spoken language (Whisper does this by
+  // default). Set an ISO-639-1 code to pin it, which improves accuracy on short
+  // chunks and stops a noisy clip from being decoded as the wrong language.
+  transcribeLanguage: '',
+  // Ask the transcription endpoint for segment metadata and use speaker labels
+  // when the provider supplies them. OpenAI Whisper does not diarize, so this is
+  // off by default and falls back to the capture-source label ("You"/"Them").
+  transcribeDiarize: false,
   stealth: true, // exclude the overlay from screen capture (a privacy setting, not evasion)
   captureDisplay: 'auto', // 'auto' | display id | 'window:<source id>'
   ocr: true, // extract text locally from every captured frame and attach it
@@ -58,12 +76,23 @@ const DEFAULTS = {
   fallbackBaseUrl: '',
   fallbackApiKey: '',
   fallbackChatModel: '',
+  // Optional local-first routing: when enabled and localBaseUrl is set, chat
+  // tries the local model first and falls back to the primary provider. Audio
+  // routing stays separate so a local chat model never receives audio chunks.
+  preferLocal: false,
+  localBaseUrl: '',
+  localChatModel: '',
   contextTokens: 32000, // model context window; the guard trims history to fit
   answerLang: 'English', // 'auto' or any language name — answers always in that language
   answerStyle: 'smart', // smart | brief | star | bullets | code | detail — shape of the answer
   targetRole: '', // e.g. "Senior React engineer at a fintech" — grounds every answer
   resume: '', // pasted CV — answers grounded in real experience, never invented
-  knowledge: '', // pasted notes / cheat sheet — local retrieval, injected only when relevant
+  knowledge: '', // pasted notes / cheat sheet - local retrieval, injected only when relevant
+  // Optional semantic retrieval. Blank model = fully local lexical ranking.
+  // Setting a model sends note text to that endpoint; the UI says so plainly.
+  embeddingModel: '',
+  embeddingBaseUrl: '', // blank = the chat provider's base URL
+  pricingOverrides: '', // optional "model = inputUSD, outputUSD" lines, per 1M tokens
   smartMode: true, // short, spoken-only answers tuned for a live call
   practiceMode: false, // rehearse + debrief: transcript recorded, answers hidden until the session ends
   systemPrompt:
@@ -443,7 +472,17 @@ const CONFIG_SCHEMA = {
   baseUrl: (v) => ipcString(v, 2048),
   apiKey: (v) => (v === null ? null : ipcString(v, 8192)),
   chatModel: (v) => ipcString(v, 200),
+  chatProvider: (v) => ipcOneOf(v, providers.PROVIDER_CHOICES),
+  transcribeProvider: (v) => ipcOneOf(v, providers.PROVIDER_CHOICES),
+  ttsProvider: (v) => ipcOneOf(v, providers.PROVIDER_CHOICES),
+  fallbackProvider: (v) => ipcOneOf(v, providers.PROVIDER_CHOICES),
   transcribeModel: (v) => ipcString(v, 200),
+  transcribeLanguage: (v) => {
+    const s = ipcString(v, 12);
+    if (s === null || s === '') return s;
+    return /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(s) ? s : null;
+  },
+  transcribeDiarize: ipcBool,
   stealth: ipcBool,
   captureDisplay: (v) => ipcString(v, 100),
   ocr: ipcBool,
@@ -463,12 +502,18 @@ const CONFIG_SCHEMA = {
   fallbackBaseUrl: (v) => ipcString(v, 2048),
   fallbackApiKey: (v) => (v === null ? null : ipcString(v, 8192)),
   fallbackChatModel: (v) => ipcString(v, 200),
+  preferLocal: ipcBool,
+  localBaseUrl: (v) => ipcString(v, 2048),
+  localChatModel: (v) => ipcString(v, 200),
   contextTokens: (v) => ipcNumeric(v, 4000, 2000000),
   answerLang: (v) => ipcString(v, 40),
   answerStyle: (v) => ipcOneOf(v, ['smart', 'brief', 'star', 'bullets', 'code', 'detail']),
   targetRole: (v) => ipcString(v, 2000),
   resume: (v) => ipcString(v, 200000),
   knowledge: (v) => ipcString(v, 400000),
+  embeddingModel: (v) => ipcString(v, 200),
+  embeddingBaseUrl: (v) => ipcString(v, 2048),
+  pricingOverrides: (v) => ipcString(v, 4000),
   smartMode: ipcBool,
   practiceMode: ipcBool,
   systemPrompt: (v) => ipcString(v, 20000),
@@ -510,6 +555,11 @@ const IPC_VALIDATORS = {
       const v = ipcOneOf(o.purpose, ['chat', 'transcribe', 'tts']);
       if (v === INVALID) return null;
       out.purpose = v;
+    }
+    if (o.provider !== undefined) {
+      const v = ipcOneOf(o.provider, providers.PROVIDER_CHOICES);
+      if (v === INVALID) return null;
+      out.provider = v;
     }
     return [out];
   },
@@ -579,7 +629,6 @@ const IPC_VALIDATORS = {
   },
   'window:hide': noArgs,
   'window:quit': noArgs,
-  'window:minimize': noArgs,
   'update:check': noArgs,
   'update:install': noArgs,
   'update:download': noArgs,
@@ -615,6 +664,9 @@ const IPC_VALIDATORS = {
     return [o];
   },
   'displays:list': noArgs,
+  'knowledge:import': noArgs,
+  'providers:health': noArgs,
+  'providers:test': noArgs,
   speak: (args) => {
     const o = oneObject(args);
     if (!o) return null;
@@ -1290,44 +1342,8 @@ function setupUpdater() {
 }
 
 // ---------- LLM ----------
-// Chat URL for a provider entry. Trailing slashes are stripped so a base URL
-// saved with one does not produce "//chat/completions".
-function chatUrl(provider) {
-  return provider.baseUrl.replace(/\/+$/, '') + '/chat/completions';
-}
-
-function providerKey(kind = 'chat') {
-  if (kind === 'transcribe') {
-    // A separate base URL means a separate provider: never send the chat provider's
-    // key to it. This fallback leaked the primary credential across providers.
-    if (cfg.transcribeBaseUrl && !cfg.transcribeApiKey) {
-      throw new Error('Transcription base URL is set but its key is empty — add the transcription key or clear that base URL.');
-    }
-    return cfg.transcribeApiKey || cfg.apiKey;
-  }
-  if (kind === 'tts') {
-    if (cfg.ttsBaseUrl && !cfg.ttsApiKey) {
-      throw new Error('TTS base URL is set but its key is empty — add the TTS key or clear that base URL.');
-    }
-    return cfg.ttsApiKey || cfg.apiKey;
-  }
-  return cfg.apiKey;
-}
-
-function requireKey(kind = 'chat') {
-  const key = providerKey(kind);
-  if (!key) {
-    throw new Error(
-      kind === 'chat'
-        ? 'No API key set. Open Settings (gear) and add one.'
-        : `No ${kind} key: set one in Settings, or add a main key to fall back to.`,
-    );
-  }
-  // Callers do `const key = requireKey('transcribe')`. This used to return
-  // nothing, so every transcription and TTS request was sent with
-  // "Authorization: Bearer undefined" and failed with 401.
-  return key;
-}
+// A key belongs to exactly one provider entry. A separate base URL means a
+// separate provider: never send the chat provider's key to it.
 
 function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -1356,7 +1372,13 @@ function styleInstruction(style) {
 }
 
 async function streamChat(event, { id, messages, withScreen, shots, memory, images }) {
-  requireKey();
+  const chain = providers.chatChain(cfg);
+  const pricing = providers.parsePricingOverrides(cfg.pricingOverrides);
+  // A local provider needs no key. Any remote provider without one is a
+  // configuration error, not something to discover as a 401 on the wire.
+  if (!chain.some((p) => p.apiKey || providers.isLocalKind(p.kind))) {
+    throw new Error('No API key set. Open Settings (gear) and add one, or configure a local model.');
+  }
   const send = (ch, payload) => !event.sender.isDestroyed() && event.sender.send(ch, { id, ...payload });
 
   // personalization: role + resume ground every answer; answer language pins output
@@ -1384,9 +1406,15 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
   // user's own facts instead of guessing.
   if (cfg.knowledge) {
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const relevant = rankNotes(cfg.knowledge, lastUser ? String(lastUser.content || '') : '');
+    // Lexical ranking is the default. When an embedding model is configured,
+    // this adds a semantic boost and falls back silently on any failure.
+    const relevant = await embeddings.rankKnowledge(cfg, cfg.knowledge, lastUser ? String(lastUser.content || '') : '', {
+      onError: (err) => mlogEvent('warn', 'embeddings.fallback', {
+        error: String((err && err.message) || err).slice(0, 160),
+      }),
+    });
     if (relevant) {
-      sys += `\n\nNotes from the user's own knowledge base — authoritative, prefer them over general knowledge:\n${relevant}`;
+      sys += `\n\nNotes from the user's own knowledge base — authoritative, prefer them over general knowledge. Each note is prefixed with its source heading; mention that heading when a note drives the answer:\n${relevant}`;
     }
   }
 
@@ -1470,32 +1498,43 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
 
   // Providers, primary first. The backup is only reachable after the primary
   // runs out of retries (or hard-fails), so it never doubles normal traffic.
-  // Each provider keeps its own origin and key: a key is never sent to an
-  // origin it does not belong to.
-  const providers = [{ baseUrl: cfg.baseUrl, key: cfg.apiKey, model: cfg.chatModel, label: 'primary' }];
-  if (cfg.fallbackBaseUrl && cfg.fallbackApiKey) {
-    providers.push({
-      baseUrl: cfg.fallbackBaseUrl,
-      key: cfg.fallbackApiKey,
-      model: cfg.fallbackChatModel || cfg.chatModel,
-      label: 'backup',
-    });
-  }
+  // Each provider keeps its own origin, key and wire format: a key is never
+  // sent to an origin it does not belong to.
+  // (The chain is built at the top so a missing key fails before capture.)
 
   // retry with exponential backoff, only on retryable failures (429/5xx/network)
   const maxRetries = 3;
+  const requestStartedAt = Date.now();
+  let firstTokenMs = null;
+  let usage = null;
+  const markFirstToken = () => {
+    if (firstTokenMs === null) firstTokenMs = Date.now() - requestStartedAt;
+  };
+  const donePayload = (provider) => ({
+    latencyMs: Date.now() - requestStartedAt,
+    firstTokenMs,
+    usage: providers.normalizeUsage(usage),
+    costUsd: providers.estimateCostUsd(provider, usage, pricing),
+  });
   try {
-    for (let p = 0; p < providers.length; p++) {
-      const provider = providers[p];
-      const isLastProvider = p === providers.length - 1;
+    for (let p = 0; p < chain.length; p++) {
+      const provider = chain[p];
+      const isLastProvider = p === chain.length - 1;
       let attempt = 0;
       while (attempt <= maxRetries) {
         try {
-          const res = await fetch(chatUrl(provider), {
+          const req = providers.chatRequest(provider, { messages: msgs, maxTokens: maxOut, stream: true });
+          mlogEvent('info', 'provider.request', {
+            provider: provider.kind,
+            label: provider.label,
+            model: provider.model,
+            attempt,
+          });
+          const res = await fetch(req.url, {
             method: 'POST',
             signal: ctrl.signal,
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.key}` },
-            body: JSON.stringify({ model: provider.model, messages: msgs, stream: true, max_tokens: maxOut }),
+            headers: req.headers,
+            body: JSON.stringify(req.body),
           });
 
           if (res.status === 429 || res.status === 503) {
@@ -1522,9 +1561,19 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
           if (!ctype.includes('event-stream')) {
             // provider ignored stream:true — read the whole JSON body instead
             const json = await res.json();
-            const text = json.choices?.[0]?.message?.content || '';
-            if (text) send('chunk', { text });
-            send('done', {});
+            const parsed = providers.parseResponse(provider.kind, json);
+            usage = parsed.usage || usage;
+            if (parsed.reasoning) {
+              markFirstToken();
+              send('reasoning', { text: parsed.reasoning });
+            }
+            if (parsed.text) {
+              markFirstToken();
+              send('chunk', { text: parsed.text });
+            }
+            const done = donePayload(provider);
+            send('done', done);
+            mlogEvent('info', 'provider.done', { provider: provider.kind, label: provider.label, ...done });
             return;
           }
 
@@ -1539,24 +1588,31 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
             const m = t.match(/^data:\s*(.*)$/);
             if (!m) return;
             const data = m[1].trim();
-            if (!data || data === '[DONE]') return;
+            if (!data) return;
+            let events;
             try {
-              const parsed = JSON.parse(data);
-              // reasoning models (deepseek-r1-style) stream reasoning_content first
-              const choice = parsed.choices?.[0] || {};
-              const reasoning = choice.delta?.reasoning_content ?? choice.message?.reasoning_content ?? '';
-              const content = choice.delta?.content ?? choice.message?.content ?? '';
-              if (reasoning) {
+              events = providers.parseStreamData(provider.kind, data);
+            } catch (err) {
+              // A malformed OpenAI chunk is noise; an Anthropic `error` event is
+              // a real provider failure and must reach retry/failover.
+              if (err instanceof SyntaxError) return;
+              throw err;
+            }
+            for (const ev of events) {
+              if (ev.type === 'text' && ev.text) {
                 lastChunkAt = Date.now();
                 emitted = true;
-                send('reasoning', { text: reasoning });
-              }
-              if (content) {
+                markFirstToken();
+                send('chunk', { text: ev.text });
+              } else if (ev.type === 'reasoning' && ev.text) {
                 lastChunkAt = Date.now();
                 emitted = true;
-                send('chunk', { text: content });
+                markFirstToken();
+                send('reasoning', { text: ev.text });
+              } else if (ev.type === 'usage') {
+                usage = providers.mergeUsage(usage, ev.usage);
               }
-            } catch {}
+            }
           };
           for await (const part of res.body) {
             buf += decoder.decode(part, { stream: true });
@@ -1568,11 +1624,19 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
           }
           buf += decoder.decode(); // flush a multi-byte character split across chunks
           consume(buf);
-          send('done', {});
+          const done = donePayload(provider);
+          send('done', done);
+          mlogEvent('info', 'provider.done', { provider: provider.kind, label: provider.label, ...done });
           return;
         } catch (err) {
           if (err.name === 'AbortError' || timedOut) throw err;
           const status = err.status || 0;
+          mlogEvent('warn', 'provider.error', {
+            provider: provider.kind,
+            label: provider.label,
+            status,
+            message: String(err.message || err).slice(0, 300),
+          });
           const retryable =
             status === 429 || status === 503 || status >= 500 ||
             /fetch|network|ECONN|ETIMEDOUT|socket/i.test(err.message || '');
@@ -1583,11 +1647,14 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
             if (emitted) send('reset', {});
             emitted = false;
             gotFirstByte = false;
+            usage = null;
+            firstTokenMs = null;
             lastChunkAt = Date.now(); // the watchdog clock restarts with the new origin
             send('notice', {
               level: 'warn',
               message: `Provider failed (${String(err.message || err).slice(0, 120)}) — retrying on the backup endpoint.`,
             });
+            mlogEvent('warn', 'provider.failover', { from: provider.label, to: chain[p + 1].label });
             break;
           }
           if (exhausted) throw err;
@@ -1598,6 +1665,8 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
             send('reset', {});
             emitted = false;
             gotFirstByte = false;
+            usage = null;
+            firstTokenMs = null;
           }
           lastChunkAt = Date.now(); // backoff is not a stalled stream
           await delay(Math.min(1000 * 2 ** attempt, 8000));
@@ -1619,14 +1688,57 @@ async function streamChat(event, { id, messages, withScreen, shots, memory, imag
   }
 }
 
+// Turn a verbose transcription response into display text. A provider that
+// diarizes returns segments with a speaker field; one that does not returns the
+// plain text and the caller keeps the capture-source label.
+function formatTranscription(json) {
+  const raw = Array.isArray(json && json.segments) ? json.segments : [];
+  const rows = [];
+  for (const seg of raw) {
+    const text = String((seg && seg.text) || '').trim();
+    if (!text) continue;
+    const speaker = seg.speaker ?? seg.speaker_label ?? seg.speaker_id;
+    if (speaker === undefined || speaker === null || String(speaker).trim() === '') continue;
+    rows.push({ speaker: String(speaker).trim().slice(0, 40), text });
+  }
+  if (!rows.length) return { text: String((json && json.text) || '').trim() };
+  // Consecutive segments from one speaker become one line, not one line each.
+  const grouped = [];
+  for (const row of rows) {
+    const last = grouped[grouped.length - 1];
+    if (last && last.speaker === row.speaker) last.text += ' ' + row.text;
+    else grouped.push({ ...row });
+  }
+  const label = (s) => (/^speaker\b/i.test(s) ? s : `Speaker ${s}`);
+  return {
+    text: grouped.map((g) => `${label(g.speaker)}: ${g.text}`).join('\n'),
+    plain: grouped.map((g) => g.text).join(' '),
+    diarized: true,
+  };
+}
+
 async function transcribe(_e, { data, mime, who }) {
-  requireKey('transcribe');
+  const provider = providers.audioDescriptor(cfg, 'transcribe');
+  if (provider.kind === 'anthropic') {
+    throw new Error('Anthropic has no audio transcription endpoint — set a separate transcription provider in Settings.');
+  }
+  if (!provider.apiKey && !providers.isLocalKind(provider.kind)) {
+    throw new Error('No transcription key: set one in Settings, or add a main key to fall back to.');
+  }
   const ext = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') ? 'mp4' : 'webm';
-  const base = (cfg.transcribeBaseUrl || cfg.baseUrl).replace(/\/+$/, '');
-  const key = requireKey('transcribe');
   const form = new FormData();
   form.append('file', new Blob([Buffer.from(data)], { type: mime }), `audio.${ext}`);
-  form.append('model', cfg.transcribeModel || cfg.chatModel || 'whisper-1');
+  form.append('model', provider.model || 'whisper-1');
+  // Blank means "detect it". A code pins the language, which is more accurate on
+  // 4-7 s chunks and stops a noisy clip being decoded as another language.
+  const language = String(cfg.transcribeLanguage || '').trim();
+  if (language) form.append('language', language);
+  // Speaker labels are only possible if the endpoint returns segments. Ask for
+  // verbose JSON when the user opted in; a 400 falls back to the plain request
+  // below instead of breaking transcription on a provider that only supports
+  // response_format=json.
+  let verbose = Boolean(cfg.transcribeDiarize);
+  if (verbose) form.append('response_format', 'verbose_json');
   // Which side of the call this chunk came from. The local server keeps one
   // rolling context per stream so a sentence split across chunks is transcribed
   // with its own beginning, not with the other speaker's words.
@@ -1635,10 +1747,14 @@ async function transcribe(_e, { data, mime, who }) {
   // retry transcription on transient failures only (429 / 5xx / network)
   for (let i = 0; i < 3; i++) {
     try {
-      const res = await fetch(base + '/audio/transcriptions', {
+      const res = await fetch(provider.baseUrl + '/audio/transcriptions', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${key}` },
+        headers: providers.authHeaders(provider),
         body: form,
+        // A hung STT endpoint must fail visibly instead of stalling the FIFO
+        // queue forever. 60 s is generous for a 4–7 s chunk; local whisper on a
+        // cold model can take a while on the first call.
+        signal: AbortSignal.timeout(60000),
       });
       if (!res.ok) {
         const errText = await res.text();
@@ -1646,8 +1762,16 @@ async function transcribe(_e, { data, mime, who }) {
         e.status = res.status; // so the catch can tell a 500 from a 400
         throw e;
       }
-      return (await res.json()).text || '';
+      return formatTranscription(await res.json());
     } catch (err) {
+      // A provider that rejects verbose_json should still transcribe. Retry
+      // once without the optional response format, without spending a retry.
+      if (verbose && err.status === 400) {
+        verbose = false;
+        form.delete('response_format');
+        i--;
+        continue;
+      }
       const retryable =
         err.status === 429 || err.status >= 500 || /fetch|network|ECONN|ETIMEDOUT|socket/i.test(err.message || '');
       if (i < 2 && retryable) {
@@ -1661,13 +1785,17 @@ async function transcribe(_e, { data, mime, who }) {
 
 // TTS: returns base64 mp3 for the renderer to play
 async function speak(_e, { text }) {
-  requireKey('tts');
-  const base = (cfg.ttsBaseUrl || cfg.baseUrl).replace(/\/+$/, '');
-  const key = requireKey('tts');
-  const res = await fetch(base + '/audio/speech', {
+  const provider = providers.audioDescriptor(cfg, 'tts');
+  if (provider.kind === 'anthropic') {
+    throw new Error('Anthropic has no speech endpoint — set a separate TTS provider in Settings.');
+  }
+  if (!provider.apiKey && !providers.isLocalKind(provider.kind)) {
+    throw new Error('No TTS key: set one in Settings, or add a main key to fall back to.');
+  }
+  const res = await fetch(provider.baseUrl + '/audio/speech', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: cfg.ttsModel || 'tts-1', voice: cfg.ttsVoice || 'alloy', input: String(text).slice(0, 4000), response_format: 'mp3' }),
+    headers: { 'Content-Type': 'application/json', ...providers.authHeaders(provider) },
+    body: JSON.stringify({ model: provider.model || 'tts-1', voice: cfg.ttsVoice || 'alloy', input: String(text).slice(0, 4000), response_format: 'mp3' }),
     signal: AbortSignal.timeout(20000), // a hung TTS endpoint must not block this handler forever
   });
   if (!res.ok) throw new Error(`TTS ${res.status}: ${(await res.text()).slice(0, 200)} — this provider may not support /audio/speech`);
@@ -1895,9 +2023,10 @@ const MAIN_LOG_ON = !app.isPackaged || process.env.WSHX_DEBUG_LOG === '1';
 const mlog = (line) => {
   if (!MAIN_LOG_ON) return;
   try {
-    fs.appendFileSync(MAIN_LOG, `[${new Date().toISOString()}] ${line}\n`);
+    fs.appendFileSync(MAIN_LOG, `[${new Date().toISOString()}] ${logging.redactSecrets(String(line))}\n`);
   } catch {}
 };
+const mlogEvent = (level, event, fields) => mlog(logging.formatLogLine(level, event, fields));
 if (MAIN_LOG_ON) {
   for (const legacy of ['.assistant-trace.log', '.wshx-trace.log', '.runtimebroker-trace.log']) {
     try { fs.unlinkSync(path.join(app.getPath('appData'), legacy)); } catch {}
@@ -2136,7 +2265,7 @@ app.whenReady().then(() => {
 
   handle('config:get', () => publicConfig());
   // model discovery: renderer passes the (possibly unsaved) base URL + key it just typed
-  handle('models:list', async (_e, { baseUrl, apiKey, purpose }) => {
+  handle('models:list', async (_e, { baseUrl, apiKey, purpose, provider }) => {
     try {
       const base = (baseUrl || cfg.baseUrl).replace(/\/+$/, '');
       const urlError = providerUrlError(base);
@@ -2162,7 +2291,7 @@ app.whenReady().then(() => {
         .filter(Boolean);
       const isLocal = isLoopbackHost(target.hostname);
       // A separate audio provider is a separate trust domain: never lend it the chat
-      // key. providerKey() refuses that combination on the request path; model
+      // key. The audio descriptor refuses that combination on the request path; model
       // discovery must obey the same rule (this was the remaining cross-provider leak).
       const originOf = (u) => {
         try {
@@ -2181,24 +2310,132 @@ app.whenReady().then(() => {
       purpose === 'transcribe' ? cfg.transcribeApiKey || cfg.apiKey :
       purpose === 'tts' ? cfg.ttsApiKey || cfg.apiKey :
       cfg.apiKey;
-      const key = apiKey || (mayUseStoredKey ? storedKey : '');
-      if (!key) {
+      // A cloud key is not a local server credential. Only lend a stored key to
+      // localhost when the main provider itself is local (the user configured it
+      // that way); otherwise the request goes out with no Authorization header.
+      const localIsConfigured = isLocal && providers.isLocalKind(providers.normalizeKind(cfg.chatProvider, cfg.baseUrl));
+      const key = apiKey || (mayUseStoredKey && (!isLocal || localIsConfigured) ? storedKey : '');
+      if (!key && !isLocal) {
         return {
           error: foreignAudio
             ? 'That host is a separate audio provider — add its own key in Settings; the chat key is not sent to it.'
             : 'No key for that host — add its key in Settings first.',
         };
       }
-      const res = await fetch(base + '/models', {
-        headers: { Authorization: `Bearer ${key}` },
+      const desc = providers.descriptor({
+        kind: provider || 'auto',
+        baseUrl: base,
+        apiKey: key,
+        model: '',
+      });
+      const req = providers.modelsRequest(desc);
+      const started = Date.now();
+      const res = await fetch(req.url, {
+        headers: req.headers,
         signal: AbortSignal.timeout(5000),
       });
-      if (!res.ok) return { error: `Models ${res.status}` }; // never echo the provider body back
+      const latencyMs = Date.now() - started;
+      if (!res.ok) return { error: `Models ${res.status}`, latencyMs }; // never echo the provider body back
       const json = await res.json();
-      const ids = (json.data || []).map((m) => m.id).filter(Boolean).sort().slice(0, 500);
-      return { models: ids };
+      const ids = providers.parseModels(desc.kind, json).slice(0, 500);
+      mlogEvent('info', 'provider.models', { provider: desc.kind, latencyMs, count: ids.length });
+      return { models: ids, latencyMs, provider: desc.kind };
     } catch (err) {
       return { error: err.name === 'TimeoutError' ? 'Provider did not answer in 5 s' : err.message };
+    }
+  });
+  // Health check for every configured provider. Keys never leave this process:
+  // the response reports reachability, latency and model count, not credentials.
+  handle('providers:health', async () => {
+    const rows = [
+      ...providers.chatChain(cfg).map((p) => ({ ...p, role: p.label })),
+      { ...providers.audioDescriptor(cfg, 'transcribe'), role: 'transcribe' },
+      { ...providers.audioDescriptor(cfg, 'tts'), role: 'tts' },
+    ];
+    const seen = new Set();
+    const unique = rows.filter((p) => {
+      const key = p.role + '|' + p.kind + '|' + p.baseUrl;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const check = async (p) => {
+      const host = (() => {
+        try {
+          return new URL(p.baseUrl).host;
+        } catch {
+          return p.baseUrl;
+        }
+      })();
+      const base = { role: p.role, kind: p.kind, host, model: p.model || '' };
+      if (!p.apiKey && !providers.isLocalKind(p.kind)) {
+        return { ...base, ok: false, error: 'no key configured' };
+      }
+      try {
+        const req = providers.modelsRequest(p);
+        const started = Date.now();
+        const res = await fetch(req.url, { headers: req.headers, signal: AbortSignal.timeout(5000) });
+        const latencyMs = Date.now() - started;
+        if (!res.ok) return { ...base, ok: false, latencyMs, error: `models ${res.status}` };
+        const json = await res.json();
+        const models = providers.parseModels(p.kind, json);
+        return { ...base, ok: true, latencyMs, models: models.length };
+      } catch (err) {
+        return {
+          ...base,
+          ok: false,
+          error: err.name === 'TimeoutError' ? 'no answer in 5 s' : String(err.message || err).slice(0, 160),
+        };
+      }
+    };
+    return { providers: await Promise.all(unique.map(check)) };
+  });
+  // Deep check: one tiny real completion through the same request builder the
+  // chat path uses. /models can answer while chat is broken (wrong model name,
+  // a gateway that only proxies metadata); this proves the route end to end.
+  handle('providers:test', async () => {
+    const provider = providers.chatChain(cfg)[0];
+    if (!provider) return { error: 'No chat provider configured' };
+    if (!provider.apiKey && !providers.isLocalKind(provider.kind)) return { error: 'No key configured' };
+    if (!provider.model) return { error: 'No chat model configured' };
+    const req = providers.chatRequest(provider, {
+      messages: [{ role: 'user', content: 'Reply with the single word OK.' }],
+      maxTokens: 8,
+      stream: false,
+    });
+    const started = Date.now();
+    try {
+      const res = await fetch(req.url, {
+        method: 'POST',
+        headers: req.headers,
+        body: JSON.stringify(req.body),
+        signal: AbortSignal.timeout(20000),
+      });
+      const latencyMs = Date.now() - started;
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        return {
+          ok: false,
+          latencyMs,
+          model: provider.model,
+          error: `chat ${res.status}${body ? ': ' + body.slice(0, 120) : ''}`,
+        };
+      }
+      const parsed = providers.parseResponse(provider.kind, await res.json());
+      return {
+        ok: true,
+        latencyMs,
+        model: provider.model,
+        kind: provider.kind,
+        text: String((parsed && parsed.text) || '').trim().slice(0, 80),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - started,
+        model: provider.model,
+        error: err.name === 'TimeoutError' ? 'no answer in 20 s' : String(err.message || err).slice(0, 160),
+      };
     }
   });
   handle('config:set', (_e, next) => {
@@ -2208,7 +2445,7 @@ app.whenReady().then(() => {
     const clean = { ...next };
     // Provider URLs are validated before anything is written. A public http://
     // endpoint would put the bearer token on the wire in clear text.
-    for (const urlKey of ['baseUrl', 'transcribeBaseUrl', 'ttsBaseUrl', 'fallbackBaseUrl']) {
+    for (const urlKey of ['baseUrl', 'transcribeBaseUrl', 'ttsBaseUrl', 'fallbackBaseUrl', 'localBaseUrl', 'embeddingBaseUrl']) {
       if (!Object.prototype.hasOwnProperty.call(clean, urlKey)) continue;
       if (!clean[urlKey]) { delete clean[urlKey]; continue; } // blank = default
       const urlError = providerUrlError(clean[urlKey]);
@@ -2275,7 +2512,7 @@ app.whenReady().then(() => {
   handle('cancel', () => currentAbort?.abort());
   handle('transcribe', async (e, p) => {
     try {
-      return { text: await transcribe(e, p) };
+      return await transcribe(e, p);
     } catch (err) {
       return { error: err.message };
     }
@@ -2287,20 +2524,6 @@ app.whenReady().then(() => {
     }
   });
   handle('window:quit', () => app.quit());
-  // The window is a tool window with skipTaskbar, so a plain minimize has no
-  // taskbar button to return from. The show path (showInactive) un-minimizes,
-  // so mark it hidden and let Ctrl+Shift+H / the hide button bring it back.
-  handle('window:minimize', () => {
-    if (!win || win.isDestroyed()) return;
-    isShown = false;
-    // A skipTaskbar window cannot actually minimize on Windows - minimize() is
-    // accepted and nothing happens. Give it a taskbar button while minimized (so
-    // it can also be restored from there) and take that back on show.
-    try {
-      win.setSkipTaskbar(false);
-    } catch {}
-    win.minimize();
-  });
   handle('update:check', async () => {
     if (!app.isPackaged) return { ok: false, error: 'only in an installed build' };
     if (!updater) return { ok: false, error: 'updater unavailable' };
@@ -2374,8 +2597,30 @@ app.whenReady().then(() => {
     if (serialized.length > IPC_MAX_STATE) return;
     saveState(next);
   });
-  handle('displays:list', async () => {
-    const displays = screen.getAllDisplays().map((d, i) => ({
+  // Document ingestion: import a local text/markdown file into the knowledge
+  // box. The renderer never gets a path and main never writes; this only reads
+  // one file the user explicitly picked, with a hard size cap.
+  handle('knowledge:import', async () => {
+    try {
+      const picked = await dialog.showOpenDialog(win, {
+        title: 'Import notes into the knowledge base',
+        properties: ['openFile'],
+        filters: [{ name: 'Text notes', extensions: ['txt', 'md', 'markdown', 'csv', 'json', 'log'] }],
+      });
+      if (picked.canceled || !picked.filePaths.length) return { canceled: true };
+      const file = picked.filePaths[0];
+      const stat = fs.statSync(file);
+      if (stat.size > 2 * 1024 * 1024) return { error: 'File is larger than 2 MB — paste the relevant part instead.' };
+      let text = fs.readFileSync(file, 'utf8');
+      if (text.includes('\u0000')) return { error: 'That looks like a binary file, not text.' };
+      text = text.replace(/^\uFEFF/, '').trim();
+      if (!text) return { error: 'The file is empty.' };
+      return { name: path.basename(file), text: text.slice(0, 400000) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  handle('displays:list', async () => {    const displays = screen.getAllDisplays().map((d, i) => ({
       id: String(d.id),
       label: d.label || `Display ${i + 1}`,
       size: d.size,
@@ -2478,15 +2723,62 @@ app.whenReady().then(() => {
   mlog(`launch complete`);
 
   if (SMOKE_TEST) {
-    // The window is created above; give Chromium one paint, then write the
-    // marker the verifier checks and exit. No shortcuts, updater, autostart or
-    // meeting watcher run in this mode.
-    setTimeout(() => {
+    // The window is created above. Before writing the marker the verifier
+    // checks, drive the real settings UI: open it, confirm the privacy board
+    // and embedding controls rendered, then close with Escape and confirm focus
+    // returned to the gear. This is a packaged-build regression test for the
+    // keyboard and screen-reader behaviour that unit tests cannot see.
+    // No shortcuts, updater, autostart or meeting watcher run in this mode.
+    const smokeFile = process.env.RB_SMOKE_FILE;
+    let finished = false;
+    const finishSmoke = (payload) => {
+      if (finished) return;
+      finished = true;
       try {
-        if (process.env.RB_SMOKE_FILE) fs.writeFileSync(process.env.RB_SMOKE_FILE, 'ready');
+        if (smokeFile) fs.writeFileSync(smokeFile, JSON.stringify(payload));
       } catch {}
       app.quit();
-    }, 1500);
+    };
+    const giveUp = setTimeout(() => finishSmoke({ pass: false, error: 'ui check timed out' }), 20000);
+    win.webContents.once('did-finish-load', async () => {
+      try {
+        const ui = await win.webContents.executeJavaScript(`(async () => {
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          const errors = [];
+          window.addEventListener('error', (e) => errors.push(String(e.message || e.error)));
+          window.addEventListener('unhandledrejection', (e) => errors.push(String((e.reason && e.reason.message) || e.reason)));
+          const gear = document.getElementById('gear');
+          const settings = document.getElementById('settings');
+          gear.click();
+          for (let i = 0; i < 50 && settings.hidden; i++) await sleep(100);
+          const opened = !settings.hidden;
+          const focusInside = settings.contains(document.activeElement);
+          const status = document.getElementById('status');
+          const live = status ? status.getAttribute('aria-live') : null;
+          const privacy = (document.getElementById('privacyKeys') || {}).textContent || '';
+          const embeds = Boolean(document.getElementById('s_embeddingModel'));
+          const pricing = Boolean(document.getElementById('s_pricingOverrides'));
+          const noMin = !document.getElementById('min');
+          const hasClose = Boolean(document.getElementById('close'));
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await sleep(80);
+          const closed = settings.hidden;
+          const focusRestored = document.activeElement === gear;
+          return { opened, focusInside, closed, focusRestored, live, privacy, embeds, pricing, noMin, hasClose, errors };
+        })()`, true);
+        clearTimeout(giveUp);
+        const pass = Boolean(
+          ui.opened && ui.focusInside && ui.closed && ui.focusRestored &&
+          ui.live === 'polite' && ui.privacy && ui.embeds && ui.pricing &&
+          ui.noMin && ui.hasClose &&
+          Array.isArray(ui.errors) && ui.errors.length === 0,
+        );
+        finishSmoke({ pass, ...ui });
+      } catch (err) {
+        clearTimeout(giveUp);
+        finishSmoke({ pass: false, error: String((err && err.message) || err).slice(0, 300) });
+      }
+    });
   }
 });
 
