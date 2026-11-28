@@ -158,6 +158,54 @@ function rankNotes(knowledge, query, { maxBlocks = 3, maxChars = 1400, withLabel
     .join('\n\n');
 }
 
+// The update notice is the whole update UI: there is no dialog. Keep two
+// invariants in one place so a background check cannot lie about state:
+//   - once a version is downloaded, a later check for that same version keeps
+//     "ready" instead of offering the download again;
+//   - while bytes are moving, a check cannot replace the progress line.
+function updaterNotice(prev, event) {
+  const state = prev && typeof prev === 'object' ? prev : {};
+  const notice = (message, level) => ({ ...state, message, level });
+  switch (event && event.type) {
+    case 'checking':
+      if (state.downloading || state.downloadedVersion) return state;
+      return notice('Checking for updates.', 'info');
+    case 'available':
+      if (state.downloadedVersion === event.version) {
+        return notice(`Update ${event.version} ready - restart to apply`, 'info');
+      }
+      if (state.downloading) return state;
+      return notice(`Update ${event.version} available - click to download`, 'info');
+    case 'downloading':
+      return { ...state, downloading: true, message: 'Downloading update...', level: 'info' };
+    case 'progress': {
+      if (!state.downloading) return state;
+      const pct = Math.max(0, Math.min(100, Math.round(Number(event.percent) || 0)));
+      return { ...state, message: `Downloading update... ${pct}%`, level: 'info' };
+    }
+    case 'downloaded':
+      return {
+        ...state,
+        downloading: false,
+        downloadedVersion: event.version,
+        message: `Update ${event.version} ready - restart to apply`,
+        level: 'info',
+      };
+    case 'error':
+      return {
+        ...state,
+        downloading: false,
+        message: 'Update check failed: ' + String(event.error || '').slice(0, 90),
+        level: 'warn',
+      };
+    case 'none':
+      if (state.downloading || state.downloadedVersion) return state;
+      return notice('Up to date', 'info');
+    default:
+      return state;
+  }
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes, splitNotes, terms };
+  module.exports = { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes, splitNotes, terms, updaterNotice };
 }

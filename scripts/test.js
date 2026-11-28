@@ -1,7 +1,7 @@
 // Unit tests for the pure helpers in src/shared.js. Run: npm test
 const assert = require('assert');
 const path = require('path');
-const { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes } = require(path.join(__dirname, '..', 'src', 'shared'));
+const { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, MIN_TEXT_TOKENS, rankNotes, updaterNotice } = require(path.join(__dirname, '..', 'src', 'shared'));
 const providers = require(path.join(__dirname, '..', 'src', 'providers'));
 const logging = require(path.join(__dirname, '..', 'src', 'logging'));
 const signIdentity = require(path.join(__dirname, 'sign-identity'));
@@ -401,6 +401,54 @@ ok('publisher pin keeps escaped commas inside one RDN value', () => {
     'CN=Glance AI\\, Inc., O=Glance AI, C=US',
     'CN=Glance AI\\, Inc., O=Glance AI, C=US',
   ));
+});
+
+// ---------- updater notice ----------
+ok('updater notice offers a download when a release is available', () => {
+  const s = updaterNotice({}, { type: 'available', version: '3.4.0' });
+  assert.match(s.message, /available - click to download/);
+  assert.strictEqual(s.downloading, undefined);
+});
+
+ok('updater notice keeps ready when a later check finds the downloaded version', () => {
+  let s = updaterNotice({}, { type: 'downloaded', version: '3.4.0' });
+  const before = s;
+  s = updaterNotice(s, { type: 'checking' });
+  assert.strictEqual(s, before);
+  s = updaterNotice(s, { type: 'available', version: '3.4.0' });
+  assert.match(s.message, /ready - restart to apply/);
+  assert.strictEqual(s.downloadedVersion, '3.4.0');
+});
+
+ok('updater notice ignores available and not-available during a download', () => {
+  let s = updaterNotice({}, { type: 'downloading' });
+  const before = s;
+  s = updaterNotice(s, { type: 'available', version: '3.4.0' });
+  assert.strictEqual(s, before);
+  s = updaterNotice(s, { type: 'none' });
+  assert.strictEqual(s, before);
+  assert.match(s.message, /Downloading update/);
+});
+
+ok('updater notice progress only applies while downloading', () => {
+  const idle = updaterNotice({}, { type: 'progress', percent: 40 });
+  assert.strictEqual(idle.message, undefined);
+  const s = updaterNotice(updaterNotice({}, { type: 'downloading' }), { type: 'progress', percent: 40 });
+  assert.match(s.message, /40%/);
+});
+
+ok('updater notice error clears the downloading flag', () => {
+  const s = updaterNotice(updaterNotice({}, { type: 'downloading' }), { type: 'error', error: 'boom' });
+  assert.strictEqual(s.downloading, false);
+  assert.match(s.message, /Update check failed: boom/);
+});
+
+ok('updater notice offers a newer release after an older one was downloaded', () => {
+  const s = updaterNotice(
+    updaterNotice({}, { type: 'downloaded', version: '3.4.0' }),
+    { type: 'available', version: '3.4.1' },
+  );
+  assert.match(s.message, /3\.4\.1 available/);
 });
 
 console.log(`\n${passed} tests passed`);
