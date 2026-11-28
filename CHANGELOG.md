@@ -7,6 +7,26 @@ autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
 
+## 3.4.3
+
+Published 27 Nov 2026. The update verifier actually reads the signature.
+
+- Updates: the verifier now passes the `Get-AuthenticodeSignature` pipeline to
+  the shell with the outer quotes electron-updater uses, and starts it through
+  `cmd` with `chcp 65001`. Without the quotes, `cmd.exe` consumed the pipeline
+  and stdout was empty, so 3.4.1/3.4.2 rejected every downloaded installer on a
+  clean machine with "could not read the signature".
+- Release verification: the clean-install job runs the thumbprint pin on a VM
+  that has not trusted the certificate, against the published installer, and it
+  passes. This is the first build whose own verifier is proven on an untrusted
+  machine.
+- Compatibility: installs from 3.3.7 through 3.4.2 must install 3.4.3 once
+  manually. After that, the thumbprint pin verifies future releases without a
+  trust-store install. A publicly trusted certificate is still required to
+  remove **Unknown publisher**.
+- Tests: 56 unit tests, 45 main-process tests, 10 embedding tests, 9 eye checks
+  and 3 OCR checks; signed x64/arm64 build and packaged x64 Settings smoke.
+
 ## 3.4.2
 
 Published 27 Nov 2026. A follow-up for the update verifier.

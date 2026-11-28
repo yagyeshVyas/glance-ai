@@ -29,7 +29,7 @@
       "description": "Open-source AI interview assistant for Windows. Hears the room, reads the screen, and answers in an overlay that screen shares leave out.",
       "operatingSystem": "Windows 10 2004+, Windows 11",
       "applicationCategory": "BusinessApplication",
-      "softwareVersion": "3.4.2",
+      "softwareVersion": "3.4.3",
       "isAccessibleForFree": true,
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
       "license": "https://github.com/yagyeshVyas/glance-ai/blob/master/LICENSE",
@@ -140,7 +140,7 @@
             <span class="live-dot" aria-hidden="true"></span>
             <span>Open source</span><span class="eyebrow-sep">/</span>
             <span>Windows 10 &amp; 11</span><span class="eyebrow-sep">/</span>
-            <span>v3.4.2</span>
+            <span>v3.4.3</span>
           </div>
 
           <h1 class="hero-title" id="hero-title">
@@ -653,7 +653,7 @@
             </div>
             <div class="receipt-body">
               <div class="terminal-line"><span class="t-prompt">$</span> npm run audit</div>
-              <div class="terminal-out terminal-dim">&gt; glance-ai@3.4.2 audit</div>
+              <div class="terminal-out terminal-dim">&gt; glance-ai@3.4.3 audit</div>
               <div class="terminal-out terminal-dim">&gt; node scripts/detect-audit.js</div>
               <div class="terminal-gap"></div>
               <div class="terminal-table">
@@ -704,7 +704,7 @@
               </a>
               <a class="btn btn-outline-light btn-lg" href="https://github.com/yagyeshVyas/glance-ai#build-from-source" target="_blank" rel="noopener">Build from source</a>
             </div>
-            <p class="install-meta"><span>v3.4.2</span><span>x64 + arm64</span><span>Windows 10 2004+ / 11</span></p>
+            <p class="install-meta"><span>v3.4.3</span><span>x64 + arm64</span><span>Windows 10 2004+ / 11</span></p>
           </div>
           <div class="install-steps">
             <div class="install-step"><span>01</span><div><b>Run the installer</b><p>It installs per-machine and needs one administrator prompt.</p></div></div>
@@ -779,14 +779,25 @@
         <ol class="release-list" data-reveal>
           <li class="release is-latest">
             <div class="release-meta">
+              <a class="release-version" href="https://github.com/yagyeshVyas/glance-ai/releases/tag/v3.4.3" target="_blank" rel="noopener">3.4.3</a>
+              <span class="release-date">27 Nov 2026</span>
+              <em class="release-badge">Update fix</em>
+            </div>
+            <ul class="release-notes">
+              <li>The update verifier quotes the PowerShell pipeline for the cmd shell and uses electron-updater's UTF-8 invocation, so it actually reads the signature JSON on a clean machine.</li>
+              <li>The thumbprint pin passes on a verification VM that does not trust the certificate; 3.4.3 is the first build whose own updater can verify a future release without a trust-store install.</li>
+              <li>Installs from 3.3.7 through 3.4.2 must install 3.4.3 once manually. A publicly trusted certificate is still required to remove "Unknown publisher".</li>
+            </ul>
+          </li>
+          <li class="release">
+            <div class="release-meta">
               <a class="release-version" href="https://github.com/yagyeshVyas/glance-ai/releases/tag/v3.4.2" target="_blank" rel="noopener">3.4.2</a>
               <span class="release-date">27 Nov 2026</span>
               <em class="release-badge">Update fix</em>
             </div>
             <ul class="release-notes">
               <li>The update verifier parses a valid signature result even when a redirected PowerShell host writes a harmless warning to stderr, and no longer touches the console encoding.</li>
-              <li>Clean-install verification runs the thumbprint pin with the certificate untrusted; the 3.4.1 → 3.4.2 update downloads, applies and launches without the test VM trusting the certificate.</li>
-              <li>Installs from 3.3.7 or 3.4.0 that do not trust the project certificate must install 3.4.2 once manually. A publicly trusted certificate is still required to remove "Unknown publisher".</li>
+              <li>Its verifier still passed the PowerShell pipeline to cmd without outer quotes, so a clean VM read no signature; 3.4.3 fixes that.</li>
             </ul>
           </li>
           <li class="release">
@@ -992,7 +1003,7 @@
           <span class="brand-word">Glance<span>AI</span></span>
         </a>
         <p>Answers in reach.<br /><em>Pixels out of sight.</em></p>
-        <div class="footer-status"><span class="live-dot"></span>v3.4.2 · Windows 10/11</div>
+        <div class="footer-status"><span class="live-dot"></span>v3.4.3 · Windows 10/11</div>
       </div>
 
       <div class="footer-cols">
