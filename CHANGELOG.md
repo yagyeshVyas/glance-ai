@@ -7,6 +7,34 @@ autostart value `Glance AI`, profile `%APPDATA%\Glance AI`, certificate subject
 `wshx-host`) are removed by the installer on upgrade; `npm run check` enforces
 the current identity from `src/identity.js`.
 
+## 3.4.1
+
+Published 27 Nov 2026. A patch for the update path itself.
+
+- Updates: the downloaded installer is verified against the project
+  certificate's SHA-1 thumbprint instead of requiring the self-signed
+  certificate to be in a Windows trust store. The signature must be
+  cryptographically intact (`Valid`, or `UnknownError` for an untrusted root);
+  `NotSigned`, `HashMismatch` and `NotTrusted` are rejected, and so is any other
+  signer. A tampered file cannot reach the thumbprint comparison. This removes
+  the trust-store dependency that made 3.3.7 → 3.4.0 fail on a clean VM.
+- Updates: all updater events pass through one reducer, so a background check
+  that finishes after a download can no longer turn "ready" back into
+  "available" or replace a progress line. A check is refused while a download
+  is moving, and install is refused until a version is actually downloaded.
+- Release verification: the clean-install VM checks the thumbprint pin with the
+  certificate deliberately untrusted, and the 3.3.7/3.4.0 update job waits for
+  the app's one boot check instead of starting a second one. The ephemeral
+  update VM imports the public certificate only so the previous version's
+  default verifier can reach the DN pin; the product does not install it.
+- Compatibility: installs from 3.3.7 or 3.4.0 use electron-updater's default
+  verifier, which needs the certificate trusted. Those machines must install
+  3.4.1 once manually; after that, updates use the thumbprint pin. A publicly
+  trusted certificate is still required to remove **Unknown publisher**.
+- Tests: 56 unit tests, 45 main-process tests, 10 embedding tests, 9 eye checks
+  and 3 OCR checks; signed x64/arm64 build, packaged x64 Settings smoke and the
+  clean-install/update verification pass.
+
 ## 3.4.0
 
 Published 27 Nov 2026. The provider layer, optional semantic retrieval, speaker

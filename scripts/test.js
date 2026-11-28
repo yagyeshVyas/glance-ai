@@ -5,6 +5,7 @@ const { estimateTokens, fitContext, visionTokens, looksLikeQuestion, fitFrames, 
 const providers = require(path.join(__dirname, '..', 'src', 'providers'));
 const logging = require(path.join(__dirname, '..', 'src', 'logging'));
 const signIdentity = require(path.join(__dirname, 'sign-identity'));
+const updaterVerify = require(path.join(__dirname, '..', 'src', 'updater-verify'));
 
 let passed = 0;
 function ok(name, fn) {
@@ -449,6 +450,44 @@ ok('updater notice offers a newer release after an older one was downloaded', ()
     { type: 'available', version: '3.4.1' },
   );
   assert.match(s.message, /3\.4\.1 available/);
+});
+
+// ---------- update signature pin ----------
+const PIN = '06468B493CB0318832E9894CA756E064DB06AACC';
+const INSTALLER = path.join(__dirname, 'installer.exe');
+
+ok('update verifier normalises a thumbprint with spaces or colons', () => {
+  const spaced = '06 46 8b:49 3c b0 31 88 32 e9 89 4c a7 56 e0 64 db 06 aa cc';
+  assert.strictEqual(updaterVerify.normalizeThumbprint(spaced), PIN);
+});
+
+ok('update verifier accepts Valid and untrusted-but-intact signatures from the pinned cert', () => {
+  for (const Status of [0, 1]) {
+    const data = { Status, SignerCertificate: { Thumbprint: PIN }, Path: INSTALLER };
+    assert.strictEqual(updaterVerify.signatureProblem(data, INSTALLER, PIN), null, `status ${Status}`);
+  }
+});
+
+ok('update verifier rejects a hash mismatch, not-signed and explicitly untrusted status', () => {
+  for (const Status of [2, 3, 4]) {
+    const data = { Status, SignerCertificate: { Thumbprint: PIN }, Path: INSTALLER };
+    assert.match(updaterVerify.signatureProblem(data, INSTALLER, PIN), /signature status/);
+  }
+});
+
+ok('update verifier rejects a different signer certificate', () => {
+  const data = { Status: 1, SignerCertificate: { Thumbprint: 'A'.repeat(40) }, Path: INSTALLER };
+  assert.match(updaterVerify.signatureProblem(data, INSTALLER, PIN), /does not match/);
+});
+
+ok('update verifier rejects a signed path that is not the downloaded file', () => {
+  const data = { Status: 0, SignerCertificate: { Thumbprint: PIN }, Path: path.join(__dirname, 'other.exe') };
+  assert.match(updaterVerify.signatureProblem(data, INSTALLER, PIN), /path does not match/);
+});
+
+ok('update verifier rejects an empty pin or missing signer', () => {
+  assert.match(updaterVerify.signatureProblem({ Status: 0 }, INSTALLER, ''), /no pinned certificate/);
+  assert.match(updaterVerify.signatureProblem({ Status: 0 }, INSTALLER, PIN), /does not match/);
 });
 
 console.log(`\n${passed} tests passed`);

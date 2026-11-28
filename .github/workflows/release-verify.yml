@@ -21,11 +21,11 @@ on:
       version:
         description: Published version to verify
         required: true
-        default: "3.4.0"
+        default: "3.4.1"
       previous:
         description: Previous published version for the update test
         required: true
-        default: "3.3.7"
+        default: "3.4.0"
 
 permissions:
   contents: read
@@ -67,6 +67,16 @@ jobs:
           # The certificate is self-signed and deliberately not trusted by the
           # installer, so Status is expected to be UnknownError. The signer
           # identity above is the check that matters on a clean machine.
+
+      - name: Check the update signature pin
+        shell: pwsh
+        run: |
+          # This is the verifier the packaged app uses before installing an
+          # update. The VM has not trusted the certificate, so this proves the
+          # thumbprint pin works where the default electron-updater verifier
+          # would reject an untrusted chain.
+          $exe = Get-ChildItem installers -Filter *-x64.exe | Select-Object -First 1
+          node scripts/verify-update-signature.js $exe.FullName
 
       - name: Install silently
         shell: pwsh
